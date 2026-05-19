@@ -757,11 +757,6 @@ function buildEntries() {
     if (n === 0 || n === 2) fact = { status:'full', factors:[], cofactor:null };
     entries.push({ n, sign: eulerSign(n), val: eulerValues[n] || null, ...fact });
   }
-  [510,638,886,902,1004,1028,1078].forEach(n => {
-    if (n > MAX_N) {
-      entries.push({ n, sign: eulerSign(n), val: null, ...factoData[n] });
-    }
-  });
   entries.sort((a,b) => a.n - b.n);
   return entries;
 }
