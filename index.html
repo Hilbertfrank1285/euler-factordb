@@ -742,7 +742,8 @@ function replayFDBCache() {
     if (!entry) continue;
 
     // If this was a cofactor lookup and it resolved
-    if (entry.cofactor === number && ['FF','P','PRP'].includes(status)) {
+    const effectiveStatus = status === 'UN' ? 'FF' : status;
+    if (entry.cofactor === number && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = [...(entry.factors || []), ...fdbFactors];
       entry.cofactor = null;
@@ -753,7 +754,7 @@ function replayFDBCache() {
     }
 
     // If this was a full-value lookup for an unknown entry and it resolved
-    if (entry.status === 'unknown' && entry.val === number && ['FF','P','PRP'].includes(status)) {
+    if (entry.status === 'unknown' && entry.val === number && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = fdbFactors;
       entry.cofactor = null;
@@ -854,7 +855,7 @@ async function queryFactorDB(numberStr) {
 }
 
 function fdbStatusLabel(s) {
-  return { FF:'Fully Factored', CF:'Composite (partial)', C:'Composite', U:'Unknown', P:'Prime', PRP:'Probably Prime' }[s] || s;
+  return { FF:'Fully Factored', CF:'Composite (partial)', C:'Composite', U:'Unknown', P:'Prime', PRP:'Probably Prime', UN:'Unit' }[s] || s;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1000,7 +1001,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
 
     try {
       const data = await queryFactorDB(target.number);
-      const status  = data.status || 'U';
+      const rawStatus = data.status || 'U';
+      // FactorDB returns 'UN' (unit) for |E(n)|=1; treat as fully factored
+      const status = rawStatus === 'UN' ? 'FF' : rawStatus;
       const factors = (data.factors || []).map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f)).filter(Boolean);
 
       const prev    = fdbCache[target.number];
@@ -1011,7 +1014,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
       // promote the entry's status in allEntries so the UI reflects it immediately.
       const entry = allEntries.find(x => x.n === target.n);
       if (entry && entry.cofactor === target.number) {
-        const cofactorResolved = ['FF', 'P', 'PRP'].includes(status);
+        const cofactorResolved = ['FF', 'P', 'PRP'].includes(effectiveStatus);
         if (cofactorResolved) {
           // Merge FactorDB factors into the entry's known factors and clear the cofactor
           const fdbFactors = factors.filter(f => f && f !== '1');
@@ -1346,7 +1349,8 @@ async function modalCheckCofactor(n) {
   if (btn) { btn.disabled = true; btn.textContent = '↻ Querying…'; }
   try {
     const data   = await queryFactorDB(e.cofactor);
-    const status = data.status || 'U';
+    const rawStC = data.status || 'U';
+    const status = rawStC === 'UN' ? 'FF' : rawStC;
     const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
     saveFDBCache(fdbCache);
@@ -1363,7 +1367,8 @@ async function modalCheckFull(n) {
   if (!e || !e.val) return;
   try {
     const data   = await queryFactorDB(e.val);
-    const status = data.status || 'U';
+    const rawSt = data.status || 'U';
+    const status = rawSt === 'UN' ? 'FF' : rawSt;
     const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
     saveFDBCache(fdbCache);
