@@ -1015,6 +1015,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
     }
     const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
     if (progressIn) progressIn.style.width = `${Math.round((done / total) * 100)}%`;
+    setStatus(`Checking E(${target.n}) — ${done + 1} of ${total}…`);
 
     // Highlight the card being fetched
     const fetchingCard = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
@@ -1034,8 +1035,11 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
       fdbCache[target.number] = { status, factors, timestamp: Date.now(), n: target.n };
       saveFDBCache(fdbCache);
 
-      const resolved = ['FF', 'P', 'PRP', 'UN'].includes(status) || status === 'FF';
+      const resolved = ['FF', 'P', 'PRP'].includes(status);
       const entry = allEntries.find(x => x.n === target.n);
+
+      // Always log what FDB returned
+      addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${factors.length} factor(s)${factors.length ? ': '+factors.slice(0,3).join(' × ')+(factors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
 
       if (entry) {
         // Path 1: cofactor lookup resolved
