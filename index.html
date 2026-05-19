@@ -859,7 +859,7 @@ async function queryFactorDB(numberStr) {
 }
 
 function fdbStatusLabel(s) {
-  return { FF:'Fully Factored', CF:'Composite (partial)', C:'Composite', U:'Unknown', P:'Prime', PRP:'Probably Prime', UN:'Unit' }[s] || s;
+  return { FF:'Fully Factored', CF:'Composite (partial)', C:'Composite', U:'Unknown', P:'Prime', PRP:'Probably Prime', UN:'Fully Factored (unit)' }[s] || s;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1390,7 +1390,9 @@ async function modalCheckCofactor(n) {
     fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
     saveFDBCache(fdbCache);
     addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
-    openModal(n); // refresh
+    renderGrid();
+    const bd = document.getElementById('modalBackdrop');
+    if (bd && bd.classList.contains('open')) openModal(n);
   } catch(err) {
     addLog(`E(${n}) cofactor query error: ${err.message}`, 'err');
     if (btn) { btn.disabled = false; btn.textContent = '↻ Query FactorDB now'; }
@@ -1401,14 +1403,36 @@ async function modalCheckFull(n) {
   const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) return;
   try {
-    const data   = await queryFactorDB(e.val);
-    const rawSt = data.status || 'U';
-    const status = rawSt === 'UN' ? 'FF' : rawSt;
-    const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
+    const data    = await queryFactorDB(e.val);
+    const rawSt   = data.status || 'U';
+    const status  = (rawSt === 'UN') ? 'FF' : rawSt;
+    const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
     saveFDBCache(fdbCache);
-    addLog(`E(${n}) full value queried → ${fdbStatusLabel(status)}`, 'ok');
-    openModal(n);
+
+    // Promote entry immediately
+    if (['FF','P','PRP'].includes(status)) {
+      const fdbFactors = factors.filter(f => f && f !== '1');
+      e.factors  = fdbFactors;
+      e.cofactor = null;
+      e.status   = 'full';
+      e._fdbVerified = true;
+      addChangelogEntry(n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: '+fdbFactors.join(' × ') : ' (unit)'}`);
+    } else if (status === 'CF' && factors.length >= 1) {
+      const allFDB = factors.filter(f => f && f !== '1');
+      const lastF  = allFDB[allFDB.length - 1];
+      const isLastBig = lastF && lastF.length > 15 && allFDB.length > 1;
+      e.factors  = [...new Set([...(e.factors||[]), ...(isLastBig ? allFDB.slice(0,-1) : allFDB)])];
+      e.cofactor = isLastBig ? lastF : null;
+      e.status   = 'partial';
+      e._fdbVerified = true;
+    }
+
+    addLog(`E(${n}) queried → ${fdbStatusLabel(status)}`, 'ok');
+    renderGrid();
+    // Only refresh modal if it's currently open for this entry
+    const backdrop = document.getElementById('modalBackdrop');
+    if (backdrop && backdrop.classList.contains('open')) openModal(n);
   } catch(err) {
     addLog(`E(${n}) query error: ${err.message}`, 'err');
   }
