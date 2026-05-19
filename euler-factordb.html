@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler Numbers — Factorization Database</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111418;
+    --surface2: #181d24;
+    --border: #1e2530;
+    --border2: #2a3340;
+    --text: #c8d4e0;
+    --text-dim: #5a6a7a;
+    --text-muted: #3a4a5a;
+    --accent: #4a9eff;
+    --accent-dim: #1a3a5a;
+    --green: #3dd68c;
+    --green-dim: #0d3020;
+    --yellow: #f5c542;
+    --yellow-dim: #2a2000;
+    --red: #ff6b6b;
+    --red-dim: #2a1010;
+    --purple: #b88aff;
+    --purple-dim: #1e1030;
+    --cyan: #3dd6d6;
+    --cyan-dim: #0d2a2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px 24px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .header-left h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; color: #fff; line-height: 1.2; }
+  .header-left h1 span { color: var(--accent); }
+  .header-left p { color: var(--text-dim); font-size: 11px; margin-top: 4px; font-family: 'IBM Plex Sans', sans-serif; font-weight: 300; letter-spacing: 0.3px; }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+  /* ── FactorDB Status Bar ── */
+  .factordb-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .factordb-label {
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .factordb-label::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--cyan);
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 6px var(--cyan);
+  }
+  .factordb-status {
+    color: var(--text-dim);
+    flex: 1;
+  }
+  .factordb-status strong { color: var(--cyan); }
+  .factordb-status .warn { color: var(--yellow); }
+  .factordb-status .ok   { color: var(--green); }
+  .factordb-status .err  { color: var(--red); }
+
+  .poll-btn {
+    background: var(--cyan-dim);
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .poll-btn:hover:not(:disabled) { background: var(--cyan); color: #000; }
+  .poll-btn:disabled { opacity: 0.4; cursor: default; }
+  .poll-btn .spinner { display: none; }
+  .poll-btn.polling .spinner { display: inline; animation: spin 0.8s linear infinite; }
+  .poll-btn.polling .poll-icon { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .queue-info {
+    color: var(--text-muted);
+    font-size: 10px;
+    border-left: 1px solid var(--border2);
+    padding-left: 12px;
+  }
+  .queue-info span { color: var(--yellow); }
+
+  /* ── Progress bar while polling ── */
+  .poll-progress {
+    height: 2px;
+    background: var(--border);
+    position: relative;
+    overflow: hidden;
+    display: none;
+  }
+  .poll-progress.active { display: block; }
+  .poll-progress-inner {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan), var(--accent));
+    transition: width 0.4s ease;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    padding: 16px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: var(--surface);
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; max-width: 340px; }
+  .search-wrap input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 7px 10px 7px 32px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap::before { content: '⌕'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 15px; pointer-events: none; }
+  .filter-btns { display: flex; gap: 6px; }
+  .filter-btn {
+    background: var(--bg); border: 1px solid var(--border2); color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 5px 10px;
+    cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active.full    { background: var(--green-dim);  border-color: var(--green);  color: var(--green); }
+  .filter-btn.active.partial { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
+  .filter-btn.active.unknown { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
+  .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
+  .stat-item strong { color: var(--text); }
+
+  /* ── Grid ── */
+  .grid-container { padding: 24px 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .card { background: var(--surface); padding: 14px 16px; cursor: pointer; transition: background 0.12s; position: relative; overflow: hidden; }
+  .card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; transition: opacity 0.15s; opacity: 0; }
+  .card.full::before    { background: var(--green); }
+  .card.partial::before { background: var(--yellow); }
+  .card.unknown::before { background: var(--red); }
+  .card:hover { background: var(--surface2); }
+  .card:hover::before { opacity: 1; }
+
+  /* Newly updated card flash */
+  .card.just-updated { animation: cardFlash 1.5s ease; }
+  @keyframes cardFlash {
+    0%   { background: #0d3020; }
+    100% { background: var(--surface); }
+  }
+
+  .card-index { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px; }
+  .card-label { font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px; }
+  .card-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; letter-spacing: 0.4px; padding: 2px 7px; font-weight: 500;
+  }
+  .badge-full    { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(61,214,140,0.25); }
+  .badge-partial { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(245,197,66,0.25); }
+  .badge-unknown { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,107,107,0.25); }
+  .badge-checking { background: var(--cyan-dim);  color: var(--cyan);   border: 1px solid rgba(61,214,214,0.25); }
+
+  .card-preview { margin-top: 8px; font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Factordb tag on card ── */
+  .card-fdb { margin-top: 6px; font-size: 9px; color: var(--text-muted); letter-spacing: 0.3px; display: flex; align-items: center; gap: 4px; }
+  .card-fdb.fresh { color: var(--cyan); }
+  .card-fdb.stale { color: var(--text-muted); }
+
+  /* ── Modal ── */
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(5,7,10,0.88); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border2); width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; animation: modalIn 0.18s ease; }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; position: sticky; top: 0; background: var(--surface); }
+  .modal-title { font-size: 22px; font-weight: 600; color: #fff; letter-spacing: -0.5px; }
+  .modal-close { background: none; border: 1px solid var(--border2); color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; font-size: 16px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+  .modal-close:hover { border-color: var(--red); color: var(--red); }
+  .modal-body { padding: 20px 24px 24px; }
+  .modal-section { margin-bottom: 20px; }
+  .modal-section-label { font-size: 10px; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
+  .sign-row { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
+  .sign-row span { color: var(--text); }
+  .status-block { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border2); background: var(--bg); }
+  .status-icon { font-size: 18px; }
+  .status-text { font-size: 13px; color: var(--text); }
+  .status-text small { display: block; color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .factors-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .factor-chip { background: var(--bg); border: 1px solid var(--border2); color: var(--purple); padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px; text-decoration: none; transition: border-color 0.15s, background 0.15s; cursor: pointer; }
+  .factor-chip:hover { border-color: var(--purple); background: var(--purple-dim); }
+  .factor-chip .prime-tag { font-size: 9px; color: var(--text-muted); letter-spacing: 0.4px; }
+  .factor-chip .composite-tag { font-size: 9px; color: var(--yellow); letter-spacing: 0.4px; }
+  .factor-chip .fdb-arrow { font-size: 9px; color: var(--text-muted); margin-left: 2px; opacity: 0; transition: opacity 0.15s; }
+  .factor-chip:hover .fdb-arrow { opacity: 1; }
+  .value-box { background: var(--bg); border: 1px solid var(--border); padding: 12px 14px; font-size: 11px; color: var(--text-dim); word-break: break-all; line-height: 1.7; max-height: 120px; overflow-y: auto; font-family: 'IBM Plex Mono', monospace; }
+  .value-box strong { color: var(--text); }
+  .value-box.cofactor-link {
+    display: block;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
+  }
+  .value-box.cofactor-link:hover {
+    border-color: var(--accent);
+    background: #0d1520;
+  }
+  .cofactor-fdb-arrow {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s;
+    position: absolute;
+    top: 8px;
+    right: 10px;
+  }
+  .value-box.cofactor-link:hover .cofactor-fdb-arrow {
+    opacity: 1;
+    color: var(--accent);
+  }
+  .download-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 8px 16px; cursor: pointer; transition: all 0.15s; text-decoration: none; margin-top: 4px; }
+  .download-btn:hover { background: var(--accent); color: #000; }
+
+  /* ── FactorDB result block in modal ── */
+  .fdb-block {
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    padding: 12px 14px;
+  }
+  .fdb-block .fdb-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; font-size: 12px; }
+  .fdb-block .fdb-key { color: var(--text-muted); width: 90px; flex-shrink: 0; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .fdb-block .fdb-val { color: var(--text); }
+  .fdb-block .fdb-val.ff  { color: var(--green); }
+  .fdb-block .fdb-val.cf  { color: var(--yellow); }
+  .fdb-block .fdb-val.p   { color: var(--cyan); }
+  .fdb-block .fdb-val.prp { color: var(--purple); }
+  .fdb-block .fdb-timestamp { font-size: 10px; color: var(--text-muted); margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
+  .fdb-check-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--cyan-dim); border: 1px solid var(--cyan);
+    color: var(--cyan); font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; padding: 6px 12px; cursor: pointer; transition: all 0.15s;
+    margin-top: 8px;
+  }
+  .fdb-check-btn:hover:not(:disabled) { background: var(--cyan); color: #000; }
+  .fdb-check-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .poll-btn-small {
+    background: var(--green-dim);
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .poll-btn-small:hover:not(:disabled) { background: var(--green); color: #000; }
+  .poll-btn-small:disabled { opacity: 0.4; cursor: default; }
+  .poll-btn-small .spinner { display: none; }
+  .poll-btn-small.polling .spinner { display: inline; animation: spin 0.8s linear infinite; }
+  .poll-btn-small.polling .poll-icon { display: none; }
+
+  .small-count-tag {
+    background: rgba(61,214,140,0.15);
+    border: 1px solid rgba(61,214,140,0.3);
+    color: var(--green);
+    font-size: 10px;
+    padding: 1px 6px;
+    margin-left: 2px;
+  }
+
+  .cancel-btn {
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    animation: cancelPulse 1.5s ease-in-out infinite;
+  }
+  .cancel-btn:hover:not(:disabled) { background: var(--red); color: #fff; animation: none; }
+  .cancel-btn:disabled { opacity: 0.5; cursor: default; animation: none; }
+  @keyframes cancelPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
+    50%       { box-shadow: 0 0 0 3px rgba(255,107,107,0.25); }
+  }
+
+  /* ── Legend ── */
+  .legend { padding: 12px 40px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; background: var(--bg); font-size: 11px; color: var(--text-dim); flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; flex-shrink: 0; }
+
+  /* ── Pagination ── */
+  .pagination { padding: 20px 40px; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .page-btn { background: var(--surface); border: 1px solid var(--border2); color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 5px 10px; cursor: pointer; transition: all 0.12s; min-width: 36px; text-align: center; }
+  .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .page-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .page-btn:disabled { opacity: 0.3; cursor: default; }
+  .page-info { color: var(--text-dim); font-size: 11px; margin-left: 8px; }
+
+  /* ── Log panel ── */
+  .log-panel { border-top: 1px solid var(--border); background: var(--surface); }
+  .log-toggle { padding: 10px 40px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; }
+  .log-toggle:hover { color: var(--text); }
+  .log-toggle .log-count { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); padding: 1px 6px; font-size: 10px; }
+  .log-entries { display: none; max-height: 200px; overflow-y: auto; padding: 0 40px 16px; }
+  .log-entries.open { display: block; }
+  .log-entry { font-size: 10px; color: var(--text-muted); padding: 3px 0; border-bottom: 1px solid var(--border); display: flex; gap: 12px; }
+  .log-entry .log-time { color: var(--text-muted); flex-shrink: 0; }
+  .log-entry .log-msg  { color: var(--text-dim); }
+  .log-entry.log-ok   .log-msg { color: var(--green); }
+  .log-entry.log-warn .log-msg { color: var(--yellow); }
+  .log-entry.log-err  .log-msg { color: var(--red); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  .empty { grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+  .empty big { display: block; font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
+    <p>Secant numbers · E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled</p>
+  </div>
+</header>
+
+<!-- FactorDB status bar -->
+<div class="factordb-bar">
+  <div class="factordb-label">FactorDB sync</div>
+  <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
+  <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
+  <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
+    ⊘ Cancel
+  </button>
+  <button class="poll-btn-small" id="smallPollBtn" onclick="startSmallCofactorPoll()">
+    <span class="poll-icon">⬡</span>
+    <span class="spinner">◌</span>
+    Check small cofactors <span class="small-count-tag" id="smallCofactorCount">…</span>
+  </button>
+  <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Check all
+  </button>
+</div>
+<div class="poll-progress" id="pollProgress">
+  <div class="poll-progress-inner" id="pollProgressInner" style="width:0%"></div>
+</div>
+
+<div class="controls">
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Search E(n), e.g. 886 or 461...">
+  </div>
+  <div class="filter-btns">
+    <button class="filter-btn active" data-filter="all">ALL</button>
+    <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
+    <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
+    <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
+  </div>
+  <div class="stats-bar" id="statsBar"></div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Fully factored — all prime factors known</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Unknown — no factorization found yet</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
+</div>
+
+<div class="grid-container">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="pagination" id="pagination"></div>
+
+<!-- Activity log -->
+<div class="log-panel">
+  <div class="log-toggle" onclick="toggleLog()">
+    ▸ Activity log <span class="log-count" id="logCount">0</span>
+  </div>
+  <div class="log-entries" id="logEntries"></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">E(0)</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────────────────────────────────────────
+
+const eulerValues = {
+  0:"1", 2:"1", 4:"5", 6:"61", 8:"1385", 10:"50521",
+  12:"2702765", 14:"199360981", 16:"19391512145", 18:"2404879675441",
+  20:"370371188237525", 22:"69348874393137901",
+  24:"15514534163557086905", 26:"4087072509293123892361",
+  28:"1252259641403629865468285", 30:"441543893249023104553682821",
+  32:"177519391579539289436664789665",
+  34:"80723299235887898062168247453281",
+  36:"41222060339517702122347079671259045",
+  38:"23489580527043108252017828576198947741",
+};
+
+function eulerSign(n) { return (n % 4 === 2) ? -1 : 1; }
+
+function isPrime(n) {
+  if (n < 2n) return false;
+  if (n < 4n) return true;
+  if (n % 2n === 0n || n % 3n === 0n) return false;
+  for (let i = 5n; i * i <= n; i += 6n)
+    if (n % i === 0n || n % (i + 2n) === 0n) return false;
+  return true;
+}
+function labelFactor(f) {
+  try {
+    const big = BigInt(f);
+    return big > 999999999999999n ? 'large' : (isPrime(big) ? 'prime' : 'composite');
+  } catch { return 'large'; }
+}
+
+// Your base factorization data
+const factoData = {
+  0:  { status:'full',    factors:['1'],                         cofactor:null, note:'Trivial' },
+  2:  { status:'full',    factors:['1'],                         cofactor:null, note:'Trivial' },
+  4:  { status:'full',    factors:['5'],                         cofactor:null },
+  6:  { status:'full',    factors:['61'],                        cofactor:null },
+  8:  { status:'full',    factors:['5','277'],                   cofactor:null },
+  10: { status:'full',    factors:['5','11','919'],              cofactor:null },
+  12: { status:'full',    factors:['5','13','19','2179'],        cofactor:null },
+  14: { status:'full',    factors:['199360981'],                 cofactor:null },
+  16: { status:'full',    factors:['5','17','37','8212993'],     cofactor:null },
+  18: { status:'full',    factors:['5','19','5765209','555799'], cofactor:null },
+  20: { status:'full',    factors:['5','521','2','71129'],       cofactor:null },
+  22: { status:'partial', factors:['23','67'],                   cofactor:'45070277773879', note:'Large cofactor' },
+  24: { status:'unknown', factors:[],                            cofactor:null },
+  26: { status:'unknown', factors:[],                            cofactor:null },
+  28: { status:'partial', factors:['29'],                        cofactor:'43181015564938271886424' },
+  30: { status:'unknown', factors:[],                            cofactor:null },
+  32: { status:'partial', factors:['17','97','257'],             cofactor:'41644590774899751' },
+  34: { status:'unknown', factors:[],                            cofactor:null },
+  36: { status:'partial', factors:['5','37','1777'],             cofactor:'125742085413838437159' },
+  38: { status:'unknown', factors:[],                            cofactor:null },
+  510:  { status:'unknown',  factors:[],                         cofactor:null },
+  638:  { status:'partial',  factors:['7235862947323','11411779188663863','526900327479624797'], cofactor:null },
+  886:  { status:'partial',  factors:['149','461'],              cofactor:'(large cofactor)' },
+  902:  { status:'partial',  factors:['9756496279','314344516832998594237'], cofactor:null },
+  1004: { status:'full',     factors:['5','541','214363','80533376783'], cofactor:null },
+  1028: { status:'partial',  factors:['5','1283','56837916301577'], cofactor:'(cofactor)' },
+  1078: { status:'partial',  factors:['71','433','11771738101'],  cofactor:'(cofactor)' },
+};
+
+const MAX_N    = 200;
+const PAGE_SIZE = 60;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORAGE — factordb cache, keyed by number string
+// Structure: { status:'FF'|'CF'|'P'|'PRP'|'C'|'U', factors:[], timestamp:ms }
+// ─────────────────────────────────────────────────────────────────────────────
+const STORAGE_KEY  = 'eulerFDB_v1';
+const LOG_KEY      = 'eulerFDB_log_v1';
+const COOLDOWN_KEY = 'eulerFDB_lastPoll';
+
+// 24 hours between auto-polls, 5 minutes between manual polls
+const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
+const MANUAL_COOLDOWN = 5  * 60 * 1000;
+
+// Request spacing — be polite to FactorDB
+const REQUEST_DELAY_MS = 10000; // 10 s between requests
+const MAX_PER_SESSION  = 100;   // cap requests per manual session
+
+function loadFDBCache() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
+}
+function saveFDBCache(c) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)); } catch {} }
+
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { return []; }
+}
+function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-200))); } catch {} }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTRIES
+// ─────────────────────────────────────────────────────────────────────────────
+function buildEntries() {
+  const entries = [];
+  for (let n = 0; n <= MAX_N; n += 2) {
+    const fact = factoData[n] || { status:'unknown', factors:[], cofactor:null };
+    entries.push({ n, sign: eulerSign(n), val: eulerValues[n] || null, ...fact });
+  }
+  [510,638,886,902,1004,1028,1078].forEach(n => {
+    if (n > MAX_N) {
+      entries.push({ n, sign: eulerSign(n), val: null, ...factoData[n] });
+    }
+  });
+  entries.sort((a,b) => a.n - b.n);
+  return entries;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let allEntries   = buildEntries();
+let filtered     = [...allEntries];
+let currentPage  = 1;
+let activeFilter = 'all';
+let searchQuery  = '';
+let fdbCache     = loadFDBCache();
+let activityLog  = loadLog();
+let logOpen      = false;
+let polling      = false;
+let cancelRequested = false;
+
+// Which entries have cofactors that should be queried?
+function getCofactorTargets() {
+  return allEntries
+    .filter(e => {
+      // Has a numeric cofactor string (not null, not placeholder text)
+      if (!e.cofactor) return false;
+      if (e.cofactor.startsWith('(')) return false; // placeholder
+      return true;
+    })
+    .map(e => ({ n: e.n, number: e.cofactor }));
+}
+
+// Which are "unknown" entries with a known absolute value small enough to query?
+function getUnknownTargets() {
+  return allEntries
+    .filter(e => e.status === 'unknown' && e.val)
+    .map(e => ({ n: e.n, number: e.val }));
+}
+
+function allTargets() {
+  const seen = new Set();
+  const out  = [];
+  [...getCofactorTargets(), ...getUnknownTargets()].forEach(t => {
+    const key = `${t.n}:${t.number}`;
+    if (!seen.has(key)) { seen.add(key); out.push(t); }
+  });
+  return out;
+}
+
+// Small cofactor targets: real numeric cofactors with < 15 digits
+const SMALL_COFACTOR_DIGITS = 15;
+function getSmallCofactorTargets() {
+  return allEntries
+    .filter(e => {
+      if (!e.cofactor) return false;
+      if (e.cofactor.startsWith('(')) return false;
+      if (!/^\d+$/.test(e.cofactor)) return false;
+      return e.cofactor.length < SMALL_COFACTOR_DIGITS;
+    })
+    .map(e => ({ n: e.n, number: e.cofactor, digits: e.cofactor.length }));
+}
+
+function updateSmallCofactorCount() {
+  const targets = getSmallCofactorTargets();
+  const el = document.getElementById('smallCofactorCount');
+  if (el) el.textContent = targets.length;
+}
+
+function startSmallCofactorPoll() {
+  if (polling) return;
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`\u26a0 Cooldown: ${Math.ceil(wait/1000)}s remaining before next check`, 'warn');
+    addLog(`Small cofactor poll blocked \u2014 cooldown ${Math.ceil(wait/1000)}s`, 'warn');
+    return;
+  }
+  const targets = getSmallCofactorTargets();
+  if (targets.length === 0) {
+    setStatus('No small cofactors (< 15 digits) found to check', 'warn');
+    addLog('Small cofactor poll: no eligible targets', 'warn');
+    return;
+  }
+  addLog(`Starting small cofactor poll \u2014 ${targets.length} target(s) with < ${SMALL_COFACTOR_DIGITS} digits`, '');
+  runPollQueue(targets, true, document.getElementById('smallPollBtn'));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACTORDB API  (via a CORS proxy or same-origin; FactorDB supports CORS)
+// We use a simple fetch with no API key required.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// FactorDB status codes:
+//   FF = fully factored, CF = composite with factors,
+//   C  = composite (no factors known), U = unknown,
+//   P  = prime, PRP = probably prime
+
+async function queryFactorDB(numberStr) {
+  // Validate — only digits
+  if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
+
+  const url = `https://factordb.com/api?query=${encodeURIComponent(numberStr)}`;
+  const r   = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return await r.json();
+}
+
+function fdbStatusLabel(s) {
+  return { FF:'Fully Factored', CF:'Composite (partial)', C:'Composite', U:'Unknown', P:'Prime', PRP:'Probably Prime' }[s] || s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOG
+// ─────────────────────────────────────────────────────────────────────────────
+function addLog(msg, type = '') {
+  const now  = new Date().toLocaleTimeString();
+  activityLog.unshift({ t: now, msg, type });
+  saveLog(activityLog);
+  renderLog();
+}
+
+function renderLog() {
+  document.getElementById('logCount').textContent = activityLog.length;
+  const el = document.getElementById('logEntries');
+  el.innerHTML = activityLog.slice(0, 60).map(l =>
+    `<div class="log-entry log-${l.type}"><span class="log-time">${l.t}</span><span class="log-msg">${l.msg}</span></div>`
+  ).join('');
+}
+
+function toggleLog() {
+  logOpen = !logOpen;
+  document.getElementById('logEntries').classList.toggle('open', logOpen);
+  document.querySelector('.log-toggle').textContent = (logOpen ? '▾' : '▸') +
+    ` Activity log `;
+  document.querySelector('.log-toggle').appendChild(document.getElementById('logCount').parentNode
+    ? document.getElementById('logCount')
+    : (() => { const s=document.createElement('span'); s.className='log-count'; s.id='logCount'; return s; })());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POLLING ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+function needsDailyCheck(numStr) {
+  const cached = fdbCache[numStr];
+  if (!cached) return true;
+  return (Date.now() - cached.timestamp) > AUTO_INTERVAL;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Sleeps but resolves early if cancelRequested is set
+function cancellableSleep(ms) {
+  return new Promise(resolve => {
+    const interval = 200;
+    let elapsed = 0;
+    const tick = setInterval(() => {
+      elapsed += interval;
+      if (cancelRequested || elapsed >= ms) {
+        clearInterval(tick);
+        resolve();
+      }
+    }, interval);
+  });
+}
+
+function cancelPoll() {
+  if (!polling) return;
+  cancelRequested = true;
+  addLog('Cancel requested — will stop after current request', 'warn');
+  document.getElementById('cancelBtn').disabled = true;
+  document.getElementById('cancelBtn').textContent = '⊘ Cancelling…';
+}
+
+async function runPollQueue(targets, isManual = false, activeBtn = null) {
+  if (polling) return;
+  polling = true;
+
+  // Disable both buttons; animate the one that was clicked
+  const mainBtn  = document.getElementById('pollBtn');
+  const smallBtn = document.getElementById('smallPollBtn');
+  const btn = activeBtn || mainBtn;
+  [mainBtn, smallBtn].forEach(b => { if (b) b.disabled = true; });
+  btn.classList.add('polling');
+
+  const progress   = document.getElementById('pollProgress');
+  const progressIn = document.getElementById('pollProgressInner');
+  progress.classList.add('active');
+
+  const queue = targets.filter(t => isManual || needsDailyCheck(t.number));
+  const total = Math.min(queue.length, MAX_PER_SESSION);
+
+  setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB…`);
+  document.getElementById('queueInfo').style.display = 'flex';
+  document.getElementById('queueCount').textContent  = total;
+  document.getElementById('cancelBtn').style.display = 'flex';
+
+  addLog(`Poll started — ${total} targets`, '');
+
+  let done = 0, updated = 0, errors = 0;
+
+  cancelRequested = false;
+  for (const target of queue.slice(0, MAX_PER_SESSION)) {
+    if (cancelRequested) {
+      addLog(`Poll cancelled after ${done} of ${total} requests`, 'warn');
+      break;
+    }
+    document.getElementById('queueCount').textContent = total - done;
+    progressIn.style.width = `${Math.round((done / total) * 100)}%`;
+
+    try {
+      const data = await queryFactorDB(target.number);
+      const status  = data.status || 'U';
+      const factors = (data.factors || []).map(f => Array.isArray(f) ? `${f[0]}^${f[1]}` : String(f)).filter(Boolean);
+
+      const prev    = fdbCache[target.number];
+      fdbCache[target.number] = { status, factors, timestamp: Date.now(), n: target.n };
+      saveFDBCache(fdbCache);
+
+      // If FactorDB says the cofactor is fully factored (FF) or prime (P/PRP),
+      // promote the entry's status in allEntries so the UI reflects it immediately.
+      const entry = allEntries.find(x => x.n === target.n);
+      if (entry && entry.cofactor === target.number) {
+        const cofactorResolved = ['FF', 'P', 'PRP'].includes(status);
+        if (cofactorResolved) {
+          // Merge FactorDB factors into the entry's known factors and clear the cofactor
+          const fdbFactors = factors.filter(f => f && f !== '1');
+          entry.factors = [...(entry.factors || []), ...fdbFactors];
+          entry.cofactor = null;
+          entry.status   = 'full';
+          addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved (${fdbStatusLabel(status)})`, 'ok');
+        }
+      }
+
+      const changed = !prev || prev.status !== status;
+      if (changed) {
+        updated++;
+        if (!['FF','P','PRP'].includes(status)) {
+          addLog(`E(${target.n}) cofactor → ${fdbStatusLabel(status)}${factors.length ? ' ['+factors.slice(0,3).join(' × ')+']' : ''}`, 'ok');
+        }
+        // Flash the card
+        const cardEl = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
+        if (cardEl) { cardEl.classList.remove('just-updated'); void cardEl.offsetWidth; cardEl.classList.add('just-updated'); }
+      } else {
+        addLog(`E(${target.n}) unchanged (${fdbStatusLabel(status)})`, '');
+      }
+    } catch(err) {
+      errors++;
+      addLog(`E(${target.n}) error: ${err.message}`, 'err');
+    }
+
+    done++;
+
+    // Rate limit: wait between requests (cancellable)
+    if (done < total && !cancelRequested) await cancellableSleep(REQUEST_DELAY_MS);
+  }
+
+  progressIn.style.width = '100%';
+  await sleep(400);
+  progress.classList.remove('active');
+  progressIn.style.width = '0%';
+
+  const leftover = queue.length - total;
+  let msg = cancelRequested
+    ? `Cancelled — ${updated} updated, ${errors} errors, ${total - done} not checked`
+    : `Done — ${updated} updated, ${errors} errors`;
+  if (!cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (session cap)`;
+
+  setStatus(msg, updated > 0 ? 'ok' : '');
+  addLog(msg, updated > 0 ? 'ok' : '');
+
+  document.getElementById('queueInfo').style.display = 'none';
+  document.getElementById('cancelBtn').style.display = 'none';
+  btn.classList.remove('polling');
+  [mainBtn, smallBtn].forEach(b => { if (b) b.disabled = false; });
+  polling = false;
+  cancelRequested = false;
+
+  localStorage.setItem(COOLDOWN_KEY, Date.now());
+  renderGrid();
+}
+
+function setStatus(msg, cls = '') {
+  const el = document.getElementById('fdbStatusText');
+  el.innerHTML = msg;
+  el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
+}
+
+function startManualPoll() {
+  if (polling) return;
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining before next manual check`, 'warn');
+    addLog(`Manual poll blocked — cooldown ${Math.ceil(wait/1000)}s`, 'warn');
+    return;
+  }
+  runPollQueue(allTargets(), true, document.getElementById('pollBtn'));
+}
+
+function maybeAutoPoll() {
+  const targets = allTargets().filter(t => needsDailyCheck(t.number));
+  if (targets.length === 0) {
+    const oldest = Math.min(...allTargets().map(t => (fdbCache[t.number]?.timestamp || 0)));
+    const next   = oldest ? new Date(oldest + AUTO_INTERVAL).toLocaleTimeString() : '—';
+    setStatus(`All entries checked today · next auto-check ~${next}`);
+    return;
+  }
+  setStatus(`Auto-checking ${targets.length} stale entr${targets.length===1?'y':'ies'}…`);
+  setTimeout(() => runPollQueue(targets, false), 1500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function applyFilters() {
+  filtered = allEntries.filter(e => {
+    const matchFilter = activeFilter === 'all' || e.status === activeFilter;
+    const q = searchQuery.trim().toLowerCase();
+    const matchSearch = !q || String(e.n).includes(q) ||
+      (e.factors && e.factors.some(f => f.includes(q)));
+    return matchFilter && matchSearch;
+  });
+  currentPage = 1;
+  renderGrid();
+  renderPagination();
+  renderStats();
+}
+
+function fdbTagForEntry(e) {
+  // Small cofactor badge (shown regardless of FDB check status)
+  const isSmallCofactor = e.cofactor && !e.cofactor.startsWith('(') &&
+    /^\d+$/.test(e.cofactor) && e.cofactor.length < SMALL_COFACTOR_DIGITS;
+
+  const smallTag = isSmallCofactor
+    ? `<div class="card-fdb" style="color:var(--green)">● small cofactor · ${e.cofactor.length}d</div>`
+    : '';
+
+  const targets = [
+    e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
+    e.status === 'unknown' && e.val ? e.val : null,
+  ].filter(Boolean);
+
+  if (!targets.length) return smallTag;
+
+  for (const num of targets) {
+    const c = fdbCache[num];
+    if (!c) return smallTag + '<div class="card-fdb stale">⬡ not yet checked</div>';
+    const age  = Date.now() - c.timestamp;
+    const fresh = age < AUTO_INTERVAL;
+    const when = fresh ? 'today' : new Date(c.timestamp).toLocaleDateString();
+    return smallTag + `<div class="card-fdb ${fresh?'fresh':'stale'}">⬡ FDB: ${fdbStatusLabel(c.status)} · ${when}</div>`;
+  }
+  return smallTag;
+}
+
+function renderGrid() {
+  const grid  = document.getElementById('grid');
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const page  = filtered.slice(start, start + PAGE_SIZE);
+
+  if (!page.length) {
+    grid.innerHTML = '<div class="empty"><big>∅</big>No entries match your filter.</div>';
+    return;
+  }
+
+  grid.innerHTML = page.map(e => {
+    const sign    = e.sign === -1 ? '−' : '+';
+    const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
+    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>' }[e.status];
+    let preview = '';
+    if (e.status === 'full' && e.factors.length)
+      preview = `<div class="card-preview">${e.factors.join(' × ')}</div>`;
+    else if (e.status === 'partial' && e.factors.length)
+      preview = `<div class="card-preview">${e.factors.join(' × ')} × …</div>`;
+
+    return `<div class="card ${e.status}" onclick="openModal(${e.n})">
+      <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
+      <div class="card-label">E(${e.n})</div>
+      ${badge}
+      ${preview}
+      ${fdbTagForEntry(e)}
+    </div>`;
+  }).join('');
+}
+
+function renderPagination() {
+  const total = Math.ceil(filtered.length / PAGE_SIZE);
+  const pag   = document.getElementById('pagination');
+  if (total <= 1) { pag.innerHTML = ''; return; }
+  let html = `<button class="page-btn" ${currentPage===1?'disabled':''} onclick="goPage(${currentPage-1})">←</button>`;
+  const pages = [];
+  if (total <= 7) { for (let i=1;i<=total;i++) pages.push(i); }
+  else {
+    pages.push(1);
+    if (currentPage > 3) pages.push('…');
+    for (let i=Math.max(2,currentPage-1); i<=Math.min(total-1,currentPage+1); i++) pages.push(i);
+    if (currentPage < total-2) pages.push('…');
+    pages.push(total);
+  }
+  pages.forEach(p => {
+    if (p==='…') html += `<span class="page-btn" style="cursor:default">…</span>`;
+    else html += `<button class="page-btn ${p===currentPage?'active':''}" onclick="goPage(${p})">${p}</button>`;
+  });
+  html += `<button class="page-btn" ${currentPage===total?'disabled':''} onclick="goPage(${currentPage+1})">→</button>`;
+  html += `<span class="page-info">${filtered.length} entries · page ${currentPage}/${total}</span>`;
+  pag.innerHTML = html;
+}
+
+function renderStats() {
+  const full    = allEntries.filter(e => e.status==='full').length;
+  const partial = allEntries.filter(e => e.status==='partial').length;
+  const unknown = allEntries.filter(e => e.status==='unknown').length;
+  document.getElementById('statsBar').innerHTML = `
+    <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
+    <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
+    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown</span>
+    <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
+  `;
+}
+
+function goPage(p) {
+  currentPage = p;
+  renderGrid();
+  renderPagination();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function openModal(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e) return;
+  document.getElementById('modalTitle').textContent = `E(${n})`;
+
+  const signWord   = e.sign === -1 ? 'negative' : 'positive';
+  const statusInfo = {
+    full:    { icon:'●', color:'var(--green)',  label:'Fully Factored',     desc:'All prime factors are known.' },
+    partial: { icon:'◐', color:'var(--yellow)', label:'Partially Factored', desc:'Some prime factors known. An unfactored cofactor remains.' },
+    unknown: { icon:'○', color:'var(--red)',     label:'Unknown',            desc:'No factorization has been found for this entry yet.' },
+  }[e.status];
+
+  // Known factors
+  let factorsHtml = '';
+  if (e.factors && e.factors.length && e.factors[0] !== '1') {
+    const chips = e.factors.map(f => {
+      const lbl = labelFactor(f);
+      const tag = lbl==='prime' ? '<span class="prime-tag">PRIME</span>' : lbl==='composite' ? '<span class="composite-tag">COMPOSITE?</span>' : '<span class="prime-tag">LARGE</span>';
+      const fdbUrl = `https://factordb.com/index.php?query=${encodeURIComponent(f)}`;
+      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}<span class="fdb-arrow">↗</span></a>`;
+    }).join('');
+    factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">— click to open on FactorDB</span></div><div class="factors-list">${chips}</div></div>`;
+  }
+
+  // Cofactor + FactorDB result
+  let cofactorHtml = '';
+  if (e.status === 'partial' && e.cofactor) {
+    let fdbHtml = '';
+    const isReal = e.cofactor && !e.cofactor.startsWith('(');
+    if (isReal) {
+      const c = fdbCache[e.cofactor];
+      if (c) {
+        const age   = Date.now() - c.timestamp;
+        const fresh = age < AUTO_INTERVAL;
+        const fList = (c.factors || []).filter(Boolean);
+        fdbHtml = `<div class="fdb-block" style="margin-top:10px">
+          <div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>
+          ${fList.length ? `<div class="fdb-row"><span class="fdb-key">FDB Factors</span><span class="fdb-val">${fList.join(' × ')}</span></div>` : ''}
+          <div class="fdb-timestamp">${fresh ? '✓ Checked today' : 'Last checked: '+new Date(c.timestamp).toLocaleDateString()} · Raw status: ${c.status}</div>
+        </div>`;
+      }
+      fdbHtml += `<button class="fdb-check-btn" id="modalCheckBtn" onclick="modalCheckCofactor(${n})" ${polling?'disabled':''}>
+        ↻ Query FactorDB now
+      </button>`;
+    }
+    const isSmall = isReal && e.cofactor.length < 15;
+    const digitTag = isReal
+      ? `<span style="font-size:10px;margin-left:8px;color:${isSmall ? 'var(--green)' : 'var(--text-muted)'}">${e.cofactor.length} digits${isSmall ? ' ● small' : ''}</span>`
+      : '';
+    cofactorHtml = `<div class="modal-section">
+      <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
+      <a class="value-box cofactor-link" href="${isReal ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.cofactor) : '#'}" target="_blank" rel="noopener" title="Open on FactorDB" style="${isSmall ? 'border-color:rgba(61,214,140,0.3)' : ''}">${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
+      ${fdbHtml}
+    </div>`;
+  }
+
+  // Value
+  const valueHtml = e.val ? `<div class="modal-section"><div class="modal-section-label">|E(${n})| Value</div><div class="value-box"><strong>${e.val}</strong></div></div>` : '';
+  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
+
+  // Unknown + FactorDB check
+  let unknownFdbHtml = '';
+  if (e.status === 'unknown' && e.val) {
+    const c = fdbCache[e.val];
+    if (c) {
+      unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
+    }
+    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})|</button>`;
+  }
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="modal-section-label">Sign</div>
+      <div class="sign-row">E(${n}) is <span>${signWord}</span> · PARI: <span>eulerfrac(${n})</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Factorization Status</div>
+      <div class="status-block">
+        <div class="status-icon" style="color:${statusInfo.color}">${statusInfo.icon}</div>
+        <div class="status-text">${statusInfo.label}<small>${statusInfo.desc}</small></div>
+      </div>
+    </div>
+    ${noteHtml}
+    ${factorsHtml}
+    ${cofactorHtml}
+    ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}</div>` : ''}
+    ${valueHtml}
+    <div class="modal-section">
+      <div class="modal-section-label">Download</div>
+      <button class="download-btn" onclick="downloadEntry(${n})">↓ Download E(${n}) data (.txt)</button>
+    </div>
+  `;
+
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+// One-off modal check for cofactor
+async function modalCheckCofactor(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e || !e.cofactor || e.cofactor.startsWith('(')) return;
+  const btn = document.getElementById('modalCheckBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Querying…'; }
+  try {
+    const data   = await queryFactorDB(e.cofactor);
+    const status = data.status || 'U';
+    const factors= (data.factors||[]).map(f=>Array.isArray(f)?`${f[0]}^${f[1]}`:String(f)).filter(Boolean);
+    fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
+    saveFDBCache(fdbCache);
+    addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
+    openModal(n); // refresh
+  } catch(err) {
+    addLog(`E(${n}) cofactor query error: ${err.message}`, 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Query FactorDB now'; }
+  }
+}
+
+async function modalCheckFull(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e || !e.val) return;
+  try {
+    const data   = await queryFactorDB(e.val);
+    const status = data.status || 'U';
+    const factors= (data.factors||[]).map(f=>Array.isArray(f)?`${f[0]}^${f[1]}`:String(f)).filter(Boolean);
+    fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
+    saveFDBCache(fdbCache);
+    addLog(`E(${n}) full value queried → ${fdbStatusLabel(status)}`, 'ok');
+    openModal(n);
+  } catch(err) {
+    addLog(`E(${n}) query error: ${err.message}`, 'err');
+  }
+}
+
+function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
+
+function downloadEntry(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e) return;
+  const sign = e.sign === -1 ? '-' : '+';
+  const fdbEntry = e.cofactor && fdbCache[e.cofactor]
+    ? `FactorDB (cofactor): ${fdbStatusLabel(fdbCache[e.cofactor].status)} [${new Date(fdbCache[e.cofactor].timestamp).toISOString()}]`
+    : '';
+  const lines = [
+    `Euler Number E(${n})`, '='.repeat(40),
+    `Sign: ${sign}1`, `Status: ${e.status}`, '',
+    e.val ? `|E(${n})| = ${e.val}` : `|E(${n})| = (large, not stored)`, '',
+    `Known Factors: ${e.factors&&e.factors.length ? e.factors.join(' * ') : 'none'}`,
+    e.cofactor ? `Cofactor: ${e.cofactor}` : '',
+    fdbEntry, e.note ? `Note: ${e.note}` : '', '',
+    `Generated by Euler Factorization Database`,
+  ].filter(l => l !== undefined);
+  const blob = new Blob([lines.join('\n')], { type:'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=`euler_E${n}.txt`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENT LISTENERS
+// ─────────────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeFilter = btn.dataset.filter;
+    applyFilters();
+  });
+});
+document.getElementById('searchInput').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  applyFilters();
+});
+document.getElementById('modalBackdrop').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalBackdrop')) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+renderLog();
+applyFilters();
+updateSmallCofactorCount();
+setStatus('Ready — use the buttons above to query FactorDB');
+</script>
+</body>
+</html>
