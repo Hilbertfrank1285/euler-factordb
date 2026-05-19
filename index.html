@@ -659,35 +659,7 @@ function labelFactor(f) {
 }
 
 // Your base factorization data
-const factoData = {
-  0:  { status:'full',    factors:['1'],                         cofactor:null, note:'Trivial' },
-  2:  { status:'full',    factors:['1'],                         cofactor:null, note:'Trivial' },
-  4:  { status:'full',    factors:['5'],                         cofactor:null },
-  6:  { status:'full',    factors:['61'],                        cofactor:null },
-  8:  { status:'full',    factors:['5','277'],                   cofactor:null },
-  10: { status:'full',    factors:['5','11','919'],              cofactor:null },
-  12: { status:'full',    factors:['5','13','19','2179'],        cofactor:null },
-  14: { status:'full',    factors:['199360981'],                 cofactor:null },
-  16: { status:'full',    factors:['5','17','37','8212993'],     cofactor:null },
-  18: { status:'full',    factors:['5','19','5765209','555799'], cofactor:null },
-  20: { status:'full',    factors:['5','521','2','71129'],       cofactor:null },
-  22: { status:'partial', factors:['23','67'],                   cofactor:'45070277773879', note:'Large cofactor' },
-  24: { status:'unknown', factors:[],                            cofactor:null },
-  26: { status:'unknown', factors:[],                            cofactor:null },
-  28: { status:'partial', factors:['29'],                        cofactor:'43181015564938271886424' },
-  30: { status:'unknown', factors:[],                            cofactor:null },
-  32: { status:'partial', factors:['17','97','257'],             cofactor:'41644590774899751' },
-  34: { status:'unknown', factors:[],                            cofactor:null },
-  36: { status:'partial', factors:['5','37','1777'],             cofactor:'125742085413838437159' },
-  38: { status:'unknown', factors:[],                            cofactor:null },
-  510:  { status:'unknown',  factors:[],                         cofactor:null },
-  638:  { status:'partial',  factors:['7235862947323','11411779188663863','526900327479624797'], cofactor:null },
-  886:  { status:'partial',  factors:['149','461'],              cofactor:'(large cofactor)' },
-  902:  { status:'partial',  factors:['9756496279','314344516832998594237'], cofactor:null },
-  1004: { status:'full',     factors:['5','541','214363','80533376783'], cofactor:null },
-  1028: { status:'partial',  factors:['5','1283','56837916301577'], cofactor:'(cofactor)' },
-  1078: { status:'partial',  factors:['71','433','11771738101'],  cofactor:'(cofactor)' },
-};
+const factoData = {};
 
 const MAX_N    = 300;
 const PAGE_SIZE = 60;
@@ -1070,8 +1042,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
       addLog(`Poll cancelled after ${done} of ${total} requests`, 'warn');
       break;
     }
-    document.getElementById('queueCount').textContent = total - done;
-    progressIn.style.width = `${Math.round((done / total) * 100)}%`;
+    const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
+    if (progressIn) progressIn.style.width = `${Math.round((done / total) * 100)}%`;
 
     try {
       const data = await queryFactorDB(target.number);
@@ -1139,8 +1111,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
   setStatus(msg, updated > 0 ? 'ok' : '');
   addLog(msg, updated > 0 ? 'ok' : '');
 
-  document.getElementById('queueInfo').style.display = 'none';
-  document.getElementById('cancelBtn').style.display = 'none';
+  const qi = document.getElementById('queueInfo'); if (qi) qi.style.display = 'none';
+  const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
   btn.classList.remove('polling');
   [mainBtn, smallBtn].forEach(b => { if (b) b.disabled = false; });
   polling = false;
