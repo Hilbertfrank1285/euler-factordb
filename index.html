@@ -1382,10 +1382,7 @@ function openModal(n) {
     if (c) {
       unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
     }
-    const digitNote = e.val.length > MAX_AUTO_DIGITS
-      ? `<div style="font-size:10px;color:var(--yellow);margin-bottom:4px">⚠ ${e.val.length}-digit value — too large for auto-poll, manual query only</div>`
-      : '';
-    unknownFdbHtml += digitNote + `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})|</button>`;
+    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})|</button>`;
   }
 
   document.getElementById('modalBody').innerHTML = `
