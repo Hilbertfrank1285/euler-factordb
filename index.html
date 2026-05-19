@@ -679,6 +679,8 @@ function replayFDBCache() {
       entry.factors  = [...(entry.factors || []), ...fdbFactors];
       entry.cofactor = null;
       entry.status   = 'full';
+      entry._fdbVerified = true;
+      entry._resolvedViaCofactor = number;
       restored++;
     }
 
@@ -688,6 +690,7 @@ function replayFDBCache() {
       entry.factors  = fdbFactors;
       entry.cofactor = null;
       entry.status   = 'full';
+      entry._fdbVerified = true;
       restored++;
     }
 
@@ -959,7 +962,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
     try {
       const data = await queryFactorDB(target.number);
       const status  = data.status || 'U';
-      const factors = (data.factors || []).map(f => Array.isArray(f) ? `${f[0]}^${f[1]}` : String(f)).filter(Boolean);
+      const factors = (data.factors || []).map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f)).filter(Boolean);
 
       const prev    = fdbCache[target.number];
       fdbCache[target.number] = { status, factors, timestamp: Date.now(), n: target.n };
@@ -976,6 +979,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
           entry.factors = [...(entry.factors || []), ...fdbFactors];
           entry.cofactor = null;
           entry.status   = 'full';
+          entry._fdbVerified = true;
+          entry._resolvedViaCofactor = target.number;
           addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved (${fdbStatusLabel(status)})`, 'ok');
           addChangelogEntry(target.n, 'promoted', `Cofactor resolved via FactorDB (${fdbStatusLabel(status)}). New factors: ${fdbFactors.join(' × ')}`);
         }
@@ -1193,15 +1198,41 @@ function openModal(n) {
   }[e.status];
 
   // Known factors
+  // Determine if this entry's factors are all verified prime via FDB (FF status on value or cofactor)
+  // Check both the full value AND any cofactor FDB result for FF confirmation
+  const entryFDBByVal      = e.val    ? fdbCache[e.val]    : null;
+  const entryFDBByCofactor = e._resolvedViaCofactor ? fdbCache[e._resolvedViaCofactor] : null;
+  const allVerifiedPrime   = (entryFDBByVal      && entryFDBByVal.status      === 'FF') ||
+                             (entryFDBByCofactor  && entryFDBByCofactor.status === 'FF') ||
+                             e._fdbVerified === true;
+
   let factorsHtml = '';
   if (e.factors && e.factors.length && e.factors[0] !== '1') {
     const chips = e.factors.map(f => {
-      const lbl = labelFactor(f);
-      const tag = lbl==='prime' ? '<span class="prime-tag">PRIME</span>' : lbl==='composite' ? '<span class="composite-tag">COMPOSITE?</span>' : '<span class="prime-tag">LARGE</span>';
+      // If FDB confirmed FF for this entry, all listed factors are prime by definition
+      let lbl;
+      if (allVerifiedPrime) {
+        lbl = 'prime';
+      } else {
+        // Also check if this specific factor was individually queried as prime by FDB
+        const factorFDB = fdbCache[f];
+        if (factorFDB && ['P','PRP','FF'].includes(factorFDB.status)) {
+          lbl = factorFDB.status === 'PRP' ? 'prp' : 'prime';
+        } else {
+          lbl = labelFactor(f);
+        }
+      }
+      const tag = lbl === 'prime'  ? '<span class="prime-tag">PRIME</span>'
+                : lbl === 'prp'    ? '<span class="prime-tag" style="color:var(--purple)">PRP</span>'
+                : lbl === 'composite' ? '<span class="composite-tag">COMPOSITE?</span>'
+                : '<span class="prime-tag">LARGE</span>';
       const fdbUrl = `https://factordb.com/index.php?query=${encodeURIComponent(f)}`;
       return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}<span class="fdb-arrow">↗</span></a>`;
     }).join('');
-    factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">— click to open on FactorDB</span></div><div class="factors-list">${chips}</div></div>`;
+    const sourceNote = allVerifiedPrime
+      ? '— all prime, verified by FactorDB'
+      : '— click to open on FactorDB';
+    factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">${sourceNote}</span></div><div class="factors-list">${chips}</div></div>`;
   }
 
   // Cofactor + FactorDB result
@@ -1285,7 +1316,7 @@ async function modalCheckCofactor(n) {
   try {
     const data   = await queryFactorDB(e.cofactor);
     const status = data.status || 'U';
-    const factors= (data.factors||[]).map(f=>Array.isArray(f)?`${f[0]}^${f[1]}`:String(f)).filter(Boolean);
+    const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
     saveFDBCache(fdbCache);
     addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
@@ -1302,7 +1333,7 @@ async function modalCheckFull(n) {
   try {
     const data   = await queryFactorDB(e.val);
     const status = data.status || 'U';
-    const factors= (data.factors||[]).map(f=>Array.isArray(f)?`${f[0]}^${f[1]}`:String(f)).filter(Boolean);
+    const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
     saveFDBCache(fdbCache);
     addLog(`E(${n}) full value queried → ${fdbStatusLabel(status)}`, 'ok');
