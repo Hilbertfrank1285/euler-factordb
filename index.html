@@ -194,6 +194,22 @@
     100% { background: var(--surface); }
   }
 
+  /* Currently fetching highlight */
+  .card.fetching { background: var(--surface2); }
+  .card.fetching::before { opacity: 1; background: var(--cyan); }
+  .card.fetching::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    animation: fetchSweep 1.2s linear infinite;
+  }
+  @keyframes fetchSweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
+
   .card-index { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px; }
   .card-label { font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px; }
   .card-badge {
@@ -854,7 +870,7 @@ function addLog(msg, type = '') {
 function renderLog() {
   document.getElementById('logCount').textContent = activityLog.length;
   const el = document.getElementById('logEntries');
-  el.innerHTML = activityLog.slice(0, 60).map(l =>
+  el.innerHTML = activityLog.slice(0, 500).map(l =>
     `<div class="log-entry log-${l.type}"><span class="log-time">${l.t}</span><span class="log-msg">${l.msg}</span></div>`
   ).join('');
 }
@@ -975,6 +991,13 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
     const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
     if (progressIn) progressIn.style.width = `${Math.round((done / total) * 100)}%`;
 
+    // Highlight the card being fetched
+    const fetchingCard = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
+    if (fetchingCard) {
+      fetchingCard.classList.add('fetching');
+      fetchingCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
     try {
       const data = await queryFactorDB(target.number);
       const status  = data.status || 'U';
@@ -1013,13 +1036,16 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
         const cardEl = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
         if (cardEl) { cardEl.classList.remove('just-updated'); void cardEl.offsetWidth; cardEl.classList.add('just-updated'); }
       } else {
-        addLog(`E(${target.n}) unchanged (${fdbStatusLabel(status)})`, '');
+        // unchanged — skip logging to keep the log clean
       }
     } catch(err) {
       errors++;
       addLog(`E(${target.n}) error: ${err.message || err}`, 'err');
       console.error(`FactorDB E(${target.n}):`, err);
     }
+
+    // Remove fetching highlight
+    if (fetchingCard) fetchingCard.classList.remove('fetching');
 
     done++;
 
