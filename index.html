@@ -412,6 +412,12 @@
   <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
     ⊘ Cancel
   </button>
+  <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border2);padding:4px 8px;background:var(--bg)">
+    <label style="font-size:10px;color:var(--text-muted);white-space:nowrap">Max requests</label>
+    <input type="number" id="maxRequestsInput" value="30" min="1" max="500"
+      onchange="MAX_PER_SESSION = Math.max(1, parseInt(this.value)||30)"
+      style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
+  </div>
   <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
     <span class="poll-icon">↻</span>
     <span class="spinner">◌</span>
@@ -675,7 +681,7 @@ const MANUAL_COOLDOWN = 20 * 1000; // 20 seconds
 
 // Request spacing — be polite to FactorDB
 const REQUEST_DELAY_MS = 3000;  // 3 s between requests
-const MAX_PER_SESSION  = 30;    // cap requests per manual session
+let MAX_PER_SESSION    = 30;    // cap requests per manual session (user-adjustable)
 
 function loadFDBCache() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
@@ -693,7 +699,9 @@ function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l.slice
 function buildEntries() {
   const entries = [];
   for (let n = 0; n <= MAX_N; n += 2) {
-    const fact = factoData[n] || { status:'unknown', factors:[], cofactor:null };
+    let fact = factoData[n] || { status:'unknown', factors:[], cofactor:null };
+    // E(0) = 1 and E(2) = 1 are units — treat as fully factored with no prime factors
+    if (n === 0 || n === 2) fact = { status:'full', factors:[], cofactor:null };
     entries.push({ n, sign: eulerSign(n), val: eulerValues[n] || null, ...fact });
   }
   [510,638,886,902,1004,1028,1078].forEach(n => {
@@ -803,7 +811,7 @@ const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 
 function getUnknownTargets() {
   return allEntries
-    .filter(e => e.status === 'unknown' && e.val)
+    .filter(e => e.status === 'unknown' && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }));
 }
 
