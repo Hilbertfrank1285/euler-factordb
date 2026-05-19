@@ -290,35 +290,6 @@
   .fdb-check-btn:hover:not(:disabled) { background: var(--cyan); color: #000; }
   .fdb-check-btn:disabled { opacity: 0.4; cursor: default; }
 
-  .poll-btn-small {
-    background: var(--green-dim);
-    border: 1px solid var(--green);
-    color: var(--green);
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    padding: 5px 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-    letter-spacing: 0.3px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  .poll-btn-small:hover:not(:disabled) { background: var(--green); color: #000; }
-  .poll-btn-small:disabled { opacity: 0.4; cursor: default; }
-  .poll-btn-small .spinner { display: none; }
-  .poll-btn-small.polling .spinner { display: inline; animation: spin 0.8s linear infinite; }
-  .poll-btn-small.polling .poll-icon { display: none; }
-
-  .small-count-tag {
-    background: rgba(61,214,140,0.15);
-    border: 1px solid rgba(61,214,140,0.3);
-    color: var(--green);
-    font-size: 10px;
-    padding: 1px 6px;
-    margin-left: 2px;
-  }
 
   .cancel-btn {
     background: var(--red-dim);
@@ -421,11 +392,6 @@
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
   <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
     ⊘ Cancel
-  </button>
-  <button class="poll-btn-small" id="smallPollBtn" onclick="startSmallCofactorPoll()">
-    <span class="poll-icon">⬡</span>
-    <span class="spinner">◌</span>
-    Check small cofactors <span class="small-count-tag" id="smallCofactorCount">…</span>
   </button>
   <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
     <span class="poll-icon">↻</span>
@@ -689,8 +655,8 @@ const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
 const MANUAL_COOLDOWN = 20 * 1000; // 20 seconds
 
 // Request spacing — be polite to FactorDB
-const REQUEST_DELAY_MS = 10000; // 10 s between requests
-const MAX_PER_SESSION  = 100;   // cap requests per manual session
+const REQUEST_DELAY_MS = 3000;  // 3 s between requests
+const MAX_PER_SESSION  = 30;    // cap requests per manual session
 
 function loadFDBCache() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
@@ -825,43 +791,8 @@ function allTargets() {
   return out;
 }
 
-// Small cofactor targets: real numeric cofactors with < 15 digits
-const SMALL_COFACTOR_DIGITS = 15;
-function getSmallCofactorTargets() {
-  return allEntries
-    .filter(e => {
-      if (!e.cofactor) return false;
-      if (e.cofactor.startsWith('(')) return false;
-      if (!/^\d+$/.test(e.cofactor)) return false;
-      return e.cofactor.length < SMALL_COFACTOR_DIGITS;
-    })
-    .map(e => ({ n: e.n, number: e.cofactor, digits: e.cofactor.length }));
-}
 
-function updateSmallCofactorCount() {
-  const targets = getSmallCofactorTargets();
-  const el = document.getElementById('smallCofactorCount');
-  if (el) el.textContent = targets.length;
-}
 
-function startSmallCofactorPoll() {
-  if (polling) return;
-  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
-  const wait = MANUAL_COOLDOWN - (Date.now() - last);
-  if (wait > 0) {
-    setStatus(`\u26a0 Cooldown: ${Math.ceil(wait/1000)}s remaining before next check`, 'warn');
-    addLog(`Small cofactor poll blocked \u2014 cooldown ${Math.ceil(wait/1000)}s`, 'warn');
-    return;
-  }
-  const targets = getSmallCofactorTargets();
-  if (targets.length === 0) {
-    setStatus('No small cofactors (< 15 digits) found to check', 'warn');
-    addLog('Small cofactor poll: no eligible targets', 'warn');
-    return;
-  }
-  addLog(`Starting small cofactor poll \u2014 ${targets.length} target(s) with < ${SMALL_COFACTOR_DIGITS} digits`, '');
-  runPollQueue(targets, true, document.getElementById('smallPollBtn'));
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTORDB API  (via a CORS proxy or same-origin; FactorDB supports CORS)
@@ -1015,9 +946,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
 
   // Disable both buttons; animate the one that was clicked
   const mainBtn  = document.getElementById('pollBtn');
-  const smallBtn = document.getElementById('smallPollBtn');
   const btn = activeBtn || mainBtn;
-  [mainBtn, smallBtn].forEach(b => { if (b) b.disabled = true; });
+  btn.disabled = true;
   btn.classList.add('polling');
 
   const progress   = document.getElementById('pollProgress');
@@ -1114,7 +1044,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
   const qi = document.getElementById('queueInfo'); if (qi) qi.style.display = 'none';
   const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
   btn.classList.remove('polling');
-  [mainBtn, smallBtn].forEach(b => { if (b) b.disabled = false; });
+  if (mainBtn) mainBtn.disabled = false;
   polling = false;
   cancelRequested = false;
 
@@ -1170,30 +1100,22 @@ function applyFilters() {
 }
 
 function fdbTagForEntry(e) {
-  // Small cofactor badge (shown regardless of FDB check status)
-  const isSmallCofactor = e.cofactor && !e.cofactor.startsWith('(') &&
-    /^\d+$/.test(e.cofactor) && e.cofactor.length < SMALL_COFACTOR_DIGITS;
-
-  const smallTag = isSmallCofactor
-    ? `<div class="card-fdb" style="color:var(--green)">● small cofactor · ${e.cofactor.length}d</div>`
-    : '';
-
   const targets = [
     e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
     e.status === 'unknown' && e.val ? e.val : null,
   ].filter(Boolean);
 
-  if (!targets.length) return smallTag;
+  if (!targets.length) return '';
 
   for (const num of targets) {
     const c = fdbCache[num];
-    if (!c) return smallTag + '<div class="card-fdb stale">⬡ not yet checked</div>';
+    if (!c) return '<div class="card-fdb stale">⬡ not yet checked</div>';
     const age  = Date.now() - c.timestamp;
     const fresh = age < AUTO_INTERVAL;
     const when = fresh ? 'today' : new Date(c.timestamp).toLocaleDateString();
-    return smallTag + `<div class="card-fdb ${fresh?'fresh':'stale'}">⬡ FDB: ${fdbStatusLabel(c.status)} · ${when}</div>`;
+    return `<div class="card-fdb ${fresh?'fresh':'stale'}">⬡ FDB: ${fdbStatusLabel(c.status)} · ${when}</div>`;
   }
-  return smallTag;
+  return '';
 }
 
 function renderGrid() {
@@ -1342,19 +1264,16 @@ function openModal(n) {
         ↻ Query FactorDB now
       </button>`;
     }
-    const isSmall = isReal && e.cofactor.length < 15;
-    const digitTag = isReal
-      ? `<span style="font-size:10px;margin-left:8px;color:${isSmall ? 'var(--green)' : 'var(--text-muted)'}">${e.cofactor.length} digits${isSmall ? ' ● small' : ''}</span>`
-      : '';
+    const digitTag = isReal ? `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${e.cofactor.length} digits</span>` : '';
     cofactorHtml = `<div class="modal-section">
       <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
-      <a class="value-box cofactor-link" href="${isReal ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.cofactor) : '#'}" target="_blank" rel="noopener" title="Open on FactorDB" style="${isSmall ? 'border-color:rgba(61,214,140,0.3)' : ''}">${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
+      <a class="value-box cofactor-link" href="${isReal ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.cofactor) : '#'}" target="_blank" rel="noopener" title="Open on FactorDB" style="">${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
       ${fdbHtml}
     </div>`;
   }
 
   // Value
-  const valueHtml = e.val ? `<div class="modal-section"><div class="modal-section-label">|E(${n})| Value</div><div class="value-box"><strong>${e.val}</strong></div></div>` : '';
+  const valueHtml = e.val ? `<div class="modal-section"><div class="modal-section-label">|E(${n})| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div><a class="value-box cofactor-link" href="https://factordb.com/index.php?query=${encodeURIComponent(e.val)}" target="_blank" rel="noopener" title="Open |E(${n})| on FactorDB"><strong>${e.val}</strong><span class="cofactor-fdb-arrow">↗</span></a></div>` : '';
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
@@ -1480,7 +1399,6 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 replayFDBCache();
 renderLog();
 applyFilters();
-updateSmallCofactorCount();
 setStatus('Ready — use the buttons above to query FactorDB');
 renderChangelog();
 </script>
