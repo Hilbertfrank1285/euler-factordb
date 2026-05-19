@@ -376,6 +376,33 @@
 
   .empty { grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
   .empty big { display: block; font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
+
+  /* ── Changelog panel ── */
+  .changelog-panel { border-top: 1px solid var(--border); background: var(--surface); }
+  .changelog-toggle { padding: 10px 40px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; justify-content: space-between; }
+  .changelog-toggle:hover { color: var(--text); }
+  .changelog-toggle-left { display: flex; align-items: center; gap: 10px; }
+  .changelog-count { background: var(--green-dim); color: var(--green); border: 1px solid rgba(61,214,140,0.3); padding: 1px 6px; font-size: 10px; }
+  .changelog-clear { font-size: 10px; color: var(--text-muted); background: none; border: 1px solid var(--border2); font-family: 'IBM Plex Mono', monospace; padding: 2px 8px; cursor: pointer; transition: all 0.15s; }
+  .changelog-clear:hover { border-color: var(--red); color: var(--red); }
+  .changelog-entries { display: none; max-height: 320px; overflow-y: auto; padding: 0 40px 16px; }
+  .changelog-entries.open { display: block; }
+  .changelog-entry {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 80px 100px 1fr;
+    gap: 12px;
+    align-items: baseline;
+    font-size: 11px;
+  }
+  .changelog-entry:first-child { border-top: 1px solid var(--border); }
+  .changelog-n { color: var(--accent); font-weight: 500; font-size: 12px; }
+  .changelog-type-promoted { color: var(--green); }
+  .changelog-type-updated  { color: var(--yellow); }
+  .changelog-detail { color: var(--text-dim); line-height: 1.5; }
+  .changelog-ts { color: var(--text-muted); font-size: 10px; display: block; margin-top: 2px; }
+  .changelog-empty { padding: 20px 0; color: var(--text-muted); font-size: 11px; text-align: center; }
 </style>
 </head>
 <body>
@@ -442,6 +469,17 @@
     ▸ Activity log <span class="log-count" id="logCount">0</span>
   </div>
   <div class="log-entries" id="logEntries"></div>
+</div>
+
+<!-- Changelog -->
+<div class="changelog-panel">
+  <div class="changelog-toggle" onclick="toggleChangelog()">
+    <div class="changelog-toggle-left">
+      ▸ Changelog — discovered factors <span class="changelog-count" id="changelogCount">0</span>
+    </div>
+    <button class="changelog-clear" onclick="clearChangelog(event)">Clear</button>
+  </div>
+  <div class="changelog-entries" id="changelogEntries"></div>
 </div>
 
 <!-- Modal -->
@@ -558,9 +596,21 @@ const PAGE_SIZE = 60;
 // STORAGE — factordb cache, keyed by number string
 // Structure: { status:'FF'|'CF'|'P'|'PRP'|'C'|'U', factors:[], timestamp:ms }
 // ─────────────────────────────────────────────────────────────────────────────
-const STORAGE_KEY  = 'eulerFDB_v1';
-const LOG_KEY      = 'eulerFDB_log_v1';
-const COOLDOWN_KEY = 'eulerFDB_lastPoll';
+const STORAGE_KEY    = 'eulerFDB_v1';
+const LOG_KEY        = 'eulerFDB_log_v1';
+const COOLDOWN_KEY   = 'eulerFDB_lastPoll';
+const CHANGELOG_KEY  = 'eulerFDB_changelog_v1';
+
+function loadChangelog() {
+  try { return JSON.parse(localStorage.getItem(CHANGELOG_KEY) || '[]'); } catch { return []; }
+}
+function saveChangelog(c) { try { localStorage.setItem(CHANGELOG_KEY, JSON.stringify(c)); } catch {} }
+
+function addChangelogEntry(n, type, detail) {
+  const log = loadChangelog();
+  log.unshift({ n, type, detail, ts: Date.now() });
+  saveChangelog(log.slice(0, 500));
+}
 
 // 24 hours between auto-polls, 5 minutes between manual polls
 const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
@@ -611,6 +661,51 @@ let activityLog  = loadLog();
 let logOpen      = false;
 let polling      = false;
 let cancelRequested = false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REPLAY — restore FDB discoveries from cache into allEntries on page load
+// ─────────────────────────────────────────────────────────────────────────────
+function replayFDBCache() {
+  let restored = 0;
+  for (const [number, cached] of Object.entries(fdbCache)) {
+    const { status, factors, n } = cached;
+    if (n == null) continue;
+    const entry = allEntries.find(x => x.n === n);
+    if (!entry) continue;
+
+    // If this was a cofactor lookup and it resolved
+    if (entry.cofactor === number && ['FF','P','PRP'].includes(status)) {
+      const fdbFactors = (factors || []).filter(f => f && f !== '1');
+      entry.factors  = [...(entry.factors || []), ...fdbFactors];
+      entry.cofactor = null;
+      entry.status   = 'full';
+      restored++;
+    }
+
+    // If this was a full-value lookup for an unknown entry and it resolved
+    if (entry.status === 'unknown' && entry.val === number && ['FF','P','PRP'].includes(status)) {
+      const fdbFactors = (factors || []).filter(f => f && f !== '1');
+      entry.factors  = fdbFactors;
+      entry.cofactor = null;
+      entry.status   = 'full';
+      restored++;
+    }
+
+    // Partial resolution: FDB found some factors for a cofactor (CF status)
+    if (entry.cofactor === number && status === 'CF' && factors && factors.length > 1) {
+      // factors[0] is typically the number itself, rest are known factors
+      const knownFactors = factors.slice(1).filter(f => f && f !== '1');
+      if (knownFactors.length > 0) {
+        entry.factors = [...(entry.factors || []), ...knownFactors];
+        // Update cofactor to the remaining unfactored part if available
+        // (FDB CF means composite with some factors — keep cofactor as-is for now)
+        restored++;
+      }
+    }
+  }
+  if (restored > 0) console.log(`Restored ${restored} FDB discoveries from cache`);
+  return restored;
+}
 
 // Which entries have cofactors that should be queried?
 function getCofactorTargets() {
@@ -744,6 +839,43 @@ function renderLog() {
   ).join('');
 }
 
+let changelogOpen = false;
+
+function renderChangelog() {
+  const log = loadChangelog();
+  document.getElementById('changelogCount').textContent = log.length;
+  const el = document.getElementById('changelogEntries');
+  if (!log.length) {
+    el.innerHTML = '<div class="changelog-empty">No changes recorded yet — run a FactorDB check to discover factors.</div>';
+    return;
+  }
+  el.innerHTML = log.map(e => {
+    const date = new Date(e.ts).toLocaleString();
+    const typeLabel = e.type === 'promoted'
+      ? '<span class="changelog-type-promoted">● FULLY FACTORED</span>'
+      : '<span class="changelog-type-updated">◐ UPDATED</span>';
+    return `<div class="changelog-entry">
+      <div class="changelog-n">E(${e.n})</div>
+      <div>${typeLabel}</div>
+      <div class="changelog-detail">${e.detail}<span class="changelog-ts">${date}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function toggleChangelog() {
+  changelogOpen = !changelogOpen;
+  document.getElementById('changelogEntries').classList.toggle('open', changelogOpen);
+  const toggle = document.querySelector('.changelog-toggle-left');
+  toggle.childNodes[0].textContent = (changelogOpen ? '▾' : '▸') + ' Changelog — discovered factors ';
+}
+
+function clearChangelog(evt) {
+  evt.stopPropagation();
+  if (!confirm('Clear the entire changelog?')) return;
+  localStorage.removeItem(CHANGELOG_KEY);
+  renderChangelog();
+}
+
 function toggleLog() {
   logOpen = !logOpen;
   document.getElementById('logEntries').classList.toggle('open', logOpen);
@@ -845,6 +977,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
           entry.cofactor = null;
           entry.status   = 'full';
           addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved (${fdbStatusLabel(status)})`, 'ok');
+          addChangelogEntry(target.n, 'promoted', `Cofactor resolved via FactorDB (${fdbStatusLabel(status)}). New factors: ${fdbFactors.join(' × ')}`);
         }
       }
 
@@ -853,6 +986,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
         updated++;
         if (!['FF','P','PRP'].includes(status)) {
           addLog(`E(${target.n}) cofactor → ${fdbStatusLabel(status)}${factors.length ? ' ['+factors.slice(0,3).join(' × ')+']' : ''}`, 'ok');
+          if (factors.length > 0) addChangelogEntry(target.n, 'updated', `FDB status: ${fdbStatusLabel(status)}. Factors: ${factors.slice(0,5).join(' × ')}${factors.length>5?' …':''}`);
         }
         // Flash the card
         const cardEl = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
@@ -1226,10 +1360,12 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
+replayFDBCache();
 renderLog();
 applyFilters();
 updateSmallCofactorCount();
 setStatus('Ready — use the buttons above to query FactorDB');
+renderChangelog();
 </script>
 </body>
 </html>
