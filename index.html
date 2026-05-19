@@ -404,6 +404,9 @@
 <!-- FactorDB status bar -->
 <div class="factordb-bar">
   <div class="factordb-label">FactorDB sync</div>
+  <button class="poll-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)" onclick="clearAllCache()">
+    ⊗ Clear cache
+  </button>
   <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
   <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
@@ -908,6 +911,23 @@ function toggleChangelog() {
   document.getElementById('changelogEntries').classList.toggle('open', changelogOpen);
   const toggle = document.querySelector('.changelog-toggle-left');
   toggle.childNodes[0].textContent = (changelogOpen ? '▾' : '▸') + ' Changelog — discovered factors ';
+}
+
+function clearAllCache() {
+  if (!confirm('Clear ALL cached FactorDB results? This will reset all discovered factors and statuses.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(CHANGELOG_KEY);
+  localStorage.removeItem(LOG_KEY);
+  localStorage.removeItem(COOLDOWN_KEY);
+  fdbCache   = {};
+  activityLog = [];
+  allEntries  = buildEntries();
+  filtered    = [...allEntries];
+  renderLog();
+  renderChangelog();
+  applyFilters();
+  setStatus('Cache cleared — all FactorDB data removed');
+  addLog('Cache cleared by user', 'warn');
 }
 
 function clearChangelog(evt) {
