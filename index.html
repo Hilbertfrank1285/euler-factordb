@@ -799,6 +799,8 @@ function getCofactorTargets() {
 }
 
 // Which are "unknown" entries with a known absolute value small enough to query?
+const MAX_AUTO_DIGITS = 50; // kept for modal warning only
+
 function getUnknownTargets() {
   return allEntries
     .filter(e => e.status === 'unknown' && e.val)
@@ -828,13 +830,6 @@ function allTargets() {
 //   C  = composite (no factors known), U = unknown,
 //   P  = prime, PRP = probably prime
 
-// CORS proxies to try in order — if one fails, try the next
-const CORS_PROXIES = [
-  n => `https://corsproxy.io/?url=${encodeURIComponent('https://factordb.com/api?query='+n)}`,
-  n => `https://api.allorigins.win/raw?url=${encodeURIComponent('https://factordb.com/api?query='+n)}`,
-  n => `https://factordb.com/api?query=${encodeURIComponent(n)}`, // direct (works on GitHub Pages)
-];
-
 function fetchWithTimeout(url, ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
@@ -842,23 +837,39 @@ function fetchWithTimeout(url, ms) {
     .finally(() => clearTimeout(timer));
 }
 
+// Timeout scales with number size: bigger numbers take longer for FDB to process
+function timeoutForNumber(numStr) {
+  const digits = numStr.length;
+  if (digits < 50)  return 15000;   // 15s
+  if (digits < 100) return 30000;   // 30s
+  if (digits < 200) return 60000;   // 60s
+  return 120000;                    // 120s for very large
+}
+
 async function queryFactorDB(numberStr) {
   if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
 
-  let lastErr = null;
-  for (const proxyFn of CORS_PROXIES) {
+  const timeout = timeoutForNumber(numberStr);
+  const directUrl = `https://factordb.com/api?query=${encodeURIComponent(numberStr)}`;
+  const proxyUrl  = `https://corsproxy.io/?url=${encodeURIComponent('https://factordb.com/api?query='+numberStr)}`;
+
+  // Try direct first (works on GitHub Pages), then proxy (for local file:// use)
+  for (const url of [directUrl, proxyUrl]) {
     try {
-      const url  = proxyFn(numberStr);
-      const r    = await fetchWithTimeout(url, 12000);
+      const r = await fetchWithTimeout(url, timeout);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
-      // allorigins wraps in {contents:...}
-      return data.contents ? JSON.parse(data.contents) : data;
+      const text = await r.text();
+      const data = JSON.parse(text);
+      const result = data.contents ? JSON.parse(data.contents) : data;
+      if (!result.status) throw new Error('No status in response');
+      return result;
     } catch(e) {
-      lastErr = e;
+      if (e.name === 'AbortError') throw new Error(`Timeout after ${timeout/1000}s`);
+      // CORS error → try next
+      continue;
     }
   }
-  throw new Error(lastErr?.message || 'All proxies failed');
+  throw new Error('Both direct and proxy failed');
 }
 
 function fdbStatusLabel(s) {
@@ -1015,7 +1026,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
     }
     const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
     if (progressIn) progressIn.style.width = `${Math.round((done / total) * 100)}%`;
-    setStatus(`Checking E(${target.n}) — ${done + 1} of ${total}…`);
+    setStatus(`Checking E(${target.n}) [${target.number.length}d, ${timeoutForNumber(target.number)/1000}s timeout] — ${done + 1} of ${total}…`);
 
     // Highlight the card being fetched
     const fetchingCard = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
@@ -1371,7 +1382,10 @@ function openModal(n) {
     if (c) {
       unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
     }
-    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})|</button>`;
+    const digitNote = e.val.length > MAX_AUTO_DIGITS
+      ? `<div style="font-size:10px;color:var(--yellow);margin-bottom:4px">⚠ ${e.val.length}-digit value — too large for auto-poll, manual query only</div>`
+      : '';
+    unknownFdbHtml += digitNote + `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})|</button>`;
   }
 
   document.getElementById('modalBody').innerHTML = `
