@@ -1010,31 +1010,46 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
       fdbCache[target.number] = { status, factors, timestamp: Date.now(), n: target.n };
       saveFDBCache(fdbCache);
 
-      // If FactorDB says the cofactor is fully factored (FF) or prime (P/PRP),
-      // promote the entry's status in allEntries so the UI reflects it immediately.
+      const resolved = ['FF', 'P', 'PRP', 'UN'].includes(status) || status === 'FF';
       const entry = allEntries.find(x => x.n === target.n);
-      if (entry && entry.cofactor === target.number) {
-        const cofactorResolved = ['FF', 'P', 'PRP'].includes(effectiveStatus);
-        if (cofactorResolved) {
-          // Merge FactorDB factors into the entry's known factors and clear the cofactor
+
+      if (entry) {
+        // Path 1: cofactor lookup resolved
+        if (entry.cofactor === target.number && resolved) {
           const fdbFactors = factors.filter(f => f && f !== '1');
           entry.factors = [...(entry.factors || []), ...fdbFactors];
           entry.cofactor = null;
           entry.status   = 'full';
           entry._fdbVerified = true;
           entry._resolvedViaCofactor = target.number;
-          addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved (${fdbStatusLabel(status)})`, 'ok');
+          addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved`, 'ok');
           addChangelogEntry(target.n, 'promoted', `Cofactor resolved via FactorDB (${fdbStatusLabel(status)}). New factors: ${fdbFactors.join(' × ')}`);
+
+        // Path 2: full value lookup resolved (unknown → full)
+        } else if (entry.val === target.number && entry.status === 'unknown' && resolved) {
+          const fdbFactors = factors.filter(f => f && f !== '1');
+          entry.factors = fdbFactors;
+          entry.cofactor = null;
+          entry.status   = 'full';
+          entry._fdbVerified = true;
+          addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
+          addChangelogEntry(target.n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: ' + fdbFactors.join(' × ') : ' (unit)'}`);
+
+        // Path 3: partial factors found (CF) — update known factors
+        } else if (entry.val === target.number && status === 'CF' && factors.length > 1) {
+          const fdbFactors = factors.slice(1).filter(f => f && f !== '1');
+          if (fdbFactors.length > 0) {
+            entry.factors = [...new Set([...(entry.factors || []), ...fdbFactors])];
+            entry.status  = 'partial';
+            addLog(`E(${target.n}) partial factors found: ${fdbFactors.join(' × ')}`, 'ok');
+            addChangelogEntry(target.n, 'updated', `FDB found factors: ${fdbFactors.join(' × ')}`);
+          }
         }
       }
 
       const changed = !prev || prev.status !== status;
       if (changed) {
         updated++;
-        if (!['FF','P','PRP'].includes(status)) {
-          addLog(`E(${target.n}) cofactor → ${fdbStatusLabel(status)}${factors.length ? ' ['+factors.slice(0,3).join(' × ')+']' : ''}`, 'ok');
-          if (factors.length > 0) addChangelogEntry(target.n, 'updated', `FDB status: ${fdbStatusLabel(status)}. Factors: ${factors.slice(0,5).join(' × ')}${factors.length>5?' …':''}`);
-        }
         // Flash the card
         const cardEl = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
         if (cardEl) { cardEl.classList.remove('just-updated'); void cardEl.offsetWidth; cardEl.classList.add('just-updated'); }
