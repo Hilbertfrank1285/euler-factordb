@@ -1406,6 +1406,10 @@ function openModal(n) {
       <div class="modal-section-label">Download</div>
       <button class="download-btn" onclick="downloadEntry(${n})">↓ Download E(${n}) data (.txt)</button>
     </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Cache</div>
+      <button class="fdb-check-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)" onclick="clearEntryCache(${n})">⊗ Clear cached data for E(${n})</button>
+    </div>
   `;
 
   document.getElementById('modalBackdrop').classList.add('open');
@@ -1471,6 +1475,28 @@ async function modalCheckFull(n) {
   } catch(err) {
     addLog(`E(${n}) query error: ${err.message}`, 'err');
   }
+}
+
+function clearEntryCache(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e) return;
+
+  // Remove FDB cache entries for this entry's value and cofactor
+  if (e.val && fdbCache[e.val])      { delete fdbCache[e.val];      }
+  if (e.cofactor && fdbCache[e.cofactor]) { delete fdbCache[e.cofactor]; }
+  saveFDBCache(fdbCache);
+
+  // Reset entry back to unknown
+  const base = factoData[n] || { status:'unknown', factors:[], cofactor:null };
+  e.status   = base.status;
+  e.factors  = [...(base.factors || [])];
+  e.cofactor = base.cofactor || null;
+  delete e._fdbVerified;
+  delete e._resolvedViaCofactor;
+
+  addLog(`E(${n}) cache cleared`, 'warn');
+  renderGrid();
+  openModal(n); // refresh modal
 }
 
 function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
