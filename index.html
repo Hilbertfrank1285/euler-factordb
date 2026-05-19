@@ -763,14 +763,18 @@ function replayFDBCache() {
       restored++;
     }
 
-    // Partial resolution: FDB found some factors for a cofactor (CF status)
-    if (entry.cofactor === number && status === 'CF' && factors && factors.length > 1) {
-      // factors[0] is typically the number itself, rest are known factors
-      const knownFactors = factors.slice(1).filter(f => f && f !== '1');
-      if (knownFactors.length > 0) {
-        entry.factors = [...(entry.factors || []), ...knownFactors];
-        // Update cofactor to the remaining unfactored part if available
-        // (FDB CF means composite with some factors — keep cofactor as-is for now)
+    // Partial resolution: FDB CF for full value or cofactor
+    if (status === 'CF' && factors && factors.length >= 1) {
+      const allFDB = factors.filter(f => f && f !== '1');
+      if (allFDB.length > 0) {
+        const lastF    = allFDB[allFDB.length - 1];
+        const isLastBig = lastF.length > 15 && allFDB.length > 1;
+        const knownFactors = isLastBig ? allFDB.slice(0, -1) : allFDB;
+        const cofactorNum  = isLastBig ? lastF : null;
+        entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
+        entry.cofactor = cofactorNum;
+        entry.status   = 'partial';
+        entry._fdbVerified = true;
         restored++;
       }
     }
@@ -1035,14 +1039,27 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
           addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
           addChangelogEntry(target.n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: ' + fdbFactors.join(' × ') : ' (unit)'}`);
 
-        // Path 3: partial factors found (CF) — update known factors
-        } else if (entry.val === target.number && status === 'CF' && factors.length > 1) {
-          const fdbFactors = factors.slice(1).filter(f => f && f !== '1');
-          if (fdbFactors.length > 0) {
-            entry.factors = [...new Set([...(entry.factors || []), ...fdbFactors])];
-            entry.status  = 'partial';
-            addLog(`E(${target.n}) partial factors found: ${fdbFactors.join(' × ')}`, 'ok');
-            addChangelogEntry(target.n, 'updated', `FDB found factors: ${fdbFactors.join(' × ')}`);
+        // Path 3: partial factors found (CF) — update known factors + set cofactor
+        } else if (status === 'CF' && factors.length >= 1) {
+          // FDB CF: all factors listed, last one is the remaining composite
+          // Determine which are small/prime (all but the last in typical FDB response)
+          // We treat all returned factors as known, last one as the cofactor if it's large
+          const allFDB = factors.filter(f => f && f !== '1');
+          if (allFDB.length > 0) {
+            // Heuristic: last factor is the unfactored remainder if it's much larger than others
+            const sorted = [...allFDB].sort((a,b) => a.length - b.length);
+            const lastF  = allFDB[allFDB.length - 1];
+            const isLastBig = lastF.length > 15 && allFDB.length > 1;
+            const knownFactors = isLastBig ? allFDB.slice(0, -1) : allFDB;
+            const cofactorNum  = isLastBig ? lastF : null;
+
+            entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
+            entry.cofactor = cofactorNum;
+            entry.status   = 'partial';
+            entry._fdbVerified = true;
+            const logMsg = `E(${target.n}) partial: ${knownFactors.join(' × ')}${cofactorNum ? ' × [cofactor '+cofactorNum.length+'d]' : ''}`;
+            addLog(logMsg, 'ok');
+            addChangelogEntry(target.n, 'updated', `FDB CF: known factors: ${knownFactors.join(' × ')}${cofactorNum ? '. Cofactor: '+cofactorNum : ''}`);
           }
         }
       }
@@ -1309,9 +1326,12 @@ function openModal(n) {
       </button>`;
     }
     const digitTag = isReal ? `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${e.cofactor.length} digits</span>` : '';
+    // Direct FDB link to the unfactored cofactor
+    const cofactorFdbUrl = isReal ? `https://factordb.com/index.php?query=${encodeURIComponent(e.cofactor)}` : '#';
     cofactorHtml = `<div class="modal-section">
       <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
-      <a class="value-box cofactor-link" href="${isReal ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.cofactor) : '#'}" target="_blank" rel="noopener" title="Open on FactorDB" style="">${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
+      <a class="value-box cofactor-link" href="${cofactorFdbUrl}" target="_blank" rel="noopener" title="Open cofactor on FactorDB" style="">${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
+      ${isReal ? `<a class="fdb-check-btn" href="${cofactorFdbUrl}" target="_blank" rel="noopener" style="margin-top:6px;text-decoration:none">↗ Open unfactored part on FactorDB</a>` : ''}
       ${fdbHtml}
     </div>`;
   }
