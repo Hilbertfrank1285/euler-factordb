@@ -666,6 +666,20 @@ let cancelRequested = false;
 // REPLAY — restore FDB discoveries from cache into allEntries on page load
 // ─────────────────────────────────────────────────────────────────────────────
 function replayFDBCache() {
+  // ── Migrate: strip ^1 from any factors stored before the fix ──
+  let migrated = false;
+  for (const key of Object.keys(fdbCache)) {
+    const entry = fdbCache[key];
+    if (entry.factors && Array.isArray(entry.factors)) {
+      const cleaned = entry.factors.map(f => typeof f === 'string' ? f.replace(/\^1$/,'') : f);
+      if (cleaned.join() !== entry.factors.join()) {
+        fdbCache[key] = { ...entry, factors: cleaned };
+        migrated = true;
+      }
+    }
+  }
+  if (migrated) { saveFDBCache(fdbCache); console.log('Migrated: stripped ^1 from cached factors'); }
+
   let restored = 0;
   for (const [number, cached] of Object.entries(fdbCache)) {
     const { status, factors, n } = cached;
