@@ -26,6 +26,8 @@
     --red-dim: #2a1010;
     --purple: #b88aff;
     --purple-dim: #1e1030;
+    --orange: #ff9f43;
+    --orange-dim: #2a1800;
     --cyan: #3dd6d6;
     --cyan-dim: #0d2a2a;
   }
@@ -172,7 +174,8 @@
   .filter-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
   .filter-btn.active.full    { background: var(--green-dim);  border-color: var(--green);  color: var(--green); }
   .filter-btn.active.partial { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
-  .filter-btn.active.unknown { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
+  .filter-btn.active.unknown   { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
+  .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
   .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
   .stat-item strong { color: var(--text); }
 
@@ -219,7 +222,8 @@
   .badge-full    { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(61,214,140,0.25); }
   .badge-partial { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(245,197,66,0.25); }
   .badge-unknown { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,107,107,0.25); }
-  .badge-checking { background: var(--cyan-dim);  color: var(--cyan);   border: 1px solid rgba(61,214,214,0.25); }
+  .badge-checking  { background: var(--cyan-dim);   color: var(--cyan);   border: 1px solid rgba(61,214,214,0.25); }
+  .badge-composite  { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,159,67,0.25); }
 
   .card-preview { margin-top: 8px; font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -513,6 +517,7 @@
     <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
+    <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
 </div>
@@ -553,7 +558,8 @@
 <div class="legend">
   <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Fully factored — all prime factors known</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Unknown — no factorization found yet</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Unknown — not yet checked</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — confirmed composite, no factors found</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
 </div>
 
@@ -1995,6 +2001,11 @@ function replayFDBCache() {
       restored++;
     }
 
+    // Confirmed composite, no factors
+    if (status === 'C' && entry.status === 'unknown') {
+      entry.status = 'composite';
+    }
+
     // Partial resolution: FDB CF for full value or cofactor
     if (status === 'CF' && factors && factors.length >= 1) {
       const allFDB = factors.filter(f => f && f !== '1');
@@ -2031,8 +2042,9 @@ function getCofactorTargets() {
 const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 
 function getUnknownTargets() {
+  // Include both unknown and composite (confirmed composite but no factors yet)
   return allEntries
-    .filter(e => e.status === 'unknown' && e.val && e.n > 2)
+    .filter(e => (e.status === 'unknown' || e.status === 'composite') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }));
 }
 
@@ -2597,7 +2609,12 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
           addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
           addChangelogEntry(target.n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: ' + fdbFactors.join(' × ') : ' (unit)'}`);
 
-        // Path 3: partial factors found (CF) — update known factors + set cofactor
+        // Path 3a: confirmed composite, no factors (C status) → mark as composite
+        } else if (status === 'C' && entry.status === 'unknown') {
+          entry.status = 'composite';
+          addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
+
+        // Path 3b: partial factors found (CF) — update known factors + set cofactor
         } else if (status === 'CF' && factors.length >= 1) {
           // FDB CF: all factors listed, last one is the remaining composite
           // Determine which are small/prime (all but the last in typical FDB response)
@@ -2751,7 +2768,7 @@ function renderGrid() {
   grid.innerHTML = page.map(e => {
     const sign    = e.sign === -1 ? '−' : '+';
     const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
-    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>' }[e.status];
+    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>' }[e.status];
     let preview = '';
     if (e.status === 'full' && e.factors.length)
       preview = `<div class="card-preview">${e.factors.join(' × ')}</div>`;
@@ -2795,9 +2812,11 @@ function renderStats() {
   const full    = allEntries.filter(e => e.status==='full').length;
   const partial = allEntries.filter(e => e.status==='partial').length;
   const unknown = allEntries.filter(e => e.status==='unknown').length;
+  const composite = allEntries.filter(e => e.status==='composite').length;
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
+    <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
     <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
   `;
@@ -2820,9 +2839,10 @@ function openModal(n) {
 
   const signWord   = e.sign === -1 ? 'negative' : 'positive';
   const statusInfo = {
-    full:    { icon:'●', color:'var(--green)',  label:'Fully Factored',     desc:'All prime factors are known.' },
-    partial: { icon:'◐', color:'var(--yellow)', label:'Partially Factored', desc:'Some prime factors known. An unfactored cofactor remains.' },
-    unknown: { icon:'○', color:'var(--red)',     label:'Unknown',            desc:'No factorization has been found for this entry yet.' },
+    full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
+    partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
+    unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
+    composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
   }[e.status];
 
   // Known factors
