@@ -2560,6 +2560,8 @@ function buildECMSection(n, e) {
   let diffHtml = '';
   if (digits) {
     const diff  = computeDifficulty(digits, attempts);
+    if (!diff || diff.score === undefined) { diffHtml = ''; }
+    else {
     const dlbl  = difficultyLabel(diff.score);
     diffHtml = `<div style="display:flex;align-items:center;gap:16px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);margin-bottom:14px;flex-wrap:wrap">
       <div>
@@ -2934,6 +2936,7 @@ function buildECMSection(n, e) {
     }
   }
 
+  } // end if (diff && diff.score !== undefined)
   return diffHtml + recommendHtml + probHtml + tableHtml + formHtml;
 }
 
@@ -3244,19 +3247,28 @@ async function fetchEulerValues() {
   const user   = s.user   || 'hilbertfrank1285';
   const repo   = s.repo   || 'euler-factordb';
   const branch = s.branch || 'main';
-  const url    = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/euler_values.json?nocache=${Date.now()}`;
-  try {
-    setStatus('Loading Euler values…');
-    const r = await fetchWithTimeout(url, 15000);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    // Populate eulerValues
-    for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
-    console.log(`Loaded ${Object.keys(data).length} Euler values`);
-  } catch(e) {
-    console.warn('Could not load euler_values.json:', e.message);
-    setStatus('⚠ Could not load Euler values — some features limited', 'warn');
+
+  // Try relative path first (fast when served from same origin / GitHub Pages)
+  // Fall back to raw.githubusercontent.com
+  const urls = [
+    'euler_values.json',
+    `https://raw.githubusercontent.com/${user}/${repo}/${branch}/euler_values.json`,
+  ];
+
+  setStatus('Loading Euler values…');
+  for (const url of urls) {
+    try {
+      const r = await fetchWithTimeout(url, 20000);
+      if (!r.ok) continue;
+      const data = await r.json();
+      for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
+      console.log(`Loaded ${Object.keys(data).length} Euler values from ${url}`);
+      return;
+    } catch(e) {
+      console.warn(`euler_values.json fetch failed (${url}):`, e.message);
+    }
   }
+  setStatus('⚠ Could not load Euler values — value boxes will be empty', 'warn');
 }
 
 // Init order: load settings → pull from GitHub → replay cache → render
