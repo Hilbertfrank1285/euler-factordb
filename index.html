@@ -2013,11 +2013,17 @@ function applyFilters() {
 }
 
 function getDifficultyForEntry(e) {
+  if (e.status === 'full') return null;
   const digits   = getCofactorDigits(e);
   if (!digits) return null;
   const ecmData  = loadECM();
   const attempts = ecmData[String(e.n)] || [];
-  return getCachedDifficulty(e.n, digits, attempts);
+  try {
+    return getCachedDifficulty(e.n, digits, attempts);
+  } catch(err) {
+    console.warn('getDifficultyForEntry error for E(' + e.n + '):', err);
+    return null;
+  }
 }
 
 function fdbTagForEntry(e) {
@@ -2070,7 +2076,7 @@ function renderGrid() {
       <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
       <div class="card-label">E(${e.n})</div>
       ${badge}${attemptBadge}
-      ${e.status === 'full' ? '' : (() => { const diff = getDifficultyForEntry(e); if (!diff) return ''; const dl = difficultyLabel(diff.score); return `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`; })()}
+      ${e.status === 'full' ? '' : (() => { try { const diff = getDifficultyForEntry(e); if (!diff || diff.score === undefined || diff.score === null) return ''; const dl = difficultyLabel(diff.score); return `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`; } catch(err) { return ''; } })()}
       ${preview}
       ${fdbTagForEntry(e)}
     </div>`;
@@ -2453,7 +2459,7 @@ function recommendNextRun(digits, attempts) {
 }
 
 function computeDifficulty(digits, attempts) {
-  if (!digits || digits <= 1) return 0;
+  if (!digits || digits <= 1) return { score:0, base:0, nfsReduction:0, ecmReduction:0, pm1Reduction:0, ecmCoverage:0, pm1Coverage:0 };
 
   // ── Base difficulty from size (logarithmic) ──────────────────────────────
   // log10(digits) / log10(2500) × 10 → ~2.3 at 20d, ~5.0 at 100d, ~7.5 at 500d, ~10 at 2500d
