@@ -263,6 +263,16 @@
   .factor-chip:hover .fdb-arrow { opacity: 1; }
   .value-box { background: var(--bg); border: 1px solid var(--border); padding: 12px 14px; font-size: 11px; color: var(--text-dim); word-break: break-all; line-height: 1.7; max-height: 120px; overflow-y: auto; font-family: 'IBM Plex Mono', monospace; }
   .value-box strong { color: var(--text); }
+  .copy-btn {
+    position: absolute; top: 6px; right: 28px;
+    background: var(--surface2); border: 1px solid var(--border2);
+    color: var(--text-muted); font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px; padding: 2px 6px; cursor: pointer; transition: all 0.15s;
+    opacity: 0; z-index: 2;
+  }
+  .value-box:hover .copy-btn, .cofactor-link:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); background: var(--green-dim); }
   .value-box.cofactor-link {
     display: block;
     text-decoration: none;
@@ -2485,6 +2495,16 @@ async function fetchLastUpdateTime() {
   }
 }
 
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (btn) { btn.textContent = '✓'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = '⎘'; btn.classList.remove('copied'); }, 1500); }
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  });
+}
+
 function toggleGithubSettings() {
   const panel = document.getElementById('githubSettingsPanel');
   if (panel) panel.classList.toggle('open');
@@ -2715,7 +2735,13 @@ function rebuildAndRender() {
   applyFilters();
 }
 
-function csvEsc(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }
+function csvEsc(v) {
+  const s = String(v);
+  // Force Excel/Sheets to treat large numeric strings as text by using ="..." notation
+  // This prevents scientific notation on long numbers
+  if (/^\d{10,}$/.test(s)) return '="' + s + '"';
+  return '"' + s.replace(/"/g, '""') + '"';
+}
 
 function exportCSV() {
   const ecmData = loadECM();
@@ -2725,7 +2751,7 @@ function exportCSV() {
   const factorCols = Array.from({length: maxFactors}, (_, i) => 'factor_' + (i+1));
 
   const rows = [
-    ['n', 'sign', 'status', ...factorCols, 'cofactor', 'cofactor_digits', 'val_digits',
+    ['n', 'sign', ...factorCols, 'cofactor', 'cofactor_digits', 'val_digits',
      'difficulty_score', 'difficulty_label', 'fdb_status', 'fdb_checked', 'ecm_attempts', 'note']
   ];
   for (const e of allEntries) {
@@ -2751,7 +2777,6 @@ function exportCSV() {
     rows.push([
       e.n,
       e.sign === -1 ? '-' : '+',
-      e.status,
       ...factorVals,
       e.cofactor || '',
       e.cofactor ? e.cofactor.length : '',
@@ -3134,8 +3159,8 @@ function startUnknownPoll() {
     setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
     return;
   }
-  // Only targets with U status in fdbCache, or not yet checked at all
-  const targets = allTargets().filter(t => {
+  // Only entries with status 'unknown' or 'composite' that returned U or were never checked
+  const targets = getUnknownTargets().filter(t => {
     const cached = fdbCache[t.number];
     return !cached || cached.status === 'U';
   });
@@ -3424,15 +3449,21 @@ function openModal(n) {
     const cofactorFdbUrl = isReal ? `https://factordb.com/index.php?query=${encodeURIComponent(e.cofactor)}` : '#';
     cofactorHtml = `<div class="modal-section">
       <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
-      <a class="value-box cofactor-link" href="${cofactorFdbUrl}" target="_blank" rel="noopener" title="Open cofactor on FactorDB" style="">${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
+      <a class="value-box cofactor-link" href="${cofactorFdbUrl}" target="_blank" rel="noopener" title="Open cofactor on FactorDB" style="position:relative"><button class="copy-btn" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(this.dataset.val,this)" data-val="${e.cofactor}" title="Copy cofactor">⎘</button>${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
       ${isReal ? `<a class="fdb-check-btn" href="${cofactorFdbUrl}" target="_blank" rel="noopener" style="margin-top:6px;text-decoration:none">↗ Open unfactored part on FactorDB</a>` : ''}
       ${fdbHtml}
     </div>`;
   }
 
   // Value
-  const valueHtml = e.val ? `<div class="modal-section"><div class="modal-section-label">|E(${n})| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div><a class="value-box cofactor-link" href="https://factordb.com/index.php?query=${encodeURIComponent(e.val)}" target="_blank" rel="noopener" title="Open |E(${n})| on FactorDB"><strong>${e.val}</strong><span class="cofactor-fdb-arrow">↗</span></a></div>` : '';
-  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
+  // Value — store in a global map to avoid attribute escaping issues with large numbers
+  window._eulerValMap = window._eulerValMap || {};
+  window._eulerValMap[n] = e.val || '';
+  const valCopyId = 'vc_' + n;
+  valueHtml = e.val ? ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
+    + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
+    + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap[' + n + '],this)" title="Copy value">⎘</button>'
+    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>') : '';  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
   let unknownFdbHtml = '';
@@ -3568,8 +3599,9 @@ async function modalCheckFull(n) {
 
 // Returns a difficulty score [0.00 - 10.00] for a given cofactor size and
 // the factoring attempts already logged. Lower = easier/more promising to attack.
-// Cache: { n: { score, base, nfsReduction, ecmReduction, pm1Reduction, ecmCoverage, pm1Coverage, cofactorDigits } }
+// Cache: { n: { score, base, nfsReduction, ecmReduction, pm1Reduction, ecmCoverage, pm1Coverage, cofactorDigits, _ts } }
 const difficultyCache = {};
+const DIFFICULTY_CACHE_MAX = 500;
 
 function invalidateDifficultyCache(n) {
   delete difficultyCache[n];
@@ -3577,10 +3609,86 @@ function invalidateDifficultyCache(n) {
 
 function getCachedDifficulty(n, digits, attempts) {
   const cached = difficultyCache[n];
-  if (cached && cached.cofactorDigits === digits) return cached;
+  if (cached && cached.cofactorDigits === digits) {
+    cached._ts = Date.now(); // update access time
+    return cached;
+  }
+  // Evict oldest entry if at capacity
+  const keys = Object.keys(difficultyCache);
+  if (keys.length >= DIFFICULTY_CACHE_MAX) {
+    const oldest = keys.reduce((a, b) => (difficultyCache[a]._ts||0) < (difficultyCache[b]._ts||0) ? a : b);
+    delete difficultyCache[oldest];
+  }
   const result = computeDifficulty(digits, attempts);
-  difficultyCache[n] = { ...result, cofactorDigits: digits };
+  difficultyCache[n] = { ...result, cofactorDigits: digits, _ts: Date.now() };
   return difficultyCache[n];
+}
+
+function recommendNextRun(digits, attempts) {
+  if (!digits || digits > 10000) return null;
+
+  const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
+  const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
+
+  function b1ToTargetD(b1str) {
+    const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
+    if (!b1val || b1val <= 1) return 0;
+    const lnB1 = Math.log(b1val); const lnln = Math.log(Math.max(lnB1,1.1));
+    return Math.round((lnB1*lnB1)/(Math.log(10)*lnln));
+  }
+
+  const curvesPerD = {};
+  for (const a of ecmAttempts) {
+    const td = b1ToTargetD(a.b1); const c = parseInt(a.curves)||0;
+    for (let d = td-3; d <= td+3; d++) curvesPerD[d] = (curvesPerD[d]||0) + c;
+  }
+
+  const targetRange = [20,25,30,35,40,45,50,55,60,65].filter(d => d < Math.min(digits, 66));
+
+  // Find the digit range with the most probability gain potential
+  // Gain = pFactorExists(d,digits) × (targetProb - currentProb) where targetProb=0.5
+  let bestGain = 0, bestD = 25, bestCurves = 1000, bestB1 = '1e6';
+
+  for (const d of targetRange) {
+    const currentCurves = curvesPerD[d] || 0;
+    const currentP = currentCurves ? ecmProbability(d, currentCurves) : 0;
+    if (currentP >= 0.9) continue; // already well covered
+
+    // How many curves to add to reach 50% (or improve by 20 percentage points)?
+    const targetP  = Math.min(currentP + 0.20, 0.5);
+    const L        = lenstраL(d);
+    const totalNeeded = Math.ceil(-L * Math.log(1 - targetP));
+    const addCurves   = Math.max(totalNeeded - currentCurves, 100);
+    const pExists  = Math.log((d+5)/d) / Math.log(digits);
+    const gain     = pExists * (targetP - currentP) * 100;
+
+    if (gain > bestGain) {
+      bestGain    = gain;
+      bestD       = d;
+      bestCurves  = addCurves;
+      bestB1      = fmtB1(optimalB1(d));
+    }
+  }
+
+  if (bestGain < 0.001) {
+    // ECM well covered — suggest P-1 if not done
+    if (!pm1Attempts.length) {
+      return { method:'P-1', b1:'1e7', b2:'1e11', curves:null, targetDigits:20,
+        gain:(Math.log(25/20)/Math.log(digits)*100).toFixed(2),
+        reason:'No P-1 runs logged yet. P-1 is fast and finds primes with smooth p−1 — complementary to ECM.' };
+    }
+    return null;
+  }
+
+  const reason = currentD => {
+    const cov = curvesPerD[bestD] || 0;
+    return cov === 0
+      ? `No ECM coverage at ${bestD}-digit range yet. Optimal B1 for this range is ${bestB1}.`
+      : `Current coverage at ${bestD}d: ${fmtCurves(cov)} curves (${fmtPct(ecmProbability(bestD, cov))}). Adding ${fmtCurves(bestCurves)} curves improves by ~20 percentage points.`;
+  };
+
+  return { method:'ECM', b1:bestB1, b2:null, curves:fmtCurves(bestCurves),
+    targetDigits: bestD, gain: bestGain.toFixed(2), reason: reason(bestD) };
 }
 
 function computeDifficulty(digits, attempts) {
@@ -3882,15 +3990,21 @@ function buildECMSection(n, e) {
         // and a random n-digit composite has a d-digit factor with prob ≈ ln(10) / ln(n/d)... 
         // Simplest usable heuristic: P(d-digit factor exists) ≈ (ln10) / (ln(N) / d)
         // = d × ln10 / ln(N) for each specific d — then normalise
+        // P(N has a prime factor in the d-digit to (d+5)-digit range)
+        // Based on the fact that for a random n-digit number,
+        // the probability of having a prime factor of exactly k digits is:
+        // P(k) ≈ (1/k) × (1 - 1/k) × ... ≈ ln(k+1)/ln(n) - ln(k)/ln(n) = ln((k+1)/k)/ln(n)
+        // For a 5-digit range [d, d+5): sum from k=d to d+4 of ln((k+1)/k)/ln(n)
+        // = ln((d+5)/d) / ln(n)   (telescoping)
         function pFactorExists(d, totalDigits) {
-          // Heuristic: for a random totalDigits-digit composite,
-          // the probability it has a prime factor of exactly d digits is approximately
-          // 1/d × (1 - 1/(d×ln10)) integrated — simplifies to:
-          // P ≈ ln(d+5) - ln(d) / ln(totalDigits) × some constant
-          // Best simple approximation: P(factor in [d, d+5)) ≈ 5/(d × ln10 × ln(totalDigits/2))
-          const lnN  = totalDigits * Math.log(10);
-          const lnD  = d * Math.log(10);
-          return Math.min(5 / (d * Math.log(d * Math.log(10))), 0.5);
+          if (d >= totalDigits) return 0;
+          const lnN = Math.log(totalDigits); // in digit-space, lnN ≈ totalDigits (natural log of 10^n = n×ln10)
+          // Probability of a factor in [d, d+5) digits:
+          // integral from d to d+5 of 1/(k × ln(n/k)) dk (Dickman-like)
+          // Simple closed form: ln((d+5)/d) / ln(totalDigits)
+          // Capped at 0.5 per bucket (can't be more than 50% likely for any one range)
+          const p = Math.log((d + 5) / d) / Math.log(totalDigits);
+          return Math.min(Math.max(p, 0), 0.5);
         }
 
         const resolveDigits = [20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
@@ -4057,7 +4171,21 @@ function buildECMSection(n, e) {
     <button class="ecm-submit" onclick="addECMAttempt(${n})">+ Log attempt</button>
   </div>`;
 
-  return diffHtml + probHtml + tableHtml + formHtml;
+  // What to run next recommendation
+  let recommendHtml = '';
+  if (digits) {
+    const rec = recommendNextRun(digits, attempts);
+    if (rec) {
+      recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
+        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">★ Recommended next run</div>'
+        + '<div style="font-size:12px;color:var(--text);margin-bottom:4px">' + rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '') + '</div>'
+        + '<div style="font-size:11px;color:var(--text-dim);line-height:1.6">' + rec.reason + '</div>'
+        + '<div style="font-size:10px;color:var(--green);margin-top:4px">Expected gain: +' + rec.gain + '% probability at ' + rec.targetDigits + 'd factors</div>'
+        + '</div>';
+    }
+  }
+
+  return diffHtml + recommendHtml + probHtml + tableHtml + formHtml;
 }
 
 // Refresh grid/stats after ECM log changes
@@ -4149,9 +4277,12 @@ function applyBulkECM() {
     const key = String(e.n);
     if (!ecmData[key]) ecmData[key] = [];
     // Skip if identical attempt already logged (same method+b1+b2+curves+date)
-    // Deduplicate by method+b1+b2+curves — same params never logged twice regardless of date
-    const sig = attempt.method + '_' + attempt.b1 + '_' + attempt.b2 + '_' + attempt.curves;
-    const already = ecmData[key].some(a => (a.method+'_'+a.b1+'_'+a.b2+'_'+a.curves) === sig);
+    // Normalise B1/B2 to numeric for dedup (3e6 === 3000000)
+    function normNum(s) { return s ? String(parseFloat(String(s).replace(/[eE]/,'e'))) : ''; }
+    const sig = attempt.method + '_' + normNum(attempt.b1) + '_' + normNum(attempt.b2) + '_' + (attempt.curves||'');
+    const already = ecmData[key].some(a =>
+      (a.method+'_'+normNum(a.b1)+'_'+normNum(a.b2)+'_'+(a.curves||'')) === sig
+    );
     if (!already) ecmData[key].push({ ...attempt });
   }
   saveECM(ecmData);
