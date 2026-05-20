@@ -1368,7 +1368,9 @@ async function githubPull() {
     applyFilters();
     renderChangelog();
     addLog('GitHub pull complete — data merged', 'ok');
-    setGHStatus(`Pulled — last updated ${payload.updatedAt ? new Date(payload.updatedAt).toLocaleString() : 'unknown'}`, 'ok');
+    // Refresh the header timestamp from the actual GitHub commit (most accurate)
+    fetchLastUpdateTime();
+    setGHStatus('Pulled from GitHub — data merged', 'ok');
   } catch(e) {
     setGHStatus(`Pull failed: ${e.message}`, 'err');
     addLog(`GitHub pull error: ${e.message}`, 'err');
@@ -1387,35 +1389,46 @@ async function githubPush() {
   setGHBtns(true);
   setGHStatus('Pushing to GitHub…', 'busy');
   try {
-    // Get current SHA if file exists (needed for update)
-    let sha = null;
-    const existing = await fetch(ghApiBase() + `?ref=${s.branch||'main'}`, { headers: ghHeaders() });
-    if (existing.ok) {
-      const existData = await existing.json();
-      sha = existData.sha;
+    // Helper to get current SHA
+    async function getCurrentSha() {
+      const r = await fetch(ghApiBase() + '?ref=' + (s.branch||'main'), { headers: ghHeaders() });
+      if (r.ok) { const d = await r.json(); return d.sha || null; }
+      return null;
     }
 
-    const payload  = buildSyncPayload();
-    const content  = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-    const body     = {
-      message: `Update Euler factorization data — ${new Date().toISOString().slice(0,10)}`,
-      content,
-      branch: s.branch || 'main',
-      ...(sha ? { sha } : {}),
-    };
+    // Helper to attempt one push with a given SHA
+    async function attemptPush(sha) {
+      const payload = buildSyncPayload();
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+      const body    = {
+        message: 'Update Euler factorization data — ' + new Date().toISOString().slice(0,10),
+        content: encoded,
+        branch:  s.branch || 'main',
+        ...(sha ? { sha } : {}),
+      };
+      return fetch(ghApiBase(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
+    }
 
-    const r = await fetch(ghApiBase(), {
-      method:  'PUT',
-      headers: ghHeaders(),
-      body:    JSON.stringify(body),
-    });
+    let sha = await getCurrentSha();
+    let r   = await attemptPush(sha);
+
+    // If SHA conflict (409 or 422), fetch fresh SHA and retry once
+    if (!r.ok && (r.status === 409 || r.status === 422)) {
+      setGHStatus('SHA conflict — retrying with fresh SHA…', 'busy');
+      sha = await getCurrentSha();
+      r   = await attemptPush(sha);
+    }
+
     if (!r.ok) {
       const err = await r.json();
-      throw new Error(err.message || `HTTP ${r.status}`);
+      throw new Error(err.message || 'HTTP ' + r.status);
     }
+    const pushTime = new Date();
     addLog('GitHub push complete', 'ok');
-    setGHStatus(`Pushed to GitHub @ ${new Date().toLocaleTimeString()}`, 'ok');
-    fetchLastUpdateTime();
+    setGHStatus('Pushed to GitHub @ ' + pushTime.toLocaleTimeString(), 'ok');
+    // Update header timestamp directly — don't query API (CDN caches for minutes)
+    const el = document.getElementById('ghLastUpdate');
+    if (el) { el.textContent = pushTime.toLocaleString(); el.title = 'Just pushed'; }
     const warn = document.getElementById('ghPushWarning');
     if (warn) warn.style.display = 'none';
   } catch(e) {
