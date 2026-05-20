@@ -470,7 +470,7 @@
 <header>
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
-    <p>Secant numbers · E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled</p>
+    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
   </div>
 </header>
 
@@ -2284,6 +2284,29 @@ function updateGHStatus() {
   }
 }
 
+async function fetchLastUpdateTime() {
+  const el = document.getElementById('ghLastUpdate');
+  if (!el) return;
+  try {
+    const s      = loadGHSettings();
+    const user   = s.user   || 'hilbertfrank1285';
+    const repo   = s.repo   || 'euler-factordb';
+    const branch = s.branch || 'main';
+    // Use GitHub commits API — public endpoint, no token needed
+    const url = `https://api.github.com/repos/${user}/${repo}/commits?path=${GH_DATA_FILE}&sha=${branch}&per_page=1`;
+    const r   = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const commits = await r.json();
+    if (!commits.length) { el.textContent = 'no data yet'; return; }
+    const date = new Date(commits[0].commit.committer.date);
+    el.textContent = date.toLocaleString();
+    el.title = commits[0].commit.message;
+  } catch(e) {
+    const el2 = document.getElementById('ghLastUpdate');
+    if (el2) el2.textContent = 'unavailable';
+  }
+}
+
 function toggleGithubSettings() {
   const panel = document.getElementById('githubSettingsPanel');
   if (panel) panel.classList.toggle('open');
@@ -2444,6 +2467,7 @@ async function githubPush() {
     }
     addLog('GitHub push complete', 'ok');
     setGHStatus(`Pushed to GitHub @ ${new Date().toLocaleTimeString()}`, 'ok');
+    fetchLastUpdateTime();
   } catch(e) {
     setGHStatus(`Push failed: ${e.message}`, 'err');
     addLog(`GitHub push error: ${e.message}`, 'err');
@@ -3276,15 +3300,33 @@ function addECMAttempt(n) {
 }
 
 function deleteECMAttempt(n, i) {
-  // JSON keys are always strings — coerce n to string for lookup
   const key     = String(n);
   const idx     = parseInt(i);
   const ecmData = loadECM();
-  if (!ecmData[key] || !ecmData[key][idx]) { alert('Attempt not found.'); return; }
-  const a = ecmData[key][idx];
+
+  // Debug: log what we have
+  console.log('deleteECMAttempt called:', n, i, 'key:', key, 'idx:', idx);
+  console.log('ecmData keys:', Object.keys(ecmData));
+  console.log('ecmData[key]:', ecmData[key]);
+
+  // Try both string and number key (in case old data used numeric keys)
+  const attempts = ecmData[key] || ecmData[n] || [];
+  if (!attempts.length || idx < 0 || idx >= attempts.length) {
+    alert('Attempt not found. Key: ' + key + ', idx: ' + idx + ', available keys: ' + Object.keys(ecmData).join(', '));
+    return;
+  }
+  const a = attempts[idx];
   if (!confirm('Delete ' + a.method + ' attempt (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')?')) return;
-  ecmData[key].splice(idx, 1);
-  if (ecmData[key].length === 0) delete ecmData[key];
+
+  // Remove from whichever key exists
+  if (ecmData[key]) {
+    ecmData[key].splice(idx, 1);
+    if (ecmData[key].length === 0) delete ecmData[key];
+  } else if (ecmData[n]) {
+    ecmData[n].splice(idx, 1);
+    if (ecmData[n].length === 0) delete ecmData[n];
+  }
+
   saveECM(ecmData);
   syncAttemptedStatus(n);
   const sec = document.getElementById('ecmSection_' + n);
@@ -3373,6 +3415,7 @@ applyFilters();
 setStatus('Ready — use the buttons above to query FactorDB');
 renderChangelog();
 loadGHSettingsToUI();
+fetchLastUpdateTime();
 maybeAutoPull();
 </script>
 </body>
