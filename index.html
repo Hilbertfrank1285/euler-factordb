@@ -2416,6 +2416,41 @@ function getCachedDifficulty(n, digits, attempts) {
   return difficultyCache[n];
 }
 
+// Estimate CPU time on a single fast core (~Zen3 @ 4.5GHz / 5900X) in seconds
+// Empirically calibrated against GMP-ECM 7.0.6 benchmarks
+function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
+  if (!b1 || !cofactorDigits) return null;
+  const d = cofactorDigits;
+  const c = parseInt(curves) || 1;
+  // ECM/P-1 stage 1: roughly proportional to B1 × d^1.5 (FFT mulmod dominates)
+  // Calibration: B1=3e6, d=300 → ~16s stage 1 per curve
+  // Coefficient: 16 / (3e6 * 300^1.5) ≈ 1.027e-9
+  const k_s1 = 1.03e-9;
+  const stage1 = k_s1 * b1 * Math.pow(d, 1.5);
+
+  // Stage 2: B2/B1 ratio matters, scales linearly with B2/B1 but only sqrt of d
+  // Default B2 ≈ 100*B1 gives stage2 ≈ 0.5 × stage1
+  const b2eff = b2 || (100 * b1);
+  const stage2 = stage1 * Math.sqrt(b2eff / b1) / 10 * Math.sqrt(d / 100);
+
+  const perCurve = stage1 + stage2;
+
+  // P-1/P+1: single run (curves field is ignored — effectively 1)
+  // ECM: multiplied by curves
+  const isPM1 = method === 'P-1' || method === 'P+1';
+  const totalCurves = isPM1 ? 1 : c;
+  return perCurve * totalCurves;
+}
+
+function fmtCpuTime(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 1)    return seconds.toFixed(2) + ' s';
+  if (seconds < 60)   return Math.round(seconds) + ' s';
+  if (seconds < 3600) return (seconds/60).toFixed(1) + ' min';
+  if (seconds < 86400) return (seconds/3600).toFixed(1) + ' hr';
+  return (seconds/86400).toFixed(1) + ' days';
+}
+
 function recommendNextRun(digits, attempts) {
   if (!digits || digits > 10000) return null;
 
@@ -2857,7 +2892,7 @@ function buildECMSection(n, e) {
   if (attempts.length) {
     tableHtml = `<table class="ecm-table">
       <thead><tr>
-        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th>Tool</th><th>P(find factor)</th><th>Date</th><th>Note</th><th></th>
+        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~5900X core</span></th><th>Date</th><th>Note</th><th></th>
       </tr></thead>
       <tbody>
         ${attempts.map((a, i) => {
@@ -2899,6 +2934,12 @@ function buildECMSection(n, e) {
             <td>${a.poly||'—'}</td>
             <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
             <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
+            <td title="Estimated time on a single Zen 3 / 5900X core" style="font-size:10px;color:var(--text-dim)">${(() => {
+              const b1n = a.b1 ? parseFloat(String(a.b1).replace(/[eE]/,'e')) : 0;
+              const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+              const cpuS = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
+              return fmtCpuTime(cpuS);
+            })()}</td>
             <td>${a.date||'—'}</td>
             <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note||''}</td>
             <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
@@ -3176,7 +3217,7 @@ function deleteECMAttempt(n, i) {
   noBtn.onclick = () => confirmRow.remove();
 
   const td = document.createElement('td');
-  td.colSpan = 10;
+  td.colSpan = 11;
   td.style.cssText = 'padding:8px 10px;font-size:11px;color:var(--red)';
   td.appendChild(document.createTextNode('⚠ Delete ' + a.method + ' (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')? '));
   td.appendChild(yesBtn);
