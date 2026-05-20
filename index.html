@@ -3056,7 +3056,7 @@ function buildECMSection(n, e) {
       const totalCurves = attempts.filter(a => a.method === 'ECM').reduce((s,a) => s + (parseInt(a.curves)||0), 0);
       probHtml = `<div style="margin-bottom:10px">
         <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-          P(find a prime factor of exactly N digits) with ${totalCurves ? totalCurves+' total ECM curves' : 'no ECM yet'}
+          P(find N-digit factor with ECM) — curves grouped by B1 target · ${totalCurves ? totalCurves+' total' : 'no ECM yet'} · ECM practical ≤65d
         </div>
         <div class="prob-grid">
           ${checkDigits.map(d => {
@@ -3064,10 +3064,15 @@ function buildECMSection(n, e) {
             const b1   = optimalB1(d);
             const cls  = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
             const need = curvesForProb(d, 0.9);
-            return `<div class="prob-cell">
+            const nfsRange = d > 65;
+            const cellStyle = nfsRange ? 'opacity:0.45;border-color:var(--border)' : '';
+            const probDisp  = nfsRange
+              ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">use NFS</div>`
+              : `<div class="prob-v ${cls}">${fmtPct(p)}</div>`;
+            return `<div class="prob-cell" style="${cellStyle}">
               <div class="prob-d">${d}-digit factor</div>
-              <div class="prob-v ${cls}">${fmtPct(p)}</div>
-              <div class="prob-b1">B1≈${fmtB1(b1)} · 90%→${fmtCurves(need)} curves</div>
+              ${probDisp}
+              <div class="prob-b1">B1≈${fmtB1(b1)}${nfsRange ? '' : ' · 90%→'+fmtCurves(need)}</div>
             </div>`;
           }).join('')}
         </div>
@@ -3084,24 +3089,27 @@ function buildECMSection(n, e) {
       </tr></thead>
       <tbody>
         ${attempts.map((a, i) => {
-          // Per-row: show the digit range this B1 targets (not probability vs full cofactor)
+          // Per-row: show the digit range this B1 targets + whether it's practical
           let probCell = '';
           if (a.method === 'ECM' && a.b1) {
-            const b1val = parseFloat(a.b1.replace(/e/i,'e'));
-            // Optimal digit size for this B1: d where optimalB1(d) ≈ B1
-            // Invert: d ≈ (ln(B1))^2 / (ln(10) * ln(ln(B1)))
-            const lnB1  = Math.log(b1val);
-            const lnln  = Math.log(lnB1);
+            const b1val   = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+            const lnB1    = Math.log(b1val);
+            const lnln    = Math.log(Math.max(lnB1, 1.1));
             const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
-            // Also compute prob of finding exactly that digit size with these curves
-            const p   = ecmProbability(targetD, parseInt(a.curves)||1);
+            const practical = targetD <= 65; // ECM practical limit ~60-65 digits
+            const curves  = parseInt(a.curves) || 1;
+            // Probability of finding a factor of EXACTLY targetD digits
+            const p   = ecmProbability(targetD, curves);
             const cls = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
-            probCell  = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> <span class="${cls}">${fmtPct(p)}</span>`;
+            const practicalNote = practical
+              ? `<span class="${cls}">${fmtPct(p)}</span>`
+              : `<span style="color:var(--text-muted);font-size:10px">NFS range</span>`;
+            probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ${practicalNote}`;
           } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
-            const b1num = parseFloat(a.b1.replace(/e/i,'e'));
+            const b1num = parseFloat(String(a.b1).replace(/[eE]/,'e'));
             const p     = pm1Probability(digits, b1num);
             const cls   = p > 0.1 ? 'prob-mid' : 'prob-low';
-            probCell    = `<span class="${cls}">${fmtPct(p)} vs ${digits}d</span>`;
+            probCell    = `<span class="${cls}">${fmtPct(p)} vs ${digits}d cofactor</span>`;
           }
           // Build GMP-ECM command hint for ECM rows
           let cmdHint = '';
