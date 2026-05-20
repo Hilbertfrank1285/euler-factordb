@@ -2002,7 +2002,7 @@ function replayFDBCache() {
     }
 
     // Confirmed composite, no factors
-    if (status === 'C' && entry.status === 'unknown') {
+    if (status === 'C' && (entry.status === 'unknown' || entry.status === 'composite')) {
       entry.status = 'composite';
     }
 
@@ -2274,7 +2274,7 @@ function updateGHStatus() {
     el.textContent = 'Auto-pull active (public) — configure ⚙ to push your results';
   } else {
     el.className = 'github-status ok';
-    el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — ready`;
+    el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — push enabled`;
   }
 }
 
@@ -2348,15 +2348,19 @@ function mergeSyncPayload(remote) {
   const mergedCL = Array.from(clMap.values()).sort((a,b) => (b.ts||0)-(a.ts||0));
   saveChangelog(mergedCL);
 
-  // ECM: merge by n + date + method (dedup)
+  // ECM: merge by n + date + method (dedup) — normalise all keys to strings
   const localECM  = loadECM();
   const remoteECM = remote.ecm || {};
-  const mergedECM = { ...localECM };
+  // Normalise local keys to strings
+  const normLocal = {};
+  for (const [k,v] of Object.entries(localECM)) normLocal[String(k)] = v;
+  const mergedECM = { ...normLocal };
   for (const [n, attempts] of Object.entries(remoteECM)) {
-    if (!mergedECM[n]) { mergedECM[n] = attempts; continue; }
-    const existing = new Set(mergedECM[n].map(a => `${a.method}_${a.date}_${a.b1}`));
+    const key = String(n);
+    if (!mergedECM[key]) { mergedECM[key] = attempts; continue; }
+    const existing = new Set(mergedECM[key].map(a => `${a.method}_${a.date}_${a.b1}`));
     for (const a of attempts) {
-      if (!existing.has(`${a.method}_${a.date}_${a.b1}`)) mergedECM[n].push(a);
+      if (!existing.has(`${a.method}_${a.date}_${a.b1}`)) mergedECM[key].push(a);
     }
   }
   saveECM(mergedECM);
@@ -2372,8 +2376,8 @@ async function githubPull() {
   setGHStatus('Pulling from GitHub…', 'busy');
   try {
     // Use raw content URL — public, no auth required
-    const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${GH_DATA_FILE}`;
-    const r = await fetch(rawUrl + '?nocache=' + Date.now());
+    const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${GH_DATA_FILE}?nocache=${Date.now()}`;
+    const r = await fetch(rawUrl);
     if (r.status === 404) {
       setGHStatus('No results.json found in repo yet — push first to create it', '');
       return;
@@ -2513,9 +2517,10 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // Sleeps but resolves early if cancelRequested is set
 function cancellableSleep(ms) {
   return new Promise(resolve => {
+    if (cancelRequested) { resolve(); return; }
     const interval = 200;
-    let elapsed = 0;
-    const tick = setInterval(() => {
+    let elapsed    = 0;
+    const tick     = setInterval(() => {
       elapsed += interval;
       if (cancelRequested || elapsed >= ms) {
         clearInterval(tick);
@@ -2606,7 +2611,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
           addChangelogEntry(target.n, 'promoted', `Cofactor resolved via FactorDB (${fdbStatusLabel(status)}). New factors: ${fdbFactors.join(' × ')}`);
 
         // Path 2: full value lookup resolved (unknown → full)
-        } else if (entry.val === target.number && entry.status === 'unknown' && resolved) {
+        } else if (entry.val === target.number && (entry.status === 'unknown' || entry.status === 'composite') && resolved) {
           const fdbFactors = factors.filter(f => f && f !== '1');
           entry.factors = fdbFactors;
           entry.cofactor = null;
@@ -2616,7 +2621,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
           addChangelogEntry(target.n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: ' + fdbFactors.join(' × ') : ' (unit)'}`);
 
         // Path 3a: confirmed composite, no factors (C status) → mark as composite
-        } else if (status === 'C' && entry.status === 'unknown') {
+        } else if (status === 'C' && (entry.status === 'unknown' || entry.status === 'composite')) {
           entry.status = 'composite';
           addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
 
@@ -2855,7 +2860,7 @@ function openModal(n) {
   // Determine if this entry's factors are all verified prime via FDB (FF status on value or cofactor)
   // Check both the full value AND any cofactor FDB result for FF confirmation
   const entryFDBByVal      = e.val    ? fdbCache[e.val]    : null;
-  const entryFDBByCofactor = e._resolvedViaCofactor ? fdbCache[e._resolvedViaCofactor] : null;
+  const entryFDBByCofactor = e._resolvedViaCofactor ? fdbCache[String(e._resolvedViaCofactor)] : null;
   const allVerifiedPrime   = (entryFDBByVal      && entryFDBByVal.status      === 'FF') ||
                              (entryFDBByCofactor  && entryFDBByCofactor.status === 'FF') ||
                              e._fdbVerified === true;
@@ -3043,7 +3048,7 @@ function getCofactorDigits(e) {
 
 function buildECMSection(n, e) {
   const ecmData  = loadECM();
-  const attempts = (ecmData[n] || []);
+  const attempts = (ecmData[String(n)] || []);
   const digits   = getCofactorDigits(e);
 
   // Probability table for cofactor
@@ -3136,7 +3141,7 @@ function buildECMSection(n, e) {
     tableHtml = `<div style="font-size:11px;color:var(--text-muted);padding:8px 0">No attempts recorded yet.</div>`;
   }
 
-  // Add form — local GMP-ECM / P-1 / P+1 / SIQS / NFS
+  // Add form — local GMP-ECM / P-1 / P+1
   // P-1/P+1 fields hidden by default since ECM is default method
   const formHtml = `<div class="ecm-add-form" style="margin-top:10px">
     <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Log new attempt</div>
@@ -3193,10 +3198,10 @@ function buildECMSection(n, e) {
 }
 
 function toggleECMFields(n) {
-  const method = document.getElementById('ecm_method_' + n)?.value;
-  const ecmFields  = document.querySelectorAll('.ecm-ecm-only_' + n);
-  const pm1Fields  = document.querySelectorAll('.ecm-pm1-only_' + n);
-  ecmFields.forEach(el => el.style.display = method === 'ECM' ? '' : 'none');
+  const method    = document.getElementById('ecm_method_' + n)?.value || 'ECM';
+  const ecmFields = document.querySelectorAll('.ecm-ecm-only_' + n);
+  const pm1Fields = document.querySelectorAll('.ecm-pm1-only_' + n);
+  ecmFields.forEach(el => el.style.display = (method === 'ECM') ? '' : 'none');
   pm1Fields.forEach(el => el.style.display = (method === 'P-1' || method === 'P+1') ? '' : 'none');
 }
 
@@ -3223,8 +3228,9 @@ function addECMAttempt(n) {
   if (isPM1  && !attempt.b1)    { alert('B1 is required for ' + method + '.'); return; }
 
   const ecmData = loadECM();
-  if (!ecmData[n]) ecmData[n] = [];
-  ecmData[n].push(attempt);
+  const key = String(n);
+  if (!ecmData[key]) ecmData[key] = [];
+  ecmData[key].push(attempt);
   saveECM(ecmData);
 
   let logMsg = `E(${n}) ${method} logged`;
@@ -3239,12 +3245,15 @@ function addECMAttempt(n) {
 }
 
 function deleteECMAttempt(n, i) {
+  // JSON keys are always strings — coerce n to string for lookup
+  const key     = String(n);
+  const idx     = parseInt(i);
   const ecmData = loadECM();
-  if (!ecmData[n] || !ecmData[n][i]) { alert('Attempt not found.'); return; }
-  const a = ecmData[n][i];
+  if (!ecmData[key] || !ecmData[key][idx]) { alert('Attempt not found.'); return; }
+  const a = ecmData[key][idx];
   if (!confirm('Delete ' + a.method + ' attempt (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')?')) return;
-  ecmData[n].splice(i, 1);
-  if (ecmData[n].length === 0) delete ecmData[n];
+  ecmData[key].splice(idx, 1);
+  if (ecmData[key].length === 0) delete ecmData[key];
   saveECM(ecmData);
   const sec = document.getElementById('ecmSection_' + n);
   const e   = allEntries.find(x => x.n === n);
@@ -3261,10 +3270,10 @@ function clearEntryCache(n) {
   saveFDBCache(fdbCache);
 
   // Reset entry back to unknown
-  const base = factoData[n] || { status:'unknown', factors:[], cofactor:null };
-  e.status   = base.status;
-  e.factors  = [...(base.factors || [])];
-  e.cofactor = base.cofactor || null;
+  // Reset to unknown — factoData is empty, all data comes from FDB
+  e.status   = 'unknown';
+  e.factors  = [];
+  e.cofactor = null;
   delete e._fdbVerified;
   delete e._resolvedViaCofactor;
 
