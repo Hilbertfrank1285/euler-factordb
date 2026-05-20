@@ -1,1 +1,1 @@
-# euler-factordb
+# euler-factorization
