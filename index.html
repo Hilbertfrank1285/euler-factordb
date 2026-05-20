@@ -2280,7 +2280,7 @@ function updateGHStatus() {
 
 function toggleGithubSettings() {
   const panel = document.getElementById('githubSettingsPanel');
-  panel.classList.toggle('open');
+  if (panel) panel.classList.toggle('open');
 }
 
 function ghApiBase() {
@@ -2299,15 +2299,21 @@ function ghHeaders() {
 }
 
 function setGHStatus(msg, cls = '') {
-  const el = document.getElementById('githubStatus');
-  if (el) { el.textContent = msg; el.className = 'github-status' + (cls ? ' '+cls : ''); }
+  try {
+    const el = document.getElementById('githubStatus');
+    if (el) { el.textContent = msg; el.className = 'github-status' + (cls ? ' '+cls : ''); }
+    // Also log to activity log so it's visible even if bar is off-screen
+    if (cls === 'err') console.error('GitHub:', msg);
+  } catch(e) { console.warn('setGHStatus error:', e); }
 }
 
 function setGHBtns(disabled) {
-  ['ghPullBtn','ghPushBtn'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = disabled;
-  });
+  try {
+    ['ghPullBtn','ghPushBtn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = disabled;
+    });
+  } catch(e) {}
 }
 
 // Serialise all local data into one object
@@ -2393,8 +2399,8 @@ async function githubPull() {
 async function githubPush() {
   const s = loadGHSettings();
   if (!s.user || !s.repo || !s.token) {
-    toggleGithubSettings();
-    setGHStatus('Please configure GitHub settings first', 'err');
+    setGHStatus('Please configure GitHub settings ⚙ first (token required to push)', 'err');
+    addLog('GitHub push skipped — no token configured', 'warn');
     return;
   }
   setGHBtns(true);
