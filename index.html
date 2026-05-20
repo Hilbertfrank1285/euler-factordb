@@ -1011,11 +1011,11 @@ async function queryFactorDB(numberStr) {
   if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
 
   const timeout = timeoutForNumber(numberStr);
-  const directUrl = `https://factordb.com/api?query=${encodeURIComponent(numberStr)}`;
-  const proxyUrl  = `https://corsproxy.io/?url=${encodeURIComponent('https://factordb.com/api?query='+numberStr)}`;
+  const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
+  const proxyUrl  = `https://corsproxy.io/?url=${encodeURIComponent(fdbApiUrl)}`;
 
-  // Try direct first (works on GitHub Pages), then proxy (for local file:// use)
-  for (const url of [directUrl, proxyUrl]) {
+  // Always use proxy — factordb.com blocks direct browser requests (no CORS headers)
+  for (const url of [proxyUrl, fdbApiUrl]) {
     try {
       const r = await fetchWithTimeout(url, timeout);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
