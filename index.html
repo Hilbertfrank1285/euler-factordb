@@ -3084,16 +3084,24 @@ function buildECMSection(n, e) {
       </tr></thead>
       <tbody>
         ${attempts.map((a, i) => {
-          // Compute probability for this attempt
+          // Per-row: show the digit range this B1 targets (not probability vs full cofactor)
           let probCell = '';
-          if (a.method === 'ECM' && a.curves && digits) {
-            const p   = ecmProbability(digits, parseInt(a.curves));
+          if (a.method === 'ECM' && a.b1) {
+            const b1val = parseFloat(a.b1.replace(/e/i,'e'));
+            // Optimal digit size for this B1: d where optimalB1(d) ≈ B1
+            // Invert: d ≈ (ln(B1))^2 / (ln(10) * ln(ln(B1)))
+            const lnB1  = Math.log(b1val);
+            const lnln  = Math.log(lnB1);
+            const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+            // Also compute prob of finding exactly that digit size with these curves
+            const p   = ecmProbability(targetD, parseInt(a.curves)||1);
             const cls = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
-            probCell  = `<span class="${cls}">${fmtPct(p)}</span>`;
+            probCell  = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> <span class="${cls}">${fmtPct(p)}</span>`;
           } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
-            const p   = pm1Probability(digits, parseInt(a.b1.replace(/[^0-9]/g,'')));
-            const cls = p > 0.1 ? 'prob-mid' : 'prob-low';
-            probCell  = `<span class="${cls}">${fmtPct(p)}</span>`;
+            const b1num = parseFloat(a.b1.replace(/e/i,'e'));
+            const p     = pm1Probability(digits, b1num);
+            const cls   = p > 0.1 ? 'prob-mid' : 'prob-low';
+            probCell    = `<span class="${cls}">${fmtPct(p)} vs ${digits}d</span>`;
           }
           // Build GMP-ECM command hint for ECM rows
           let cmdHint = '';
@@ -3150,12 +3158,16 @@ function buildECMSection(n, e) {
         <input type="text" id="ecm_poly_${n}" placeholder="e.g. k=3, Dickson">
       </div>
       <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
-        <label>B1</label>
+        <label>B1 <span style="color:var(--red)">*</span></label>
         <input type="text" id="ecm_pm1b1_${n}" placeholder="e.g. 1e8">
       </div>
       <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
         <label>B2 (optional)</label>
         <input type="text" id="ecm_pm1b2_${n}" placeholder="optional">
+      </div>
+      <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
+        <label>Curves</label>
+        <input type="number" id="ecm_pm1curves_${n}" placeholder="e.g. 1" min="1">
       </div>
       <div class="ecm-field">
         <label>Tool / version</label>
@@ -3188,10 +3200,10 @@ function addECMAttempt(n) {
 
   const attempt = {
     method,
-    b1:      isECM ? get(`ecm_b1_${n}`)      : isPM1 ? get(`ecm_pm1b1_${n}`) : '',
-    b2:      isECM ? get(`ecm_b2_${n}`)      : isPM1 ? get(`ecm_pm1b2_${n}`) : '',
-    curves:  isECM ? get(`ecm_curves_${n}`)  : '',
-    poly:    isECM ? get(`ecm_poly_${n}`)    : '',
+    b1:      isECM ? get(`ecm_b1_${n}`)         : isPM1 ? get(`ecm_pm1b1_${n}`)     : '',
+    b2:      isECM ? get(`ecm_b2_${n}`)         : isPM1 ? get(`ecm_pm1b2_${n}`)     : '',
+    curves:  isECM ? get(`ecm_curves_${n}`)     : isPM1 ? get(`ecm_pm1curves_${n}`) : '',
+    poly:    isECM ? get(`ecm_poly_${n}`)       : '',
     tool:    get(`ecm_tool_${n}`),
     note:    get(`ecm_note_${n}`),
     date:    new Date().toISOString().slice(0,10),
