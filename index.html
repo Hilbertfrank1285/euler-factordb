@@ -2259,7 +2259,7 @@ function updateGHStatus() {
   if (!el) return;
   if (!s.user || !s.repo || !s.token) {
     el.className = 'github-status';
-    el.textContent = 'Not configured — click ⚙ to set up';
+    el.textContent = 'Auto-pull active (public) — configure ⚙ to push your results';
   } else {
     el.className = 'github-status ok';
     el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — ready`;
@@ -2346,30 +2346,30 @@ function mergeSyncPayload(remote) {
 
 async function githubPull() {
   const s = loadGHSettings();
-  if (!s.user || !s.repo || !s.token) {
-    toggleGithubSettings();
-    setGHStatus('Please configure GitHub settings first', 'err');
-    return;
-  }
+  // Pull uses raw.githubusercontent.com — no token needed, works for all public repos
+  const user   = s.user   || 'hilbertfrank1285';
+  const repo   = s.repo   || 'euler-factordb';
+  const branch = s.branch || 'main';
   setGHBtns(true);
   setGHStatus('Pulling from GitHub…', 'busy');
   try {
-    const r = await fetch(ghApiBase() + `?ref=${s.branch||'main'}`, { headers: ghHeaders() });
+    // Use raw content URL — public, no auth required
+    const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${GH_DATA_FILE}`;
+    const r = await fetch(rawUrl + '?nocache=' + Date.now());
     if (r.status === 404) {
       setGHStatus('No results.json found in repo yet — push first to create it', '');
       return;
     }
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    const payload = JSON.parse(atob(data.content.split('\n').join('')));
+    const payload = await r.json();
+    // Skip the GitHub API base64 decode — raw URL returns plain JSON
     mergeSyncPayload(payload);
-    // Rebuild entries with merged cache
     allEntries = buildEntries();
     replayFDBCache();
     applyFilters();
     renderChangelog();
     addLog('GitHub pull complete — data merged', 'ok');
-    setGHStatus(`Pulled from GitHub — last updated ${payload.updatedAt ? new Date(payload.updatedAt).toLocaleString() : 'unknown'}`, 'ok');
+    setGHStatus(`Pulled — last updated ${payload.updatedAt ? new Date(payload.updatedAt).toLocaleString() : 'unknown'}`, 'ok');
   } catch(e) {
     setGHStatus(`Pull failed: ${e.message}`, 'err');
     addLog(`GitHub pull error: ${e.message}`, 'err');
@@ -2434,10 +2434,8 @@ async function maybeAutoPush() {
 
 // Auto-pull on page load if configured
 async function maybeAutoPull() {
-  const s = loadGHSettings();
-  if (s.user && s.repo && s.token) {
-    await githubPull();
-  }
+  // Pull is always public — no token needed
+  await githubPull();
 }
 
 function rebuildAndRender() {
