@@ -554,7 +554,7 @@
 <header>
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
-    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
+    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span> · index.html: <span id="indexVersion" style="color:var(--text-dim)">loading…</span></p>
   </div>
 </header>
 
@@ -1222,6 +1222,28 @@ function updateGHStatus() {
   }
 }
 
+async function fetchIndexVersion() {
+  const el = document.getElementById('indexVersion');
+  if (!el) return;
+  try {
+    const s      = loadGHSettings();
+    const user   = s.user   || 'hilbertfrank1285';
+    const repo   = s.repo   || 'euler-factordb';
+    const branch = s.branch || 'main';
+    const url = 'https://api.github.com/repos/' + user + '/' + repo + '/commits?path=index.html&sha=' + branch + '&per_page=1';
+    const r   = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const commits = await r.json();
+    if (!commits.length) { el.textContent = 'no data'; return; }
+    const date = new Date(commits[0].commit.committer.date);
+    el.textContent = date.toLocaleString();
+    el.title = commits[0].commit.message + ' · sha: ' + commits[0].sha.slice(0,7);
+  } catch(e) {
+    const el2 = document.getElementById('indexVersion');
+    if (el2) el2.textContent = 'unavailable';
+  }
+}
+
 async function fetchLastUpdateTime() {
   const el = document.getElementById('ghLastUpdate');
   if (!el) return;
@@ -1423,9 +1445,22 @@ async function githubPush() {
     let sha = await getCurrentSha();
     let r   = await attemptPush(sha);
 
-    // If SHA conflict (409 or 422), fetch fresh SHA and retry once
-    if (!r.ok && (r.status === 409 || r.status === 422)) {
-      setGHStatus('SHA conflict — retrying with fresh SHA…', 'busy');
+    // Retry up to 3 times on SHA conflict — every conflict gets a fresh SHA
+    let retries = 0;
+    while (!r.ok && retries < 5) {
+      // Peek at the error message to determine if it's a SHA conflict
+      const clone = r.clone();
+      let isConflict = (r.status === 409 || r.status === 422);
+      try {
+        const errBody = await clone.json();
+        if (errBody.message && /does not match|sha/i.test(errBody.message)) isConflict = true;
+      } catch(e) {}
+      if (!isConflict) break;
+
+      retries++;
+      setGHStatus('SHA conflict — retrying (' + retries + '/5)…', 'busy');
+      // Small backoff to let GitHub's API stabilise
+      await new Promise(res => setTimeout(res, 500 * retries));
       sha = await getCurrentSha();
       r   = await attemptPush(sha);
     }
@@ -3380,6 +3415,7 @@ async function fetchEulerValues() {
 // Step 1: render synchronously with whatever is available right now
 try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
 try { fetchLastUpdateTime(); } catch(e) {}
+try { fetchIndexVersion(); } catch(e) {}
 try { renderLog(); } catch(e) {}
 try { renderChangelog(); } catch(e) {}
 try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
