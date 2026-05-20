@@ -3248,10 +3248,54 @@ function buildECMSection(n, e) {
       }
       const totalECMCurves = ecmAttempts.reduce((s,a) => s + (parseInt(a.curves)||0), 0);
 
+      // ── Combined matrix (ECM + P-1/P+1 together) ──────────────────────────
+      if (ecmAttempts.length && pm1Attempts.length) {
+        probHtml += `<div style="margin-bottom:12px">
+          <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
+            ★ Combined ECM + P-1/P+1 — P(at least one method finds N-digit factor)
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--accent);padding-left:8px">
+            Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your ECM and P-1/P+1 runs together would have caught it?
+            Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance that at least one method succeeds.
+            <span style="color:var(--text-muted)">ECM breakdown and P±1 breakdown are shown separately below.</span>
+          </div>
+          <div class="prob-grid">
+            ${checkDigits.map(d => {
+              // ECM failure prob
+              const ecmCurves = curvesPerDigit[d] || 0;
+              const ecmP      = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
+              // PM1 failure prob
+              let pm1Fail = 1;
+              for (const a of pm1Attempts) {
+                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                pm1Fail *= (1 - pm1Probability(d, b1n, b2n));
+              }
+              const combined = 1 - (1 - ecmP) * pm1Fail;
+              const cls    = combined > 0.5 ? 'prob-high' : combined > 0.1 ? 'prob-mid' : 'prob-low';
+              const nfs    = d > 65;
+              const style  = nfs ? 'opacity:0.45;border-color:var(--border);background:var(--surface)' : 'border-color:var(--accent);background:var(--accent-dim)';
+              const pDisp  = nfs
+                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
+                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
+              return `<div class="prob-cell" style="${style}">
+                <div class="prob-d">${d}-digit factor</div>
+                ${pDisp}
+                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(1-pm1Fail)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
       if (ecmAttempts.length) {
         probHtml += `<div style="margin-bottom:12px">
           <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-            ECM — P(find N-digit factor) · curves grouped by B1 target · ${totalECMCurves} total · practical ≤65d
+            ECM — P(find N-digit factor) · ${totalECMCurves} curves total · B1 optimal range ≤65d
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--purple);padding-left:8px">
+            ECM finds a d-digit factor by running random elliptic curves. Each curve is an independent attempt.
+            More curves = higher chance. <span style="color:var(--text)">done</span> = how many curves you've run targeting that digit size.
+            <span style="color:var(--text)">90%→</span> = curves needed to reach 90% probability. Above 65 digits, ECM is impractical — use NFS/GNFS instead.
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
@@ -3279,7 +3323,12 @@ function buildECMSection(n, e) {
       if (pm1Attempts.length) {
         probHtml += `<div style="margin-bottom:12px">
           <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-            P-1 / P+1 — P(find N-digit factor) · combined across ${pm1Attempts.length} attempt${pm1Attempts.length>1?'s':''} · each attempt independent
+            P-1 / P+1 — P(find N-digit factor) · ${pm1Attempts.length} attempt${pm1Attempts.length>1?'s':''} combined
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--yellow);padding-left:8px">
+            P-1 finds a prime factor p if p−1 is <span style="color:var(--text)">B1-smooth</span> (all prime factors of p−1 are ≤ B1), with one extra prime ≤ B2 allowed.
+            Unlike ECM, <span style="color:var(--text)">each P-1 run is a single independent test</span> — you can't improve it by repeating with the same B1/B2.
+            Running with higher B1 or B2 is the only way to improve odds. <span style="color:var(--text)">best single</span> = the single best attempt for that digit size.
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
@@ -3312,39 +3361,75 @@ function buildECMSection(n, e) {
         </div>`;
       }
 
-      // ── Combined matrix (ECM + P-1/P+1 together) ──────────────────────────
-      if (ecmAttempts.length && pm1Attempts.length) {
-        probHtml += `<div style="margin-bottom:12px">
-          <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-            ★ Combined — ECM + P-1/P+1 · P(at least one method finds N-digit factor)
-          </div>
-          <div class="prob-grid">
-            ${checkDigits.map(d => {
-              // ECM failure prob
-              const ecmCurves = curvesPerDigit[d] || 0;
-              const ecmP      = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
-              // PM1 failure prob
-              let pm1Fail = 1;
-              for (const a of pm1Attempts) {
-                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-                pm1Fail *= (1 - pm1Probability(d, b1n, b2n));
-              }
-              const combined = 1 - (1 - ecmP) * pm1Fail;
-              const cls    = combined > 0.5 ? 'prob-high' : combined > 0.1 ? 'prob-mid' : 'prob-low';
-              const nfs    = d > 65;
-              const style  = nfs ? 'opacity:0.45;border-color:var(--border);background:var(--surface)' : 'border-color:var(--accent);background:var(--accent-dim)';
-              const pDisp  = nfs
-                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
-                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
-              return `<div class="prob-cell" style="${style}">
-                <div class="prob-d">${d}-digit factor</div>
-                ${pDisp}
-                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(1-pm1Fail)}</div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`;
+
+      // ── P(fully factored) matrix ────────────────────────────────────────
+      // Shows per digit size: P(factor exists) × P(runs find it | exists) = P(resolved)
+      if (attempts.length && digits) {
+        const halfDigits = Math.floor(digits / 2);
+
+        // P(N has a prime factor of exactly d digits) for a "random" d-digit composite
+        // Approximation: probability ≈ ln(d × ln10) / ln(digits × ln10) × (1/d)
+        // More precisely using the formula for smooth numbers:
+        // fraction of d-digit numbers that are prime ≈ 1/(d×ln10)
+        // and a random n-digit composite has a d-digit factor with prob ≈ ln(10) / ln(n/d)... 
+        // Simplest usable heuristic: P(d-digit factor exists) ≈ (ln10) / (ln(N) / d)
+        // = d × ln10 / ln(N) for each specific d — then normalise
+        function pFactorExists(d, totalDigits) {
+          // Heuristic: for a random totalDigits-digit composite,
+          // the probability it has a prime factor of exactly d digits is approximately
+          // 1/d × (1 - 1/(d×ln10)) integrated — simplifies to:
+          // P ≈ ln(d+5) - ln(d) / ln(totalDigits) × some constant
+          // Best simple approximation: P(factor in [d, d+5)) ≈ 5/(d × ln10 × ln(totalDigits/2))
+          const lnN  = totalDigits * Math.log(10);
+          const lnD  = d * Math.log(10);
+          return Math.min(5 / (d * Math.log(d * Math.log(10))), 0.5);
+        }
+
+        const resolveDigits = [20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
+        if (resolveDigits.length) {
+          probHtml = `<div style="margin-bottom:12px;border:1px solid rgba(74,158,255,0.2);padding:10px;background:rgba(74,158,255,0.03)">
+            <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
+              ★ Chance of fully resolving this cofactor
+            </div>
+            <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;border-left:2px solid var(--accent);padding-left:8px">
+              Each cell answers: <em style="color:var(--text)">"What is the probability that this ${digits}-digit number has a prime factor of exactly Nd, AND that your factoring runs would have found it?"</em>
+              <br>• <span style="color:var(--text)">exists</span> = how likely a random ${digits}-digit composite has a factor of that size (number theory heuristic)
+              <br>• <span style="color:var(--text)">find | exists</span> = if that factor exists, how likely your ECM/P-1/P+1 runs catch it
+              <br>• <span style="color:var(--accent)">main %</span> = both together — the true chance you've resolved that digit range
+              <br><span style="color:var(--text-muted)">Factors larger than ~${halfDigits}d cannot exist as the smaller factor (since p × q = N means the smaller factor ≤ √N ≈ 10^${halfDigits})</span>
+            </div>
+            <div class="prob-grid">
+              ${resolveDigits.map(d => {
+                // P(factor of size d exists in this number)
+                const pExists = pFactorExists(d, digits);
+
+                // P(your runs find it | it exists) = combined ECM + PM1
+                const ecmCurves = curvesPerDigit[d] || 0;
+                const ecmFind   = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
+                let pm1Fail = 1;
+                for (const a of pm1Attempts) {
+                  const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                  const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                  pm1Fail  *= (1 - pm1Probability(d, b1n, b2n));
+                }
+                const totalFind = 1 - (1 - ecmFind) * pm1Fail;
+
+                // Combined: P(exists AND found)
+                const combined = pExists * totalFind;
+                const cls   = combined > 0.1 ? 'prob-high' : combined > 0.02 ? 'prob-mid' : 'prob-low';
+                const nfs   = d > 65;
+                const style = nfs ? 'opacity:0.45' : '';
+
+                return `<div class="prob-cell" style="${style}">
+                  <div class="prob-d">${d}-digit factor</div>
+                  <div class="prob-v ${cls}">${fmtPct(combined)}</div>
+                  <div class="prob-b1">exists: ${fmtPct(pExists)}</div>
+                  <div class="prob-b1">find|exists: ${fmtPct(totalFind)}</div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>` + probHtml;
+        }
       }
 
       if (!ecmAttempts.length && !pm1Attempts.length) {
@@ -3370,8 +3455,8 @@ function buildECMSection(n, e) {
             const lnln    = Math.log(Math.max(lnB1, 1.1));
             const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
             const curves  = parseInt(a.curves) || 1;
-            // Show probability at target digit size and neighbours
-            const showDigits = [targetD - 5, targetD, targetD + 5].filter(d => d >= 15 && d <= 65 && d < digits);
+            // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
+            const showDigits = [15,20,25,30,35,40,45,50,55,60,65].filter(d => d < digits);
             if (showDigits.length === 0) showDigits.push(targetD);
             const parts = showDigits.map(d => {
               const p   = ecmProbability(d, curves);
