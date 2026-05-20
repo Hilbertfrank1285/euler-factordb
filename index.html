@@ -2573,9 +2573,9 @@ function buildECMSection(n, e) {
   const ecmData  = loadECM();
   const attempts = (ecmData[String(n)] || []);
   const digits   = getCofactorDigits(e);
+  let diffHtml = '', recommendHtml = '', probHtml = '', tableHtml = '', formHtml = '';
 
   // Difficulty score banner
-  let diffHtml = '';
   if (digits) {
     const diff  = computeDifficulty(digits, attempts);
     if (diff && diff.score !== undefined && diff.score !== null) {
@@ -2606,7 +2606,6 @@ function buildECMSection(n, e) {
   } // end if (digits) — diff banner
 
   // Probability table for cofactor
-  let probHtml = '';
   if (digits) {
     const targetDigits = [20,25,30,35,40,45,50,55,60,65,70];
     const checkDigits  = targetDigits.filter(d => d < digits);
@@ -2830,7 +2829,6 @@ function buildECMSection(n, e) {
   }
 
   // Attempts table
-  let tableHtml = '';
   if (attempts.length) {
     tableHtml = `<table class="ecm-table">
       <thead><tr>
@@ -2889,7 +2887,7 @@ function buildECMSection(n, e) {
 
   // Add form — local GMP-ECM / P-1 / P+1
   // P-1/P+1 fields hidden by default since ECM is default method
-  const formHtml = `<div class="ecm-add-form" style="margin-top:10px">
+  formHtml = `<div class="ecm-add-form" style="margin-top:10px">
     <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Log new attempt</div>
     <div class="ecm-form-grid">
       <div class="ecm-field">
@@ -2941,7 +2939,6 @@ function buildECMSection(n, e) {
   </div>`;
 
   // What to run next recommendation
-  let recommendHtml = '';
   if (digits) {
     const rec = recommendNextRun(digits, attempts);
     if (rec) {
@@ -3298,19 +3295,28 @@ try { fetchLastUpdateTime(); } catch(e) {}
 try { renderLog(); } catch(e) {}
 try { renderChangelog(); } catch(e) {}
 try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
-try { replayFDBCache(); } catch(e) { console.error('replayFDBCache', e); }
+// Don't replay FDB cache here — eulerValues not loaded yet, no vals to match against
 try { applyFilters(); } catch(e) { console.error('applyFilters', e); }
 setStatus('Ready — loading values in background…');
 
 // Step 2: load euler values + github data in background, then re-render
 setTimeout(async () => {
+  // Load euler values first — without these, replayFDBCache can't match entries
   try { await fetchEulerValues(); } catch(e) { console.warn('euler values:', e); }
+
+  // Now rebuild entries WITH values loaded
   try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries2', e); }
+
+  // Pull GitHub results.json
   try { await maybeAutoPull(); } catch(e) { console.warn('github pull:', e); }
-  try { replayFDBCache(); } catch(e) {}
-  try { allEntries = buildEntries(); } catch(e) {}
-  try { applyFilters(); } catch(e) {}
+
+  // Replay FDB cache AFTER values are loaded so entries can be matched and promoted
+  try { replayFDBCache(); } catch(e) { console.error('replayFDBCache2', e); }
+
+  // Final render
+  try { applyFilters(); } catch(e) { console.error('applyFilters2', e); }
   try { renderChangelog(); } catch(e) {}
+  try { renderStats(); } catch(e) {}
   setStatus('Ready — use the buttons above to query FactorDB');
 }, 0);
 </script>
