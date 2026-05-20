@@ -3303,22 +3303,50 @@ function deleteECMAttempt(n, i) {
   const key     = String(n);
   const idx     = parseInt(i);
   const ecmData = loadECM();
-
-  // Debug: log what we have
-  console.log('deleteECMAttempt called:', n, i, 'key:', key, 'idx:', idx);
-  console.log('ecmData keys:', Object.keys(ecmData));
-  console.log('ecmData[key]:', ecmData[key]);
-
-  // Try both string and number key (in case old data used numeric keys)
   const attempts = ecmData[key] || ecmData[n] || [];
-  if (!attempts.length || idx < 0 || idx >= attempts.length) {
-    alert('Attempt not found. Key: ' + key + ', idx: ' + idx + ', available keys: ' + Object.keys(ecmData).join(', '));
-    return;
-  }
-  const a = attempts[idx];
-  if (!confirm('Delete ' + a.method + ' attempt (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')?')) return;
+  if (!attempts.length || idx < 0 || idx >= attempts.length) return;
 
-  // Remove from whichever key exists
+  // Show inline confirm row instead of browser confirm() which is blocked on GitHub Pages
+  const rowId   = 'ecmDelConfirm_' + n + '_' + idx;
+  const existing = document.getElementById(rowId);
+  if (existing) { existing.remove(); return; } // toggle off if already showing
+
+  const tbody = document.querySelector('#ecmSection_' + n + ' tbody');
+  if (!tbody) return;
+  const rows  = tbody.querySelectorAll('tr');
+  const targetRow = rows[idx];
+  if (!targetRow) return;
+
+  const a        = attempts[idx];
+  const confirmRow = document.createElement('tr');
+  confirmRow.id  = rowId;
+  confirmRow.style.cssText = 'background:var(--red-dim)';
+  const yesBtn = document.createElement('button');
+  yesBtn.textContent = 'Yes, delete';
+  yesBtn.style.cssText = 'background:var(--red);border:none;color:#fff;font-family:monospace;font-size:11px;padding:3px 10px;cursor:pointer;margin-left:8px';
+  yesBtn.onclick = () => confirmDeleteECM(n, idx);
+
+  const noBtn = document.createElement('button');
+  noBtn.textContent = 'Cancel';
+  noBtn.style.cssText = 'background:none;border:1px solid var(--border2);color:var(--text-dim);font-family:monospace;font-size:11px;padding:3px 10px;cursor:pointer;margin-left:6px';
+  noBtn.onclick = () => confirmRow.remove();
+
+  const td = document.createElement('td');
+  td.colSpan = 10;
+  td.style.cssText = 'padding:8px 10px;font-size:11px;color:var(--red)';
+  td.appendChild(document.createTextNode('⚠ Delete ' + a.method + ' (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')? '));
+  td.appendChild(yesBtn);
+  td.appendChild(noBtn);
+  confirmRow.appendChild(td);
+  targetRow.insertAdjacentElement('afterend', confirmRow);
+}
+
+function confirmDeleteECM(n, idx) {
+  const key     = String(n);
+  const ecmData = loadECM();
+  const attempts = ecmData[key] || ecmData[n] || [];
+  if (idx < 0 || idx >= attempts.length) return;
+
   if (ecmData[key]) {
     ecmData[key].splice(idx, 1);
     if (ecmData[key].length === 0) delete ecmData[key];
@@ -3326,7 +3354,6 @@ function deleteECMAttempt(n, i) {
     ecmData[n].splice(idx, 1);
     if (ecmData[n].length === 0) delete ecmData[n];
   }
-
   saveECM(ecmData);
   syncAttemptedStatus(n);
   const sec = document.getElementById('ecmSection_' + n);
