@@ -3131,21 +3131,19 @@ function buildECMSection(n, e) {
           <option value="ECM">ECM</option>
           <option value="P-1">P-1</option>
           <option value="P+1">P+1</option>
-          <option value="SIQS">SIQS</option>
-          <option value="NFS">NFS</option>
         </select>
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
-        <label>B1</label>
-        <input type="text" id="ecm_b1_${n}" placeholder="e.g. 3e6">
+        <label>B1 <span style="color:var(--red)">*</span></label>
+        <input type="text" id="ecm_b1_${n}" placeholder="e.g. 3e6" required>
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
-        <label>B2 (optional)</label>
-        <input type="text" id="ecm_b2_${n}" placeholder="default ~100×B1">
+        <label>B2 <span style="color:var(--red)">*</span></label>
+        <input type="text" id="ecm_b2_${n}" placeholder="e.g. 3e8">
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
-        <label>Curves</label>
-        <input type="number" id="ecm_curves_${n}" placeholder="e.g. 1000" min="1">
+        <label>Curves <span style="color:var(--red)">*</span></label>
+        <input type="number" id="ecm_curves_${n}" placeholder="e.g. 1000" min="1" required>
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
         <label>Poly (Dickson k=)</label>
@@ -3199,8 +3197,10 @@ function addECMAttempt(n) {
     date:    new Date().toISOString().slice(0,10),
   };
 
-  if (isECM && !attempt.b1)    { alert('Please enter B1 for ECM.'); return; }
-  if (isPM1  && !attempt.b1)   { alert('Please enter B1 for ' + method + '.'); return; }
+  if (isECM && !attempt.b1)     { alert('B1 is required for ECM.'); return; }
+  if (isECM && !attempt.b2)     { alert('B2 is required for ECM.'); return; }
+  if (isECM && !attempt.curves) { alert('Curves is required for ECM.'); return; }
+  if (isPM1  && !attempt.b1)    { alert('B1 is required for ' + method + '.'); return; }
 
   const ecmData = loadECM();
   if (!ecmData[n]) ecmData[n] = [];
