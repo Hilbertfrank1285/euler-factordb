@@ -1345,22 +1345,27 @@ function mergeSyncPayload(remote) {
 
 async function githubPull() {
   const s = loadGHSettings();
-  // Pull uses raw.githubusercontent.com — no token needed, works for all public repos
   const user   = s.user   || 'hilbertfrank1285';
   const repo   = s.repo   || 'euler-factordb';
   const branch = s.branch || 'main';
   setGHBtns(true);
   setGHStatus('Pulling from GitHub…', 'busy');
   try {
-    // Use raw content URL — public, no auth required
-    const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/${GH_DATA_FILE}?nocache=${Date.now()}`;
-    const r = await fetch(rawUrl);
+    // Use GitHub API contents endpoint — bypasses raw.githubusercontent.com CDN cache
+    // Returns base64-encoded content with current commit SHA — always fresh
+    const apiUrl = 'https://api.github.com/repos/' + user + '/' + repo + '/contents/' + GH_DATA_FILE + '?ref=' + branch + '&_=' + Date.now();
+    const headers = { 'Accept': 'application/vnd.github.raw+json' };
+    // Add token if available for higher rate limits (60/hr → 5000/hr)
+    if (s.token) headers['Authorization'] = 'Bearer ' + s.token;
+    const r = await fetch(apiUrl, { headers, cache: 'no-store' });
     if (r.status === 404) {
       setGHStatus('No results.json found in repo yet — push first to create it', '');
       return;
     }
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const payload = await r.json();
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    // raw accept header returns content directly as text
+    const text = await r.text();
+    const payload = JSON.parse(text);
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
     mergeSyncPayload(payload);
     allEntries = buildEntries();
@@ -1379,6 +1384,7 @@ async function githubPull() {
   }
 }
 
+let _pushInFlight = false;
 async function githubPush() {
   const s = loadGHSettings();
   if (!s.user || !s.repo || !s.token) {
@@ -1386,6 +1392,11 @@ async function githubPush() {
     addLog('GitHub push skipped — no token configured', 'warn');
     return;
   }
+  if (_pushInFlight) {
+    addLog('GitHub push already in progress — skipping', 'warn');
+    return;
+  }
+  _pushInFlight = true;
   setGHBtns(true);
   setGHStatus('Pushing to GitHub…', 'busy');
   try {
@@ -1437,6 +1448,7 @@ async function githubPush() {
     const warnEl = document.getElementById('ghPushWarning');
     if (warnEl) warnEl.style.display = 'flex';
   } finally {
+    _pushInFlight = false;
     setGHBtns(false);
   }
 }
@@ -2241,7 +2253,7 @@ function openModal(n) {
   const valCopyId = 'vc_' + n;
   valueHtml = e.val ? ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
     + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
-    + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap[' + n + '],this)" title="Copy value">⎘</button>'
+    + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>'
     + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>')
     : '';  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
@@ -3282,17 +3294,39 @@ async function fetchEulerValues() {
     `https://raw.githubusercontent.com/${user}/${repo}/${branch}/euler_values.json?v=1`,
   ];
 
-  setStatus('Loading Euler values…');
+  setStatus('Loading Euler values (~3.8 MB)…');
   for (const url of urls) {
     try {
-      const r = await fetchWithTimeout(url, 20000);
+      const r = await fetchWithTimeout(url, 30000);
       if (!r.ok) continue;
+      // Stream the response so we can show progress
+      const contentLength = +r.headers.get('content-length') || 0;
+      if (contentLength > 0 && r.body && r.body.getReader) {
+        const reader = r.body.getReader();
+        let received = 0;
+        const chunks = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          const pct = Math.round((received / contentLength) * 100);
+          setStatus(`Loading Euler values… ${pct}%`);
+        }
+        const blob = new Blob(chunks);
+        const text = await blob.text();
+        const data = JSON.parse(text);
+        for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
+        console.log('Loaded ' + Object.keys(data).length + ' Euler values from ' + url);
+        return;
+      }
+      // Fallback: no streaming, just await text
       const data = await r.json();
       for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
-      console.log(`Loaded ${Object.keys(data).length} Euler values from ${url}`);
+      console.log('Loaded ' + Object.keys(data).length + ' Euler values from ' + url);
       return;
     } catch(e) {
-      console.warn(`euler_values.json fetch failed (${url}):`, e.message);
+      console.warn('euler_values.json fetch failed (' + url + '):', e.message);
     }
   }
   // Failed to load — page still works, just no value display
