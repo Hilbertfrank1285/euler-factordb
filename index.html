@@ -2050,7 +2050,7 @@ const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 function getUnknownTargets() {
   // Include both unknown and composite (confirmed composite but no factors yet)
   return allEntries
-    .filter(e => (e.status === 'unknown' || e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
+    .filter(e => (e.status === 'unknown' || e.status === 'composite') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }));
 }
 
@@ -2481,7 +2481,8 @@ function clearAllCache() {
   localStorage.removeItem(CHANGELOG_KEY);
   localStorage.removeItem(LOG_KEY);
   localStorage.removeItem(COOLDOWN_KEY);
-  fdbCache   = {};
+  localStorage.removeItem(ECM_KEY);
+  fdbCache    = {};
   activityLog = [];
   allEntries  = buildEntries();
   filtered    = [...allEntries];
@@ -2740,8 +2741,18 @@ function maybeAutoPoll() {
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
 function applyFilters() {
+  const ecmData = loadECM();
   filtered = allEntries.filter(e => {
-    const matchFilter = activeFilter === 'all' || e.status === activeFilter;
+    let matchFilter;
+    if (activeFilter === 'all') {
+      matchFilter = true;
+    } else if (activeFilter === 'attempted') {
+      // Show any entry that has ECM/P-1/P+1 log attempts, regardless of status
+      const attempts = ecmData[String(e.n)] || [];
+      matchFilter = attempts.length > 0;
+    } else {
+      matchFilter = e.status === activeFilter;
+    }
     const q = searchQuery.trim().toLowerCase();
     const matchSearch = !q || String(e.n).includes(q) ||
       (e.factors && e.factors.some(f => f.includes(q)));
@@ -2785,7 +2796,10 @@ function renderGrid() {
   grid.innerHTML = page.map(e => {
     const sign    = e.sign === -1 ? '−' : '+';
     const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
-    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>', attempted:'<span class="card-badge badge-attempted">⟳ ATTEMPTED</span>' }[e.status];
+    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>' }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
+    const ecmDataG   = loadECM();
+    const hasAttempt = (ecmDataG[String(e.n)]||[]).length > 0;
+    const attemptBadge = hasAttempt ? ' <span class="card-badge badge-attempted">⟳ ATTEMPTED</span>' : '';
     let preview = '';
     if (e.status === 'full' && e.factors.length)
       preview = `<div class="card-preview">${e.factors.join(' × ')}</div>`;
@@ -2795,7 +2809,7 @@ function renderGrid() {
     return `<div class="card ${e.status}" onclick="openModal(${e.n})">
       <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
       <div class="card-label">E(${e.n})</div>
-      ${badge}
+      ${badge}${attemptBadge}
       ${preview}
       ${fdbTagForEntry(e)}
     </div>`;
@@ -2830,7 +2844,8 @@ function renderStats() {
   const partial = allEntries.filter(e => e.status==='partial').length;
   const unknown = allEntries.filter(e => e.status==='unknown').length;
   const composite = allEntries.filter(e => e.status==='composite').length;
-  const attempted = allEntries.filter(e => e.status==='attempted').length;
+  const ecmD = loadECM();
+  const attempted = allEntries.filter(e => (ecmD[String(e.n)]||[]).length > 0).length;
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
@@ -3206,22 +3221,8 @@ function buildECMSection(n, e) {
   return probHtml + tableHtml + formHtml;
 }
 
-// Sync entry status: if ECM attempts exist → 'attempted', else revert to composite/unknown
+// Refresh grid/stats after ECM log changes
 function syncAttemptedStatus(n) {
-  const ecmData = loadECM();
-  const key     = String(n);
-  const entry   = allEntries.find(x => x.n === n);
-  if (!entry) return;
-  // Only affect entries that are not already factored
-  if (entry.status === 'full' || entry.status === 'partial') return;
-  const hasAttempts = ecmData[key] && ecmData[key].length > 0;
-  if (hasAttempts && entry.status !== 'attempted') {
-    entry.status = 'attempted';
-  } else if (!hasAttempts && entry.status === 'attempted') {
-    // Revert — check FDB cache to determine correct fallback
-    const fdbResult = entry.val ? fdbCache[entry.val] : null;
-    entry.status = (fdbResult && fdbResult.status === 'C') ? 'composite' : 'unknown';
-  }
   renderGrid();
   renderStats();
 }
@@ -3301,13 +3302,16 @@ function clearEntryCache(n) {
   saveFDBCache(fdbCache);
 
   // Reset entry back to unknown
-  // Reset to unknown/attempted — factoData is empty, all data comes from FDB
-  const hasAttempts = (loadECM()[String(n)] || []).length > 0;
-  e.status   = hasAttempts ? 'attempted' : 'unknown';
+  // Reset to unknown — factoData is empty, all data comes from FDB
+  e.status   = 'unknown';
   e.factors  = [];
   e.cofactor = null;
   delete e._fdbVerified;
   delete e._resolvedViaCofactor;
+  // Also clear ECM log attempts for this entry
+  const ecmAll = loadECM();
+  delete ecmAll[String(n)];
+  saveECM(ecmAll);
 
   addLog(`E(${n}) cache cleared`, 'warn');
   renderGrid();
@@ -3363,18 +3367,7 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 replayFDBCache();
-// Restore 'attempted' status for entries with logged ECM attempts
-(function() {
-  const ecmData = loadECM();
-  for (const key of Object.keys(ecmData)) {
-    if (!ecmData[key] || !ecmData[key].length) continue;
-    const n = parseInt(key);
-    const entry = allEntries.find(x => x.n === n);
-    if (entry && entry.status !== 'full' && entry.status !== 'partial') {
-      entry.status = 'attempted';
-    }
-  }
-})();
+
 renderLog();
 applyFilters();
 setStatus('Ready — use the buttons above to query FactorDB');
