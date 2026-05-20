@@ -372,6 +372,61 @@
   .empty { grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
   .empty big { display: block; font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
 
+  /* ── Bulk ECM panel ── */
+  .bulk-ecm-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 40px;
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .bulk-ecm-toggle {
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; color: var(--text-dim); user-select: none;
+    padding: 2px 0;
+  }
+  .bulk-ecm-toggle:hover { color: var(--text); }
+  .bulk-ecm-panel {
+    display: none;
+    margin-top: 12px;
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    padding: 16px;
+  }
+  .bulk-ecm-panel.open { display: block; }
+  .bulk-ecm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .bulk-range {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .bulk-range label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .bulk-range input {
+    width: 90px; background: var(--surface); border: 1px solid var(--border2);
+    color: var(--text); font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; padding: 4px 8px; outline: none;
+  }
+  .bulk-range input:focus { border-color: var(--accent); }
+  .bulk-preview {
+    font-size: 10px; color: var(--text-muted); margin-bottom: 10px;
+    padding: 6px 10px; background: var(--surface); border: 1px solid var(--border);
+    max-height: 60px; overflow-y: auto; line-height: 1.6;
+  }
+  .bulk-submit {
+    background: var(--accent-dim); border: 1px solid var(--accent);
+    color: var(--accent); font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; padding: 6px 16px; cursor: pointer; transition: all 0.15s;
+  }
+  .bulk-submit:hover { background: var(--accent); color: #000; }
+  .bulk-submit:disabled { opacity: 0.4; cursor: default; }
+  .bulk-result {
+    margin-top: 8px; font-size: 11px; color: var(--green);
+    display: none;
+  }
+
   /* ── GitHub sync ── */
   .github-bar {
     border-bottom: 1px solid var(--border);
@@ -525,6 +580,53 @@
     <button class="filter-btn attempted" data-filter="attempted">ATTEMPTED</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
+</div>
+
+<!-- Bulk ECM Log -->
+<div class="bulk-ecm-bar">
+  <div class="bulk-ecm-toggle" onclick="toggleBulkECM()">
+    <span id="bulkToggleArrow">▸</span>
+    Bulk log factoring attempts — apply same parameters to multiple E(n) entries
+  </div>
+  <div class="bulk-ecm-panel" id="bulkECMPanel">
+    <div class="bulk-range">
+      <label>Method</label>
+      <select id="bulk_method" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
+        <option value="ECM">ECM</option>
+        <option value="P-1">P-1</option>
+        <option value="P+1">P+1</option>
+      </select>
+      <label style="margin-left:8px">B1 *</label>
+      <input type="text" id="bulk_b1" placeholder="e.g. 3e6" oninput="updateBulkPreview()">
+      <label>B2 *</label>
+      <input type="text" id="bulk_b2" placeholder="e.g. 3e9" oninput="updateBulkPreview()">
+      <label id="bulk_curves_label">Curves *</label>
+      <input type="number" id="bulk_curves" placeholder="e.g. 1000" min="1" oninput="updateBulkPreview()">
+      <label id="bulk_poly_label">Poly</label>
+      <input type="text" id="bulk_poly" placeholder="e.g. Dickson k=3" style="width:140px" oninput="updateBulkPreview()">
+      <label>Tool</label>
+      <input type="text" id="bulk_tool" placeholder="GMP-ECM 7.0.6" style="width:130px">
+      <label>Note</label>
+      <input type="text" id="bulk_note" placeholder="optional" style="width:130px">
+    </div>
+    <div class="bulk-range">
+      <label>Apply to E(</label>
+      <input type="number" id="bulk_from" placeholder="start" min="0" step="2" value="0" oninput="updateBulkPreview()">
+      <label>) to E(</label>
+      <input type="number" id="bulk_to" placeholder="end" min="2" step="2" value="300" oninput="updateBulkPreview()">
+      <label>) &nbsp;·&nbsp; Only apply to:</label>
+      <select id="bulk_filter" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
+        <option value="all">All entries in range</option>
+        <option value="unknown">Unknown only</option>
+        <option value="composite">No known factors only</option>
+        <option value="partial">Partial only</option>
+        <option value="unfactored">Unknown + No known factors + Partial</option>
+      </select>
+    </div>
+    <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
+    <button class="bulk-submit" id="bulkSubmitBtn" onclick="applyBulkECM()">+ Log attempt for all entries above</button>
+    <div class="bulk-result" id="bulkResult"></div>
+  </div>
 </div>
 
 <!-- GitHub Sync -->
@@ -2182,10 +2284,29 @@ function dickmanRho(u) {
   return Math.exp(-u * Math.log(u));
 }
 
-function pm1Probability(digits, B1) {
-  const lnP = digits * Math.log(10);
-  const u   = lnP / Math.log(B1);
-  return Math.min(dickmanRho(u), 1);
+// P-1 probability accounting for both B1 and B2 stages
+// Stage 1: p-1 is B1-smooth → ρ(ln(p)/ln(B1))
+// Stage 2: p-1 = (B1-smooth) × q where q is one prime ≤ B2
+//   The additional contribution: ρ(ln(p)/ln(B1)) * ln(B1)/ln(p) * ln(B2/B1)
+//   (probability that the remaining cofactor after B1-smooth part falls ≤ B2)
+// Combined approximation used in practice
+function pm1Probability(digits, B1, B2) {
+  const lnP  = digits * Math.log(10);
+  const lnB1 = Math.log(Math.max(B1, 2));
+  const u1   = lnP / lnB1;
+  const p1   = dickmanRho(u1); // Stage 1 only
+
+  if (!B2 || B2 <= B1) return Math.min(p1, 1);
+
+  // Stage 2 contribution: fraction of p-1 values where after removing B1-smooth part,
+  // one prime ≤ B2 remains. Approximated as:
+  // p1 * (ln(B2) - ln(B1)) / (ln(p) - ln(B1)) clamped to [0,1]
+  const lnB2   = Math.log(B2);
+  const stage2 = lnP > lnB1
+    ? p1 * (lnB2 - lnB1) / (lnP - lnB1)
+    : 0;
+
+  return Math.min(p1 + stage2, 1);
 }
 
 function fdbStatusLabel(s) {
@@ -3160,9 +3281,16 @@ function buildECMSection(n, e) {
             probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ${practicalNote}`;
           } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
             const b1num = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-            const p     = pm1Probability(digits, b1num);
-            const cls   = p > 0.1 ? 'prob-mid' : 'prob-low';
-            probCell    = `<span class="${cls}">${fmtPct(p)} vs ${digits}d cofactor</span>`;
+            const b2num = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+            // Show probability for each relevant digit size (20d, 25d, 30d...)
+            // P-1 is run once — no curves multiplier
+            const targetD = [20,25,30,35,40,45,50];
+            const probParts = targetD.filter(d => d < digits).map(d => {
+              const p   = pm1Probability(d, b1num, b2num);
+              const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
+              return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
+            }).join(' ');
+            probCell = probParts || `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
           }
           // Build GMP-ECM command hint for ECM rows
           let cmdHint = '';
@@ -3246,6 +3374,113 @@ function buildECMSection(n, e) {
 }
 
 // Refresh grid/stats after ECM log changes
+// ─────────────────────────────────────────────────────────────────────────────
+// BULK ECM LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+function toggleBulkECM() {
+  const panel = document.getElementById('bulkECMPanel');
+  const arrow = document.getElementById('bulkToggleArrow');
+  const open  = panel.classList.toggle('open');
+  if (arrow) arrow.textContent = open ? '▾' : '▸';
+  if (open) updateBulkPreview();
+}
+
+function getBulkTargets() {
+  const from   = parseInt(document.getElementById('bulk_from')?.value) || 0;
+  const to     = parseInt(document.getElementById('bulk_to')?.value)   || 300;
+  const filter = document.getElementById('bulk_filter')?.value || 'all';
+  const fromN  = from % 2 === 0 ? from : from + 1;
+  const toN    = to   % 2 === 0 ? to   : to - 1;
+
+  return allEntries.filter(e => {
+    if (e.n < fromN || e.n > toN) return false;
+    if (filter === 'all')        return true;
+    if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
+    return e.status === filter;
+  });
+}
+
+function updateBulkPreview() {
+  const targets = getBulkTargets();
+  const b1      = document.getElementById('bulk_b1')?.value?.trim();
+  const b2      = document.getElementById('bulk_b2')?.value?.trim();
+  const curves  = document.getElementById('bulk_curves')?.value?.trim();
+  const method  = document.getElementById('bulk_method')?.value || 'ECM';
+  const preview = document.getElementById('bulkPreview');
+  const btn     = document.getElementById('bulkSubmitBtn');
+  if (!preview) return;
+
+  const isECM = method === 'ECM';
+  const valid = b1 && (isECM ? (b2 && curves) : true);
+
+  if (!targets.length) {
+    preview.textContent = 'No entries match the selected range and filter.';
+    if (btn) btn.disabled = true;
+    return;
+  }
+  if (!valid) {
+    preview.textContent = `${targets.length} entries in range — fill in required fields to continue.`;
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  const ns = targets.map(e => 'E('+e.n+')').join(', ');
+  preview.textContent = `Will log to ${targets.length} entries: ${ns}`;
+  if (btn) btn.disabled = false;
+}
+
+function applyBulkECM() {
+  const targets = getBulkTargets();
+  const method  = document.getElementById('bulk_method')?.value || 'ECM';
+  const isECM   = method === 'ECM';
+  const isPM1   = method === 'P-1' || method === 'P+1';
+  const b1      = document.getElementById('bulk_b1')?.value?.trim()     || '';
+  const b2      = document.getElementById('bulk_b2')?.value?.trim()     || '';
+  const curves  = document.getElementById('bulk_curves')?.value?.trim() || '';
+  const poly    = document.getElementById('bulk_poly')?.value?.trim()   || '';
+  const tool    = document.getElementById('bulk_tool')?.value?.trim()   || '';
+  const note    = document.getElementById('bulk_note')?.value?.trim()   || '';
+
+  if (!b1) { alert('B1 is required.'); return; }
+  if (isECM && (!b2 || !curves)) { alert('B2 and Curves are required for ECM.'); return; }
+  if (!targets.length) { alert('No entries match the filter.'); return; }
+
+  const attempt = {
+    method,
+    b1:     isECM ? b1 : isPM1 ? b1 : '',
+    b2:     isECM ? b2 : isPM1 ? b2 : '',
+    curves: isECM ? curves : isPM1 ? curves : '',
+    poly:   isECM ? poly : '',
+    tool,
+    note,
+    date:   new Date().toISOString().slice(0,10),
+  };
+
+  const ecmData = loadECM();
+  for (const e of targets) {
+    const key = String(e.n);
+    if (!ecmData[key]) ecmData[key] = [];
+    // Skip if identical attempt already logged (same method+b1+b2+curves+date)
+    // Deduplicate by method+b1+b2+curves — same params never logged twice regardless of date
+    const sig = attempt.method + '_' + attempt.b1 + '_' + attempt.b2 + '_' + attempt.curves;
+    const already = ecmData[key].some(a => (a.method+'_'+a.b1+'_'+a.b2+'_'+a.curves) === sig);
+    if (!already) ecmData[key].push({ ...attempt });
+  }
+  saveECM(ecmData);
+
+  const resultEl = document.getElementById('bulkResult');
+  if (resultEl) {
+    resultEl.style.display = 'block';
+    resultEl.textContent   = '✓ Logged ' + method + ' attempt for ' + targets.length + ' entries (B1=' + b1 + (b2?', B2='+b2:'') + (curves?', curves='+curves:'') + ')';
+    setTimeout(() => { resultEl.style.display = 'none'; }, 4000);
+  }
+
+  addLog('Bulk ' + method + ' logged for ' + targets.length + ' entries (B1=' + b1 + ')', '');
+  renderGrid();
+  renderStats();
+}
+
 function syncAttemptedStatus(n) {
   renderGrid();
   renderStats();
