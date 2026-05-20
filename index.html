@@ -3056,7 +3056,7 @@ function buildECMSection(n, e) {
       const totalCurves = attempts.filter(a => a.method === 'ECM').reduce((s,a) => s + (parseInt(a.curves)||0), 0);
       probHtml = `<div style="margin-bottom:10px">
         <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-          Probability of finding prime factor (${totalCurves ? totalCurves+' curves done so far' : 'no ECM yet'})
+          P(find a prime factor of exactly N digits) with ${totalCurves ? totalCurves+' total ECM curves' : 'no ECM yet'}
         </div>
         <div class="prob-grid">
           ${checkDigits.map(d => {
@@ -3080,7 +3080,7 @@ function buildECMSection(n, e) {
   if (attempts.length) {
     tableHtml = `<table class="ecm-table">
       <thead><tr>
-        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th>Machine</th><th>Tool</th><th>Prob.</th><th>Date</th><th>Note</th><th></th>
+        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th>Tool</th><th>P(find factor)</th><th>Date</th><th>Note</th><th></th>
       </tr></thead>
       <tbody>
         ${attempts.map((a, i) => {
@@ -3107,9 +3107,8 @@ function buildECMSection(n, e) {
             <td>${a.b2||'—'}</td>
             <td>${a.curves||'—'}</td>
             <td>${a.poly||'—'}</td>
-            <td>${a.machine||'—'}</td>
             <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
-            <td>${probCell||'—'}</td>
+            <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
             <td>${a.date||'—'}</td>
             <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note||''}</td>
             <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
@@ -3122,6 +3121,7 @@ function buildECMSection(n, e) {
   }
 
   // Add form — local GMP-ECM / P-1 / P+1 / SIQS / NFS
+  // P-1/P+1 fields hidden by default since ECM is default method
   const formHtml = `<div class="ecm-add-form" style="margin-top:10px">
     <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Log new attempt</div>
     <div class="ecm-form-grid">
@@ -3151,21 +3151,17 @@ function buildECMSection(n, e) {
         <label>Poly (Dickson k=)</label>
         <input type="text" id="ecm_poly_${n}" placeholder="e.g. k=3, Dickson">
       </div>
-      <div class="ecm-field ecm-pm1-only_${n}">
+      <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
         <label>B1</label>
         <input type="text" id="ecm_pm1b1_${n}" placeholder="e.g. 1e8">
       </div>
-      <div class="ecm-field ecm-pm1-only_${n}">
+      <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
         <label>B2 (optional)</label>
         <input type="text" id="ecm_pm1b2_${n}" placeholder="optional">
       </div>
       <div class="ecm-field">
         <label>Tool / version</label>
         <input type="text" id="ecm_tool_${n}" placeholder="GMP-ECM 7.0.6…">
-      </div>
-      <div class="ecm-field">
-        <label>Machine / threads</label>
-        <input type="text" id="ecm_machine_${n}" placeholder="e.g. i9, 8t">
       </div>
       <div class="ecm-field">
         <label>Note</label>
@@ -3194,12 +3190,11 @@ function addECMAttempt(n) {
 
   const attempt = {
     method,
-    b1:      isECM ? get(`ecm_b1_${n}`)   : isPM1 ? get(`ecm_pm1b1_${n}`) : '',
-    b2:      isECM ? get(`ecm_b2_${n}`)   : isPM1 ? get(`ecm_pm1b2_${n}`) : '',
-    curves:  isECM ? get(`ecm_curves_${n}`) : '',
-    poly:    isECM ? get(`ecm_poly_${n}`)  : '',
+    b1:      isECM ? get(`ecm_b1_${n}`)      : isPM1 ? get(`ecm_pm1b1_${n}`) : '',
+    b2:      isECM ? get(`ecm_b2_${n}`)      : isPM1 ? get(`ecm_pm1b2_${n}`) : '',
+    curves:  isECM ? get(`ecm_curves_${n}`)  : '',
+    poly:    isECM ? get(`ecm_poly_${n}`)    : '',
     tool:    get(`ecm_tool_${n}`),
-    machine: get(`ecm_machine_${n}`),
     note:    get(`ecm_note_${n}`),
     date:    new Date().toISOString().slice(0,10),
   };
