@@ -665,6 +665,7 @@
 <div class="github-bar" id="githubBar">
   <div class="github-label">⬡ GitHub sync</div>
   <div class="github-status" id="githubStatus">Not configured — click ⚙ to set up</div>
+  <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
   <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
   <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push</button>
   <button class="github-btn" onclick="toggleGithubSettings()" title="GitHub settings">⚙</button>
@@ -2645,9 +2646,13 @@ async function githubPush() {
     addLog('GitHub push complete', 'ok');
     setGHStatus(`Pushed to GitHub @ ${new Date().toLocaleTimeString()}`, 'ok');
     fetchLastUpdateTime();
+    const warn = document.getElementById('ghPushWarning');
+    if (warn) warn.style.display = 'none';
   } catch(e) {
     setGHStatus(`Push failed: ${e.message}`, 'err');
     addLog(`GitHub push error: ${e.message}`, 'err');
+    const warnEl = document.getElementById('ghPushWarning');
+    if (warnEl) warnEl.style.display = 'flex';
   } finally {
     setGHBtns(false);
   }
@@ -2657,7 +2662,12 @@ async function githubPush() {
 async function maybeAutoPush() {
   const s = loadGHSettings();
   if (s.user && s.repo && s.token) {
-    await githubPush();
+    try {
+      await githubPush();
+    } catch(e) {
+      // githubPush handles its own errors and shows the warning banner
+      addLog('Auto-push failed: ' + e.message, 'err');
+    }
   }
 }
 
@@ -2709,8 +2719,13 @@ function csvEsc(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }
 
 function exportCSV() {
   const ecmData = loadECM();
+
+  // Find max factor count across all entries for dynamic columns
+  const maxFactors = allEntries.reduce((m, e) => Math.max(m, (e.factors||[]).length), 0);
+  const factorCols = Array.from({length: maxFactors}, (_, i) => 'factor_' + (i+1));
+
   const rows = [
-    ['n', 'sign', 'status', 'factors', 'cofactor', 'cofactor_digits', 'val_digits',
+    ['n', 'sign', 'status', ...factorCols, 'cofactor', 'cofactor_digits', 'val_digits',
      'difficulty_score', 'difficulty_label', 'fdb_status', 'fdb_checked', 'ecm_attempts', 'note']
   ];
   for (const e of allEntries) {
@@ -2720,17 +2735,30 @@ function exportCSV() {
     const fdbKey  = e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : e.val;
     const fdbRes  = fdbKey ? fdbCache[fdbKey] : null;
     const ecmAtt  = (ecmData[String(e.n)] || []).length;
+
+    // Each factor gets its own column, padded to maxFactors
+    const factors = (e.factors || []).filter(f => f && f !== '1');
+    const factorVals = Array.from({length: maxFactors}, (_, i) => factors[i] || '');
+
+    // fdb_status: if entry is partial and fdbRes is null, mark as CF (partially factored)
+    let fdbStatus = '';
+    if (fdbRes) {
+      fdbStatus = fdbRes.status;
+    } else if (e.status === 'partial') {
+      fdbStatus = 'CF';
+    }
+
     rows.push([
       e.n,
       e.sign === -1 ? '-' : '+',
       e.status,
-      (e.factors || []).join(' × ') || '',
+      ...factorVals,
       e.cofactor || '',
       e.cofactor ? e.cofactor.length : '',
       e.val ? e.val.length : '',
       diff ? diff.score.toFixed(2) : '',
       dlbl,
-      fdbRes ? fdbRes.status : '',
+      fdbStatus,
       fdbRes ? new Date(fdbRes.timestamp).toISOString().slice(0,10) : '',
       ecmAtt,
       '',
@@ -3957,14 +3985,8 @@ function buildECMSection(n, e) {
             }).join(' ');
             probCell = probParts || `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
           }
-          // Build GMP-ECM command hint for ECM rows
-          let cmdHint = '';
-          if (a.method === 'ECM' && a.b1) {
-            const b1n = a.b1.replace(/e/i,'e');
-            cmdHint = `<div style="font-size:9px;color:var(--text-muted);margin-top:2px;font-family:'IBM Plex Mono',monospace">ecm -c ${a.curves||'?'} ${b1n}${a.b2?' '+a.b2:''}</div>`;
-          }
           return `<tr>
-            <td>${a.method}${cmdHint}</td>
+            <td>${a.method}</td>
             <td>${a.b1||'—'}</td>
             <td>${a.b2||'—'}</td>
             <td>${a.curves||'—'}</td>
