@@ -3280,7 +3280,9 @@ async function fetchEulerValues() {
       console.warn(`euler_values.json fetch failed (${url}):`, e.message);
     }
   }
-  setStatus('⚠ Could not load Euler values — value boxes will be empty', 'warn');
+  // Failed to load — page still works, just no value display
+  setStatus('⚠ Could not load euler_values.json — continuing without it', 'warn');
+  // Don't throw — let caller continue
 }
 
 // Init order: load settings → pull from GitHub → replay cache → render
@@ -3288,19 +3290,35 @@ loadGHSettingsToUI();
 fetchLastUpdateTime();
 renderLog();
 renderChangelog();
-setStatus('Loading…');
-fetchEulerValues().then(() => {
-  // Rebuild entries immediately with loaded values so val is available
+
+// Always render immediately with whatever we have — never block the UI
+allEntries = buildEntries();
+applyFilters();
+setStatus('Loading Euler values…');
+
+// Then fetch values and update in the background
+(async () => {
+  try {
+    await fetchEulerValues();
+  } catch(e) {
+    console.warn('fetchEulerValues failed:', e);
+  }
+
+  // Rebuild with loaded values (or proceed without if fetch failed)
   allEntries = buildEntries();
-  filtered   = [...allEntries];
-  return maybeAutoPull();
-}).then(() => {
+
+  try {
+    await maybeAutoPull();
+  } catch(e) {
+    console.warn('maybeAutoPull failed:', e);
+  }
+
   replayFDBCache();
-  allEntries = buildEntries(); // rebuild again after pull merges data
+  allEntries = buildEntries();
   applyFilters();
   renderChangelog();
   setStatus('Ready — use the buttons above to query FactorDB');
-});
+})();
 </script>
 </body>
 </html>
