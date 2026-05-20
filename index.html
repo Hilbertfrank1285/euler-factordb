@@ -28,6 +28,8 @@
     --purple-dim: #1e1030;
     --orange: #ff9f43;
     --orange-dim: #2a1800;
+    --teal: #1dd1a1;
+    --teal-dim: #0a2a20;
     --cyan: #3dd6d6;
     --cyan-dim: #0d2a2a;
   }
@@ -176,6 +178,7 @@
   .filter-btn.active.partial { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
   .filter-btn.active.unknown   { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
   .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+  .filter-btn.active.attempted  { background: var(--teal-dim);   border-color: var(--teal);   color: var(--teal); }
   .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
   .stat-item strong { color: var(--text); }
 
@@ -224,6 +227,7 @@
   .badge-unknown { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,107,107,0.25); }
   .badge-checking  { background: var(--cyan-dim);   color: var(--cyan);   border: 1px solid rgba(61,214,214,0.25); }
   .badge-composite  { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,159,67,0.25); }
+  .badge-attempted  { background: var(--teal-dim);   color: var(--teal);   border: 1px solid rgba(29,209,161,0.25); }
 
   .card-preview { margin-top: 8px; font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -518,6 +522,7 @@
     <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
     <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
+    <button class="filter-btn attempted" data-filter="attempted">ATTEMPTED</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
 </div>
@@ -560,6 +565,7 @@
   <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Unknown — not yet checked</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — confirmed composite, no factors found</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Attempted — ECM/P-1/P+1 logged, no factors found yet</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
 </div>
 
@@ -2044,7 +2050,7 @@ const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 function getUnknownTargets() {
   // Include both unknown and composite (confirmed composite but no factors yet)
   return allEntries
-    .filter(e => (e.status === 'unknown' || e.status === 'composite') && e.val && e.n > 2)
+    .filter(e => (e.status === 'unknown' || e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }));
 }
 
@@ -2779,7 +2785,7 @@ function renderGrid() {
   grid.innerHTML = page.map(e => {
     const sign    = e.sign === -1 ? '−' : '+';
     const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
-    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>' }[e.status];
+    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>', attempted:'<span class="card-badge badge-attempted">⟳ ATTEMPTED</span>' }[e.status];
     let preview = '';
     if (e.status === 'full' && e.factors.length)
       preview = `<div class="card-preview">${e.factors.join(' × ')}</div>`;
@@ -2824,10 +2830,12 @@ function renderStats() {
   const partial = allEntries.filter(e => e.status==='partial').length;
   const unknown = allEntries.filter(e => e.status==='unknown').length;
   const composite = allEntries.filter(e => e.status==='composite').length;
+  const attempted = allEntries.filter(e => e.status==='attempted').length;
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
     <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
+    <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> attempted</span>
     <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
   `;
@@ -2854,6 +2862,7 @@ function openModal(n) {
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
     unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
     composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
+    attempted: { icon:'⟳', color:'var(--teal)',    label:'Factoring Attempted',   desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
 
   // Known factors
@@ -3197,6 +3206,26 @@ function buildECMSection(n, e) {
   return probHtml + tableHtml + formHtml;
 }
 
+// Sync entry status: if ECM attempts exist → 'attempted', else revert to composite/unknown
+function syncAttemptedStatus(n) {
+  const ecmData = loadECM();
+  const key     = String(n);
+  const entry   = allEntries.find(x => x.n === n);
+  if (!entry) return;
+  // Only affect entries that are not already factored
+  if (entry.status === 'full' || entry.status === 'partial') return;
+  const hasAttempts = ecmData[key] && ecmData[key].length > 0;
+  if (hasAttempts && entry.status !== 'attempted') {
+    entry.status = 'attempted';
+  } else if (!hasAttempts && entry.status === 'attempted') {
+    // Revert — check FDB cache to determine correct fallback
+    const fdbResult = entry.val ? fdbCache[entry.val] : null;
+    entry.status = (fdbResult && fdbResult.status === 'C') ? 'composite' : 'unknown';
+  }
+  renderGrid();
+  renderStats();
+}
+
 function toggleECMFields(n) {
   const method    = document.getElementById('ecm_method_' + n)?.value || 'ECM';
   const ecmFields = document.querySelectorAll('.ecm-ecm-only_' + n);
@@ -3238,6 +3267,7 @@ function addECMAttempt(n) {
   if (attempt.curves) logMsg += ` × ${attempt.curves} curves`;
   if (attempt.poly)   logMsg += ` poly=${attempt.poly}`;
   addLog(logMsg, '');
+  syncAttemptedStatus(n);
 
   const sec = document.getElementById(`ecmSection_${n}`);
   const e   = allEntries.find(x => x.n === n);
@@ -3255,6 +3285,7 @@ function deleteECMAttempt(n, i) {
   ecmData[key].splice(idx, 1);
   if (ecmData[key].length === 0) delete ecmData[key];
   saveECM(ecmData);
+  syncAttemptedStatus(n);
   const sec = document.getElementById('ecmSection_' + n);
   const e   = allEntries.find(x => x.n === n);
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
@@ -3270,8 +3301,9 @@ function clearEntryCache(n) {
   saveFDBCache(fdbCache);
 
   // Reset entry back to unknown
-  // Reset to unknown — factoData is empty, all data comes from FDB
-  e.status   = 'unknown';
+  // Reset to unknown/attempted — factoData is empty, all data comes from FDB
+  const hasAttempts = (loadECM()[String(n)] || []).length > 0;
+  e.status   = hasAttempts ? 'attempted' : 'unknown';
   e.factors  = [];
   e.cofactor = null;
   delete e._fdbVerified;
@@ -3331,6 +3363,18 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 replayFDBCache();
+// Restore 'attempted' status for entries with logged ECM attempts
+(function() {
+  const ecmData = loadECM();
+  for (const key of Object.keys(ecmData)) {
+    if (!ecmData[key] || !ecmData[key].length) continue;
+    const n = parseInt(key);
+    const entry = allEntries.find(x => x.n === n);
+    if (entry && entry.status !== 'full' && entry.status !== 'partial') {
+      entry.status = 'attempted';
+    }
+  }
+})();
 renderLog();
 applyFilters();
 setStatus('Ready — use the buttons above to query FactorDB');
