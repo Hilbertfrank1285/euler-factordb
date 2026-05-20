@@ -2578,8 +2578,7 @@ function buildECMSection(n, e) {
   let diffHtml = '';
   if (digits) {
     const diff  = computeDifficulty(digits, attempts);
-    if (!diff || diff.score === undefined) { diffHtml = ''; }
-    else {
+    if (diff && diff.score !== undefined && diff.score !== null) {
     const dlbl  = difficultyLabel(diff.score);
     diffHtml = `<div style="display:flex;align-items:center;gap:16px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);margin-bottom:14px;flex-wrap:wrap">
       <div>
@@ -2604,6 +2603,7 @@ function buildECMSection(n, e) {
       </div>
     </div>`;
   }
+  } // end if (digits) — diff banner
 
   // Probability table for cofactor
   let probHtml = '';
@@ -2954,7 +2954,6 @@ function buildECMSection(n, e) {
     }
   }
 
-  } // end if (diff && diff.score !== undefined)
   return diffHtml + recommendHtml + probHtml + tableHtml + formHtml;
 }
 
