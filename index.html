@@ -1494,6 +1494,10 @@ function csvEsc(v) {
 }
 
 function exportCSV() {
+  if (Object.keys(eulerValues).length === 0) {
+    alert('Euler values still loading — please wait a moment and try again.');
+    return;
+  }
   const ecmData = loadECM();
 
   // Find max factor count across all entries for dynamic columns
@@ -2023,6 +2027,8 @@ function fdbTagForEntry(e) {
   ].filter(Boolean);
 
   if (!targets.length) return '';
+  // If eulerValues not yet loaded, don't show misleading 'not yet checked'
+  if (Object.keys(eulerValues).length === 0) return '<div class="card-fdb stale">⬡ values loading…</div>';
 
   for (const num of targets) {
     const c = fdbCache[num];
@@ -2209,6 +2215,10 @@ function openModal(n) {
   // Value — store in a global map to avoid attribute escaping issues with large numbers
   window._eulerValMap = window._eulerValMap || {};
   window._eulerValMap[n] = e.val || '';
+  // If eulerValues not yet loaded for this entry, show loading state
+  if (!e.val && Object.keys(eulerValues).length === 0) {
+    valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value</div><div class="value-box" style="color:var(--text-muted)">Loading…</div></div>';
+  }
   const valCopyId = 'vc_' + n;
   valueHtml = e.val ? ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
     + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
@@ -2548,6 +2558,8 @@ function difficultyLabel(score) {
 function getCofactorDigits(e) {
   if (e.cofactor && /^\d+$/.test(e.cofactor)) return e.cofactor.length;
   if (e.val && e.status !== 'full') return e.val.length;
+  // partial with no stored cofactor — use val length as proxy
+  if (e.val && e.status === 'partial') return e.val.length;
   return null;
 }
 
@@ -3251,8 +3263,8 @@ async function fetchEulerValues() {
   // Try relative path first (fast when served from same origin / GitHub Pages)
   // Fall back to raw.githubusercontent.com
   const urls = [
-    'euler_values.json',
-    `https://raw.githubusercontent.com/${user}/${repo}/${branch}/euler_values.json`,
+    'euler_values.json',  // relative — fast from GitHub Pages, browser-cached
+    `https://raw.githubusercontent.com/${user}/${repo}/${branch}/euler_values.json?v=1`,
   ];
 
   setStatus('Loading Euler values…');
@@ -3278,11 +3290,15 @@ renderLog();
 renderChangelog();
 setStatus('Loading…');
 fetchEulerValues().then(() => {
+  // Rebuild entries immediately with loaded values so val is available
+  allEntries = buildEntries();
+  filtered   = [...allEntries];
   return maybeAutoPull();
 }).then(() => {
   replayFDBCache();
-  allEntries = buildEntries(); // rebuild with loaded values
+  allEntries = buildEntries(); // rebuild again after pull merges data
   applyFilters();
+  renderChangelog();
   setStatus('Ready — use the buttons above to query FactorDB');
 });
 </script>
