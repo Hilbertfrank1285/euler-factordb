@@ -3255,43 +3255,39 @@ function buildECMSection(n, e) {
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
-              const curves = curvesPerDigit[d] || 0;
-              const p      = curves ? ecmProbability(d, curves) : 0;
-              const b1opt  = optimalB1(d);
-              const cls    = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
-              const need   = curvesForProb(d, 0.9);
-              const nfs    = d > 65;
-              const style  = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
-              const pDisp  = nfs
+              const curves   = curvesPerDigit[d] || 0;
+              const p        = curves ? ecmProbability(d, curves) : 0;
+              const b1opt    = optimalB1(d);
+              const cls      = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
+              const need     = curvesForProb(d, 0.9);
+              const nfs      = d > 65;
+              const style    = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
+              const pDisp    = nfs
                 ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">use NFS</div>`
                 : `<div class="prob-v ${cls}">${fmtPct(p)}</div>`;
+              const doneNote = `<div class="prob-b1">B1≈${fmtB1(b1opt)} · done: ${fmtCurves(curves)}${nfs ? '' : ' · 90%→'+fmtCurves(need)}</div>`;
               return `<div class="prob-cell" style="${style}">
                 <div class="prob-d">${d}-digit factor</div>
                 ${pDisp}
-                <div class="prob-b1">B1≈${fmtB1(b1opt)} · done: ${fmtCurves(curves)}${nfs ? '' : ' · 90%→'+fmtCurves(need)}</div>
+                ${doneNote}
               </div>`;
             }).join('')}
           </div>
         </div>`;
       }
 
-      // ── P-1 / P+1 grid ────────────────────────────────────────────────────
       if (pm1Attempts.length) {
-        // For P-1/P+1, each attempt is independent — show best probability across all attempts per digit
-        // and combined probability (1 - product of failure probabilities)
         probHtml += `<div style="margin-bottom:12px">
           <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
             P-1 / P+1 — P(find N-digit factor) · combined across ${pm1Attempts.length} attempt${pm1Attempts.length>1?'s':''} · each attempt independent
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
-              // Combined probability: 1 - product of (1 - p_i) for each attempt
               let failProd = 1;
               for (const a of pm1Attempts) {
                 const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
                 const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-                const p   = pm1Probability(d, b1n, b2n);
-                failProd *= (1 - p);
+                failProd *= (1 - pm1Probability(d, b1n, b2n));
               }
               const combined = 1 - failProd;
               const best     = pm1Attempts.reduce((mx, a) => {
@@ -3299,17 +3295,52 @@ function buildECMSection(n, e) {
                 const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
                 return Math.max(mx, pm1Probability(d, b1n, b2n));
               }, 0);
-              const cls   = combined > 0.3 ? 'prob-high' : combined > 0.05 ? 'prob-mid' : 'prob-low';
-              const nfs   = d > 65;
-              const style = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
-              const pDisp = nfs
+              const cls    = combined > 0.3 ? 'prob-high' : combined > 0.05 ? 'prob-mid' : 'prob-low';
+              const nfs    = d > 65;
+              const style  = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
+              const pDisp  = nfs
                 ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
                 : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
-              const bestNote = pm1Attempts.length > 1 ? `<div class="prob-b1">best single: ${fmtPct(best)}</div>` : '';
+              const bNote  = pm1Attempts.length > 1 ? `<div class="prob-b1">best single: ${fmtPct(best)}</div>` : '';
               return `<div class="prob-cell" style="${style}">
                 <div class="prob-d">${d}-digit factor</div>
                 ${pDisp}
-                ${bestNote}
+                ${bNote}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+
+      // ── Combined matrix (ECM + P-1/P+1 together) ──────────────────────────
+      if (ecmAttempts.length && pm1Attempts.length) {
+        probHtml += `<div style="margin-bottom:12px">
+          <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
+            ★ Combined — ECM + P-1/P+1 · P(at least one method finds N-digit factor)
+          </div>
+          <div class="prob-grid">
+            ${checkDigits.map(d => {
+              // ECM failure prob
+              const ecmCurves = curvesPerDigit[d] || 0;
+              const ecmP      = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
+              // PM1 failure prob
+              let pm1Fail = 1;
+              for (const a of pm1Attempts) {
+                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                pm1Fail *= (1 - pm1Probability(d, b1n, b2n));
+              }
+              const combined = 1 - (1 - ecmP) * pm1Fail;
+              const cls    = combined > 0.5 ? 'prob-high' : combined > 0.1 ? 'prob-mid' : 'prob-low';
+              const nfs    = d > 65;
+              const style  = nfs ? 'opacity:0.45;border-color:var(--border);background:var(--surface)' : 'border-color:var(--accent);background:var(--accent-dim)';
+              const pDisp  = nfs
+                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
+                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
+              return `<div class="prob-cell" style="${style}">
+                <div class="prob-d">${d}-digit factor</div>
+                ${pDisp}
+                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(1-pm1Fail)}</div>
               </div>`;
             }).join('')}
           </div>
@@ -3338,15 +3369,16 @@ function buildECMSection(n, e) {
             const lnB1    = Math.log(b1val);
             const lnln    = Math.log(Math.max(lnB1, 1.1));
             const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
-            const practical = targetD <= 65; // ECM practical limit ~60-65 digits
             const curves  = parseInt(a.curves) || 1;
-            // Probability of finding a factor of EXACTLY targetD digits
-            const p   = ecmProbability(targetD, curves);
-            const cls = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
-            const practicalNote = practical
-              ? `<span class="${cls}">${fmtPct(p)}</span>`
-              : `<span style="color:var(--text-muted);font-size:10px">NFS range</span>`;
-            probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ${practicalNote}`;
+            // Show probability at target digit size and neighbours
+            const showDigits = [targetD - 5, targetD, targetD + 5].filter(d => d >= 15 && d <= 65 && d < digits);
+            if (showDigits.length === 0) showDigits.push(targetD);
+            const parts = showDigits.map(d => {
+              const p   = ecmProbability(d, curves);
+              const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
+              return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
+            });
+            probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ` + parts.join(' ');
           } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
             const b1num = parseFloat(String(a.b1).replace(/[eE]/,'e'));
             const b2num = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
