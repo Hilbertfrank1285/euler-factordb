@@ -3049,7 +3049,7 @@ function buildECMSection(n, e) {
   // Probability table for cofactor
   let probHtml = '';
   if (digits) {
-    const targetDigits = [10,15,20,25,30,35,40,45,50,55,60,65,70,75,80];
+    const targetDigits = [20,25,30,35,40,45,50,55,60,65,70];
     const checkDigits  = targetDigits.filter(d => d < digits);
     if (checkDigits.length) {
       // Total curves done so far (ECM only)
@@ -3239,10 +3239,14 @@ function addECMAttempt(n) {
 }
 
 function deleteECMAttempt(n, i) {
-  if (!confirm('Delete this attempt?')) return;
   const ecmData = loadECM();
-  if (ecmData[n]) { ecmData[n].splice(i, 1); saveECM(ecmData); }
-  const sec = document.getElementById(`ecmSection_${n}`);
+  if (!ecmData[n] || !ecmData[n][i]) { alert('Attempt not found.'); return; }
+  const a = ecmData[n][i];
+  if (!confirm('Delete ' + a.method + ' attempt (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')?')) return;
+  ecmData[n].splice(i, 1);
+  if (ecmData[n].length === 0) delete ecmData[n];
+  saveECM(ecmData);
+  const sec = document.getElementById('ecmSection_' + n);
   const e   = allEntries.find(x => x.n === n);
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
