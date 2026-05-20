@@ -2925,11 +2925,28 @@ function applyFilters() {
   // Sort
   if (sortMode === 'diff-asc' || sortMode === 'diff-desc') {
     const ecmData = loadECM();
+
+    // Status category order for grouping (fully factored always last when sorting by difficulty)
+    const statusOrder = { full: 0, partial: 1, composite: 2, attempted: 3, unknown: 4 };
+
     filtered.sort((a, b) => {
+      const catA = statusOrder[a.status] ?? 5;
+      const catB = statusOrder[b.status] ?? 5;
+
+      // Within each status category, sort by difficulty
+      if (catA !== catB) return catA - catB;
+
       const da = getCofactorDigits(a);
       const db = getCofactorDigits(b);
-      const sa = da ? computeDifficulty(da, ecmData[String(a.n)] || []).score : 0;
-      const sb = db ? computeDifficulty(db, ecmData[String(b.n)] || []).score : 0;
+
+      // Entries with no cofactor (e.g. fully factored) sort by n
+      if (!da && !db) return a.n - b.n;
+      if (!da) return 1;
+      if (!db) return -1;
+
+      const sa = computeDifficulty(da, ecmData[String(a.n)] || []).score;
+      const sb = computeDifficulty(db, ecmData[String(b.n)] || []).score;
+
       return sortMode === 'diff-asc' ? sa - sb : sb - sa;
     });
   } else {
@@ -3147,7 +3164,9 @@ function openModal(n) {
     if (c) {
       unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
     }
-    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})|</button>`;
+    const qTimeout = e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120;
+    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})| <span style="font-size:9px;opacity:0.7">(${e.val ? e.val.length+'d · up to '+qTimeout+'s' : ''})</span></button>
+    <div id="fdbQueryStatus_${n}" style="font-size:10px;color:var(--yellow);margin-top:4px;min-height:14px"></div>`;
   }
 
   document.getElementById('modalBody').innerHTML = `
@@ -3210,6 +3229,18 @@ async function modalCheckCofactor(n) {
 async function modalCheckFull(n) {
   const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) return;
+
+  // Show loading state on the button
+  const btn = document.querySelector(`button[onclick="modalCheckFull(${n})"]`);
+  const timeout = timeoutForNumber(e.val);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = `↻ Querying FactorDB… (up to ${Math.round(timeout/1000)}s)`;
+  }
+  // Also show status in the modal
+  const statusEl = document.getElementById('fdbQueryStatus_' + n);
+  if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
+
   try {
     const data    = await queryFactorDB(e.val);
     const rawSt   = data.status || 'U';
@@ -3238,11 +3269,15 @@ async function modalCheckFull(n) {
 
     addLog(`E(${n}) queried → ${fdbStatusLabel(status)}`, 'ok');
     renderGrid();
-    // Only refresh modal if it's currently open for this entry
     const backdrop = document.getElementById('modalBackdrop');
     if (backdrop && backdrop.classList.contains('open')) openModal(n);
   } catch(err) {
     addLog(`E(${n}) query error: ${err.message}`, 'err');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
+    }
+    if (statusEl) statusEl.textContent = 'Error: ' + err.message;
   }
 }
 
