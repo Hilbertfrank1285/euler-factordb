@@ -364,6 +364,45 @@
   .empty { grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
   .empty big { display: block; font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
 
+  /* ── GitHub sync ── */
+  .github-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 40px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .github-label { color: var(--text-muted); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .github-status { color: var(--text-dim); flex: 1; min-width: 200px; }
+  .github-status.ok   { color: var(--green); }
+  .github-status.err  { color: var(--red); }
+  .github-status.busy { color: var(--yellow); }
+  .github-btn {
+    background: var(--surface2); border: 1px solid var(--border2); color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 4px 10px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .github-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .github-btn.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .github-btn.primary:hover { background: var(--accent); color: #000; }
+  .github-settings-panel {
+    display: none;
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    padding: 16px;
+    margin: 0 40px 12px;
+    gap: 12px;
+  }
+  .github-settings-panel.open { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .gh-field label { display: block; font-size: 9px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 3px; }
+  .gh-field input { width: 100%; background: var(--surface); border: 1px solid var(--border2); color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 5px 7px; outline: none; }
+  .gh-field input:focus { border-color: var(--accent); }
+  .gh-hint { font-size: 10px; color: var(--text-muted); grid-column: 1/-1; line-height: 1.6; }
+  .gh-hint a { color: var(--accent); }
+
   /* ── ECM/Factoring attempt log ── */
   .ecm-section { margin-bottom: 20px; }
   .ecm-table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -476,6 +515,39 @@
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
+</div>
+
+<!-- GitHub Sync -->
+<div class="github-bar" id="githubBar">
+  <div class="github-label">⬡ GitHub sync</div>
+  <div class="github-status" id="githubStatus">Not configured — click ⚙ to set up</div>
+  <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
+  <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push</button>
+  <button class="github-btn" onclick="toggleGithubSettings()" title="GitHub settings">⚙</button>
+</div>
+<div class="github-settings-panel" id="githubSettingsPanel">
+  <div class="gh-field">
+    <label>GitHub username</label>
+    <input type="text" id="ghUser" placeholder="hilbertfrank1285" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-field">
+    <label>Repository name</label>
+    <input type="text" id="ghRepo" placeholder="euler-factordb" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-field">
+    <label>Branch</label>
+    <input type="text" id="ghBranch" placeholder="main" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-field">
+    <label>Personal Access Token</label>
+    <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-hint">
+    Token needs <strong>Contents: Read &amp; Write</strong> scope only.
+    Create one at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>
+    (Fine-grained token → your repo → Contents read/write).
+    Data is saved as <code>results.json</code> in your repo root.
+  </div>
 </div>
 
 <div class="legend">
@@ -2150,6 +2222,224 @@ function toggleChangelog() {
   toggle.childNodes[0].textContent = (changelogOpen ? '▾' : '▸') + ' Changelog — discovered factors ';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GITHUB SYNC
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GH_SETTINGS_KEY = 'eulerFDB_ghSettings';
+const GH_DATA_FILE    = 'results.json';
+
+function loadGHSettings() {
+  try { return JSON.parse(localStorage.getItem(GH_SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+function saveGHSettings() {
+  const s = {
+    user:   document.getElementById('ghUser')?.value?.trim()   || '',
+    repo:   document.getElementById('ghRepo')?.value?.trim()   || '',
+    branch: document.getElementById('ghBranch')?.value?.trim() || 'main',
+    token:  document.getElementById('ghToken')?.value?.trim()  || '',
+  };
+  localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify(s));
+  updateGHStatus();
+}
+
+function loadGHSettingsToUI() {
+  const s = loadGHSettings();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  set('ghUser',   s.user);
+  set('ghRepo',   s.repo);
+  set('ghBranch', s.branch || 'main');
+  set('ghToken',  s.token);
+  updateGHStatus();
+}
+
+function updateGHStatus() {
+  const s = loadGHSettings();
+  const el = document.getElementById('githubStatus');
+  if (!el) return;
+  if (!s.user || !s.repo || !s.token) {
+    el.className = 'github-status';
+    el.textContent = 'Not configured — click ⚙ to set up';
+  } else {
+    el.className = 'github-status ok';
+    el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — ready`;
+  }
+}
+
+function toggleGithubSettings() {
+  const panel = document.getElementById('githubSettingsPanel');
+  panel.classList.toggle('open');
+}
+
+function ghApiBase() {
+  const s = loadGHSettings();
+  return `https://api.github.com/repos/${s.user}/${s.repo}/contents/${GH_DATA_FILE}`;
+}
+
+function ghHeaders() {
+  const s = loadGHSettings();
+  return {
+    'Authorization': `Bearer ${s.token}`,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  };
+}
+
+function setGHStatus(msg, cls = '') {
+  const el = document.getElementById('githubStatus');
+  if (el) { el.textContent = msg; el.className = 'github-status' + (cls ? ' '+cls : ''); }
+}
+
+function setGHBtns(disabled) {
+  ['ghPullBtn','ghPushBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = disabled;
+  });
+}
+
+// Serialise all local data into one object
+function buildSyncPayload() {
+  return {
+    fdbCache:   loadFDBCache(),
+    changelog:  loadChangelog(),
+    ecm:        loadECM(),
+    updatedAt:  new Date().toISOString(),
+  };
+}
+
+// Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
+function mergeSyncPayload(remote) {
+  // FDB cache: take entry with newer timestamp
+  const localCache  = loadFDBCache();
+  const remoteCache = remote.fdbCache || {};
+  const merged = { ...localCache };
+  for (const [k, v] of Object.entries(remoteCache)) {
+    if (!merged[k] || (v.timestamp || 0) > (merged[k].timestamp || 0)) {
+      merged[k] = v;
+    }
+  }
+  saveFDBCache(merged);
+  fdbCache = merged;
+
+  // Changelog: merge by timestamp dedup
+  const localCL  = loadChangelog();
+  const remoteCL = remote.changelog || [];
+  const clMap    = new Map();
+  [...localCL, ...remoteCL].forEach(e => clMap.set(`${e.n}_${e.ts}`, e));
+  const mergedCL = Array.from(clMap.values()).sort((a,b) => (b.ts||0)-(a.ts||0));
+  saveChangelog(mergedCL);
+
+  // ECM: merge by n + date + method (dedup)
+  const localECM  = loadECM();
+  const remoteECM = remote.ecm || {};
+  const mergedECM = { ...localECM };
+  for (const [n, attempts] of Object.entries(remoteECM)) {
+    if (!mergedECM[n]) { mergedECM[n] = attempts; continue; }
+    const existing = new Set(mergedECM[n].map(a => `${a.method}_${a.date}_${a.b1}`));
+    for (const a of attempts) {
+      if (!existing.has(`${a.method}_${a.date}_${a.b1}`)) mergedECM[n].push(a);
+    }
+  }
+  saveECM(mergedECM);
+}
+
+async function githubPull() {
+  const s = loadGHSettings();
+  if (!s.user || !s.repo || !s.token) {
+    toggleGithubSettings();
+    setGHStatus('Please configure GitHub settings first', 'err');
+    return;
+  }
+  setGHBtns(true);
+  setGHStatus('Pulling from GitHub…', 'busy');
+  try {
+    const r = await fetch(ghApiBase() + `?ref=${s.branch||'main'}`, { headers: ghHeaders() });
+    if (r.status === 404) {
+      setGHStatus('No results.json found in repo yet — push first to create it', '');
+      return;
+    }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    const payload = JSON.parse(atob(data.content.split('\n').join('')));
+    mergeSyncPayload(payload);
+    // Rebuild entries with merged cache
+    allEntries = buildEntries();
+    replayFDBCache();
+    applyFilters();
+    renderChangelog();
+    addLog('GitHub pull complete — data merged', 'ok');
+    setGHStatus(`Pulled from GitHub — last updated ${payload.updatedAt ? new Date(payload.updatedAt).toLocaleString() : 'unknown'}`, 'ok');
+  } catch(e) {
+    setGHStatus(`Pull failed: ${e.message}`, 'err');
+    addLog(`GitHub pull error: ${e.message}`, 'err');
+  } finally {
+    setGHBtns(false);
+  }
+}
+
+async function githubPush() {
+  const s = loadGHSettings();
+  if (!s.user || !s.repo || !s.token) {
+    toggleGithubSettings();
+    setGHStatus('Please configure GitHub settings first', 'err');
+    return;
+  }
+  setGHBtns(true);
+  setGHStatus('Pushing to GitHub…', 'busy');
+  try {
+    // Get current SHA if file exists (needed for update)
+    let sha = null;
+    const existing = await fetch(ghApiBase() + `?ref=${s.branch||'main'}`, { headers: ghHeaders() });
+    if (existing.ok) {
+      const existData = await existing.json();
+      sha = existData.sha;
+    }
+
+    const payload  = buildSyncPayload();
+    const content  = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+    const body     = {
+      message: `Update Euler factorization data — ${new Date().toISOString().slice(0,10)}`,
+      content,
+      branch: s.branch || 'main',
+      ...(sha ? { sha } : {}),
+    };
+
+    const r = await fetch(ghApiBase(), {
+      method:  'PUT',
+      headers: ghHeaders(),
+      body:    JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json();
+      throw new Error(err.message || `HTTP ${r.status}`);
+    }
+    addLog('GitHub push complete', 'ok');
+    setGHStatus(`Pushed to GitHub @ ${new Date().toLocaleTimeString()}`, 'ok');
+  } catch(e) {
+    setGHStatus(`Push failed: ${e.message}`, 'err');
+    addLog(`GitHub push error: ${e.message}`, 'err');
+  } finally {
+    setGHBtns(false);
+  }
+}
+
+// Auto-push after a successful poll
+async function maybeAutoPush() {
+  const s = loadGHSettings();
+  if (s.user && s.repo && s.token) {
+    await githubPush();
+  }
+}
+
+// Auto-pull on page load if configured
+async function maybeAutoPull() {
+  const s = loadGHSettings();
+  if (s.user && s.repo && s.token) {
+    await githubPull();
+  }
+}
+
 function rebuildAndRender() {
   allEntries = buildEntries();
   // Re-apply FDB cache
@@ -2371,6 +2661,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null) {
 
   setStatus(msg, updated > 0 ? 'ok' : '');
   addLog(msg, updated > 0 ? 'ok' : '');
+  if (updated > 0) maybeAutoPush();
 
   const qi = document.getElementById('queueInfo'); if (qi) qi.style.display = 'none';
   const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
@@ -2992,6 +3283,8 @@ renderLog();
 applyFilters();
 setStatus('Ready — use the buttons above to query FactorDB');
 renderChangelog();
+loadGHSettingsToUI();
+maybeAutoPull();
 </script>
 </body>
 </html>
