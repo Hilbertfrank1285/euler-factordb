@@ -3286,39 +3286,28 @@ async function fetchEulerValues() {
 }
 
 // Init order: load settings → pull from GitHub → replay cache → render
-loadGHSettingsToUI();
-fetchLastUpdateTime();
-renderLog();
-renderChangelog();
+// ── INIT ─────────────────────────────────────────────────────────────────────
+// Step 1: render synchronously with whatever is available right now
+try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
+try { fetchLastUpdateTime(); } catch(e) {}
+try { renderLog(); } catch(e) {}
+try { renderChangelog(); } catch(e) {}
+try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
+try { replayFDBCache(); } catch(e) { console.error('replayFDBCache', e); }
+try { applyFilters(); } catch(e) { console.error('applyFilters', e); }
+setStatus('Ready — loading values in background…');
 
-// Always render immediately with whatever we have — never block the UI
-allEntries = buildEntries();
-applyFilters();
-setStatus('Loading Euler values…');
-
-// Then fetch values and update in the background
-(async () => {
-  try {
-    await fetchEulerValues();
-  } catch(e) {
-    console.warn('fetchEulerValues failed:', e);
-  }
-
-  // Rebuild with loaded values (or proceed without if fetch failed)
-  allEntries = buildEntries();
-
-  try {
-    await maybeAutoPull();
-  } catch(e) {
-    console.warn('maybeAutoPull failed:', e);
-  }
-
-  replayFDBCache();
-  allEntries = buildEntries();
-  applyFilters();
-  renderChangelog();
+// Step 2: load euler values + github data in background, then re-render
+setTimeout(async () => {
+  try { await fetchEulerValues(); } catch(e) { console.warn('euler values:', e); }
+  try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries2', e); }
+  try { await maybeAutoPull(); } catch(e) { console.warn('github pull:', e); }
+  try { replayFDBCache(); } catch(e) {}
+  try { allEntries = buildEntries(); } catch(e) {}
+  try { applyFilters(); } catch(e) {}
+  try { renderChangelog(); } catch(e) {}
   setStatus('Ready — use the buttons above to query FactorDB');
-})();
+}, 0);
 </script>
 </body>
 </html>
