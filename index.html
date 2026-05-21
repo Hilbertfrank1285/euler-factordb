@@ -835,8 +835,10 @@ function saveChangelog(c) {
 
 function addChangelogEntry(n, type, detail) {
   const log = loadChangelog();
-  log.unshift({ n, type, detail, ts: Date.now() });
-  saveChangelog(log.slice(0, 500));
+  // Store only n, type, ts — strip detail (may contain large factor strings)
+  // Detail goes to results.json via changelog sync
+  log.unshift({ n, type, detail: detail ? String(detail).slice(0, 100) : '', ts: Date.now() });
+  saveChangelog(log.slice(0, 200)); // cap at 200 entries in localStorage
 }
 
 // 24 hours between auto-polls, 5 minutes between manual polls
@@ -858,11 +860,13 @@ function loadFDBCache() {
   } catch { return {}; }
 }
 function saveFDBCache(c) {
-  // Strip factor strings — only keep status, timestamp, n in localStorage
   const slim = {};
   for (const [k, v] of Object.entries(c)) {
-    slim[k] = { status: v.status, timestamp: v.timestamp, n: v.n };
-    // Store factors in memory-only fdbFactors
+    // Store slim version in localStorage: status + timestamp + n + truncated factor list
+    // Factors truncated to 60 chars each — enough to show in UI, full value in results.json
+    const slimFactors = (v.factors || []).map(f => String(f).slice(0, 60));
+    slim[k] = { status: v.status, timestamp: v.timestamp, n: v.n, factors: slimFactors };
+    // Store full factors in memory
     if (v.factors || v.cofactor) {
       fdbFactors[k] = { factors: v.factors, cofactor: v.cofactor };
     }
@@ -880,7 +884,7 @@ function loadLog() {
 }
 function saveLog(l) {
   try {
-    localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-200)));
+    localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-50))); // keep only last 50 in localStorage
   } catch(e) {
     if (e.name === 'QuotaExceededError') showStorageWarning();
   }
@@ -913,6 +917,18 @@ let searchQuery  = '';
 // fdbFactors: in-memory only (factors/cofactors) — NOT in localStorage
 // Populated from results.json pull and from live FDB queries
 const fdbFactors = {};
+
+// On startup: pre-populate fdbFactors from whatever slim data is in localStorage
+// This provides factor data even if the GitHub pull fails
+(function initFdbFactors() {
+  try {
+    const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    for (const [k, v] of Object.entries(slim)) {
+      if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    }
+  } catch(e) {}
+})();
+
 let fdbCache     = loadFDBCache();
 let activityLog  = loadLog();
 let logOpen      = false;
@@ -2045,6 +2061,27 @@ function showStorageWarning() {
   const usedMB = (used / 1024 / 1024).toFixed(2);
   console.error('localStorage quota exceeded! Used: ' + usedMB + 'MB');
   setStatus('⚠ localStorage full (' + usedMB + 'MB) — data NOT being saved! Push to GitHub then clear cache.', 'err');
+}
+
+function getStorageBreakdown() {
+  const keys = {
+    [STORAGE_KEY]:   'fdbCache',
+    [ECM_KEY]:       'ecm',
+    [CHANGELOG_KEY]: 'changelog',
+    [LOG_KEY]:       'activityLog',
+    [COOLDOWN_KEY]:  'cooldown',
+    [GH_SETTINGS_KEY]: 'ghSettings',
+  };
+  const breakdown = {};
+  let total = 0;
+  for (const [k, label] of Object.entries(keys)) {
+    const val = localStorage.getItem(k) || '';
+    const kb = (val.length / 1024).toFixed(1);
+    breakdown[label] = kb + ' KB';
+    total += val.length;
+  }
+  breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
+  return breakdown;
 }
 
 function getStorageUsage() {
@@ -3549,7 +3586,7 @@ setTimeout(async () => {
     applyFilters();                    // render grid with promoted entries
     renderChangelog();                 // refresh changelog with merged data
     renderStats();                     // refresh stats counts
-    console.log('localStorage used:', (getStorageUsage()/1024/1024).toFixed(2) + 'MB');
+    console.log('localStorage breakdown:', getStorageBreakdown());
     console.log('Init complete:',
       'entries=' + allEntries.length,
       'fdbCache=' + Object.keys(fdbCache).length,
