@@ -1390,17 +1390,16 @@ function setGHBtns(disabled) {
 
 // Serialise all local data into one object
 function buildSyncPayload() {
-  // slim localStorage is keyed by n (integer string like "22")
-  // fdbFactors is keyed by number string (actual Euler number)
-  // results.json must be keyed by number string so replayFDBCache works
+  // Use n as key in results.json — shrinks file from MB to KB
+  // factors stored separately in fdbFactors, keyed by number string in memory only
   const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   const full = {};
   for (const [nStr, v] of Object.entries(slim)) {
     const n   = parseInt(nStr);
     const num = eulerValues[n] || '';
-    if (!num) continue; // skip if eulerValues not loaded
-    const factors = fdbFactors[num] || {};
-    full[num] = { status: v.status, timestamp: v.timestamp, n, ...factors };
+    const factors = num ? (fdbFactors[num] || {}) : {};
+    // Key by n — small integer, not huge number string
+    full[nStr] = { status: v.status, timestamp: v.timestamp, n, ...factors };
   }
   return {
     fdbCache:  full,
@@ -1412,9 +1411,18 @@ function buildSyncPayload() {
 
 // Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
 function mergeSyncPayload(remote) {
-  // FDB cache: take entry with newer timestamp (remote wins if newer)
+  // FDB cache: both local and remote are number-string keyed
+  // Remote (results.json) is now n-keyed — convert to number-string keys using eulerValues
   const localCache  = loadFDBCache();
-  const remoteCache = remote.fdbCache || {};
+  const rawRemote   = remote.fdbCache || {};
+  // Convert remote n-keyed → number-string keyed
+  const remoteCache = {};
+  for (const [k, v] of Object.entries(rawRemote)) {
+    const n   = v.n != null ? v.n : parseInt(k);
+    const num = eulerValues[n] || '';
+    if (num) remoteCache[num] = { ...v, n };
+    else remoteCache[k] = v; // fallback: keep as-is if no eulerValues
+  }
   const merged = { ...localCache };
   let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0 };
   for (const [k, v] of Object.entries(remoteCache)) {
