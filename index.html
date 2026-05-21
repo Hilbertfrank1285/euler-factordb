@@ -1427,6 +1427,11 @@ function mergeSyncPayload(remote) {
       merged[k] = v;
       mergeStats.remoteWins++;
     } else {
+      // Local wins on timestamp — but copy factors from remote if local has none
+      // (local slim cache loses factors on reload; remote results.json has them)
+      if (!merged[k].factors && v.factors && v.factors.length) {
+        merged[k] = { ...merged[k], factors: v.factors, cofactor: v.cofactor };
+      }
       mergeStats.localWins++;
     }
   }
