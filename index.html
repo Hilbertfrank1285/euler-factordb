@@ -812,12 +812,26 @@ const ECM_KEY        = 'eulerFDB_ecm_v1';
 function loadECM() {
   try { return JSON.parse(localStorage.getItem(ECM_KEY) || '{}'); } catch { return {}; }
 }
-function saveECM(d) { try { localStorage.setItem(ECM_KEY, JSON.stringify(d)); } catch {} }
+function saveECM(d) {
+  try {
+    localStorage.setItem(ECM_KEY, JSON.stringify(d));
+  } catch(e) {
+    console.error('saveECM failed:', e.name, e.message);
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
 
 function loadChangelog() {
   try { return JSON.parse(localStorage.getItem(CHANGELOG_KEY) || '[]'); } catch { return []; }
 }
-function saveChangelog(c) { try { localStorage.setItem(CHANGELOG_KEY, JSON.stringify(c)); } catch {} }
+function saveChangelog(c) {
+  try {
+    localStorage.setItem(CHANGELOG_KEY, JSON.stringify(c));
+  } catch(e) {
+    console.error('saveChangelog failed:', e.name, e.message);
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
 
 function addChangelogEntry(n, type, detail) {
   const log = loadChangelog();
@@ -836,12 +850,25 @@ let MAX_PER_SESSION    = 30;    // cap requests per manual session (user-adjusta
 function loadFDBCache() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
 }
-function saveFDBCache(c) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)); } catch {} }
+function saveFDBCache(c) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(c));
+  } catch(e) {
+    console.error('saveFDBCache failed:', e.name, e.message);
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
 
 function loadLog() {
   try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { return []; }
 }
-function saveLog(l) { try { localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-200))); } catch {} }
+function saveLog(l) {
+  try {
+    localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-200)));
+  } catch(e) {
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRIES
@@ -1442,7 +1469,14 @@ async function githubPush() {
     // Helper to attempt one push with a given SHA
     async function attemptPush(sha) {
       const payload = buildSyncPayload();
-      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+      const jsonStr = JSON.stringify(payload, null, 2);
+      console.log('Push payload stats:',
+        'fdbCache=' + Object.keys(payload.fdbCache || {}).length,
+        'changelog=' + (payload.changelog || []).length,
+        'ecm=' + Object.keys(payload.ecm || {}).length,
+        'jsonSize=' + (jsonStr.length / 1024 / 1024).toFixed(2) + 'MB',
+        'sha=' + sha);
+      const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
       const body    = {
         message: 'Update Euler factorization data — ' + new Date().toISOString().slice(0,10),
         content: encoded,
@@ -1967,6 +2001,24 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
   localStorage.setItem(COOLDOWN_KEY, Date.now());
   renderGrid();
+}
+
+let _storageWarningShown = false;
+function showStorageWarning() {
+  if (_storageWarningShown) return;
+  _storageWarningShown = true;
+  const used = Object.keys(localStorage).reduce((sum, k) => sum + localStorage.getItem(k).length, 0);
+  const usedMB = (used / 1024 / 1024).toFixed(2);
+  console.error('localStorage quota exceeded! Used: ' + usedMB + 'MB');
+  setStatus('⚠ localStorage full (' + usedMB + 'MB) — data NOT being saved! Push to GitHub then clear cache.', 'err');
+}
+
+function getStorageUsage() {
+  try {
+    let total = 0;
+    for (const k of Object.keys(localStorage)) total += localStorage.getItem(k).length;
+    return total;
+  } catch { return 0; }
 }
 
 function setStatus(msg, cls = '') {
@@ -3461,6 +3513,7 @@ setTimeout(async () => {
     applyFilters();                    // render grid with promoted entries
     renderChangelog();                 // refresh changelog with merged data
     renderStats();                     // refresh stats counts
+    console.log('localStorage used:', (getStorageUsage()/1024/1024).toFixed(2) + 'MB');
     console.log('Init complete:',
       'entries=' + allEntries.length,
       'fdbCache=' + Object.keys(fdbCache).length,
