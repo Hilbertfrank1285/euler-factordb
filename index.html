@@ -369,17 +369,6 @@
   .page-btn:disabled { opacity: 0.3; cursor: default; }
   .page-info { color: var(--text-dim); font-size: 11px; margin-left: 8px; }
 
-  /* ── Timeline chart ── */
-  .timeline-panel { border-top: 1px solid var(--border); background: var(--surface); }
-  .timeline-toggle { padding: 10px 40px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; }
-  .timeline-toggle:hover { color: var(--text); }
-  .timeline-body { display: none; padding: 0 40px 20px; }
-  .timeline-body.open { display: block; }
-  .timeline-canvas-wrap { position: relative; height: 220px; margin-top: 12px; }
-  .timeline-legend { display: flex; gap: 16px; font-size: 10px; color: var(--text-dim); margin-top: 8px; flex-wrap: wrap; }
-  .timeline-legend-item { display: flex; align-items: center; gap: 5px; }
-  .timeline-legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-
   /* ── Log panel ── */
   .log-panel { border-top: 1px solid var(--border); background: var(--surface); }
   .log-toggle { padding: 10px 40px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; }
@@ -594,6 +583,11 @@
     <span class="spinner">◌</span>
     Check unknowns
   </button>
+  <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Check no known factors
+  </button>
   <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
     <span class="poll-icon">↻</span>
     <span class="spinner">◌</span>
@@ -738,24 +732,6 @@
     <button class="changelog-clear" onclick="clearChangelog(event)">Clear</button>
   </div>
   <div class="changelog-entries" id="changelogEntries"></div>
-</div>
-
-<!-- Timeline -->
-<div class="timeline-panel">
-  <div class="timeline-toggle" onclick="toggleTimeline()">
-    ▸ Timeline — factorization discoveries over time
-  </div>
-  <div class="timeline-body" id="timelineBody">
-    <div class="timeline-legend">
-      <div class="timeline-legend-item"><div class="timeline-legend-dot" style="background:var(--green)"></div> Fully factored</div>
-      <div class="timeline-legend-item"><div class="timeline-legend-dot" style="background:var(--yellow)"></div> Partially factored</div>
-      <div class="timeline-legend-item"><div class="timeline-legend-dot" style="background:var(--orange)"></div> Promoted (cofactor resolved)</div>
-    </div>
-    <div class="timeline-canvas-wrap">
-      <canvas id="timelineCanvas"></canvas>
-    </div>
-    <div style="font-size:10px;color:var(--text-muted);margin-top:6px">Based on changelog timestamps. Each point = one discovery event.</div>
-  </div>
 </div>
 
 <!-- Modal -->
@@ -1943,9 +1919,10 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
   // Disable both buttons; animate the one that was clicked
   const mainBtn  = document.getElementById('pollBtn');
-  const unknownBtn = document.getElementById('pollUnknownBtn');
+  const unknownBtn   = document.getElementById('pollUnknownBtn');
+  const compositeBtn = document.getElementById('pollCompositeBtn');
   const btn = activeBtn || mainBtn;
-  [mainBtn, unknownBtn].forEach(b => { if (b) b.disabled = true; });
+  [mainBtn, unknownBtn, compositeBtn].forEach(b => { if (b) b.disabled = true; });
   btn.classList.add('polling');
 
   const progress   = document.getElementById('pollProgress');
@@ -2097,6 +2074,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   btn.classList.remove('polling');
   if (mainBtn) mainBtn.disabled = false;
   if (unknownBtn) unknownBtn.disabled = false;
+  if (compositeBtn) compositeBtn.disabled = false;
   polling = false;
   cancelRequested = false;
 
@@ -2147,6 +2125,27 @@ function setStatus(msg, cls = '') {
   const el = document.getElementById('fdbStatusText');
   el.innerHTML = msg;
   el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
+}
+
+function startCompositePoll() {
+  if (polling) return;
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
+    return;
+  }
+  // Only composite (confirmed no known factors) entries
+  const targets = allTargets().filter(t => {
+    const entry = allEntries.find(e => e.n === t.n);
+    return entry && (entry.status === 'composite' || entry.status === 'attempted');
+  });
+  if (targets.length === 0) {
+    setStatus('No "no known factors" entries to check', 'warn');
+    return;
+  }
+  addLog(`Checking ${targets.length} no-known-factors entries`, '');
+  runPollQueue(targets, true, document.getElementById('pollCompositeBtn'), true);
 }
 
 function startUnknownPoll() {
