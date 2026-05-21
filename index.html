@@ -1534,7 +1534,20 @@ async function githubPull() {
   }
 }
 
-let _pushInFlight = false;
+let _pushInFlight   = false;
+let _ecmPushTimer   = null;
+function scheduleECMPush() {
+  // Debounce: push 8 seconds after last ECM change (avoids pushing on every keystroke)
+  if (_ecmPushTimer) clearTimeout(_ecmPushTimer);
+  _ecmPushTimer = setTimeout(() => {
+    _ecmPushTimer = null;
+    const s = loadGHSettings();
+    if (s.token && s.user && s.repo) {
+      addLog('Auto-pushing after ECM log change…', '');
+      githubPush();
+    }
+  }, 8000);
+}
 async function githubPush() {
   const s = loadGHSettings();
   if (!s.user || !s.repo || !s.token) {
@@ -3165,7 +3178,17 @@ function buildECMSection(n, e) {
 
   // Attempts table
   if (attempts.length) {
-    tableHtml = `<table class="ecm-table">
+    const totalCpuSec = attempts.reduce((sum, a) => {
+      const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
+      const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+      return sum + (estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0);
+    }, 0);
+    tableHtml = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
+      <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 5900X core</span>
+      <span style="opacity:0.3">|</span>
+      <span>${attempts.length} attempt${attempts.length===1?'':'s'}</span>
+    </div>` +
+    `<table class="ecm-table">
       <thead><tr>
         <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~5900X core</span></th><th>Date</th><th>Note</th><th></th>
       </tr></thead>
