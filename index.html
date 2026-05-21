@@ -3553,51 +3553,44 @@ async function fetchEulerValues() {
   const repo   = s.repo   || 'euler-factordb';
   const branch = s.branch || 'main';
 
-  // Try relative path first (fast when served from same origin / GitHub Pages)
-  // Fall back to raw.githubusercontent.com
-  const urls = [
-    'euler_values.json',  // relative — fast from GitHub Pages, browser-cached
-    `https://raw.githubusercontent.com/${user}/${repo}/${branch}/euler_values.json?v=1`,
+  // Chunked files — all under 10MB so GitHub API can handle them
+  const chunks = [
+    'euler_values_0_2498.json',
+    'euler_values_2500_4000.json',
+    'euler_values_4002_5000.json',
+    'euler_values_5002_6000.json',
   ];
 
-  setStatus('Loading Euler values (~3.8 MB)…');
-  for (const url of urls) {
-    try {
-      const r = await fetchWithTimeout(url, 30000);
-      if (!r.ok) continue;
-      // Stream the response so we can show progress
-      const contentLength = +r.headers.get('content-length') || 0;
-      if (contentLength > 0 && r.body && r.body.getReader) {
-        const reader = r.body.getReader();
-        let received = 0;
-        const chunks = [];
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          const pct = Math.round((received / contentLength) * 100);
-          setStatus(`Loading Euler values… ${pct}%`);
-        }
-        const blob = new Blob(chunks);
-        const text = await blob.text();
-        const data = JSON.parse(text);
+  setStatus('Loading Euler values…');
+
+  async function fetchChunk(fname, idx) {
+    const urls = [
+      fname,
+      'https://raw.githubusercontent.com/' + user + '/' + repo + '/' + branch + '/' + fname + '?v=1',
+    ];
+    for (const url of urls) {
+      try {
+        const r = await fetchWithTimeout(url, 30000);
+        if (!r.ok) continue;
+        const data = await r.json();
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
-        console.log('Loaded ' + Object.keys(data).length + ' Euler values from ' + url);
-        return;
+        console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url);
+        return true;
+      } catch(e) {
+        console.warn('Chunk fetch failed (' + url + '):', e.message);
       }
-      // Fallback: no streaming, just await text
-      const data = await r.json();
-      for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
-      console.log('Loaded ' + Object.keys(data).length + ' Euler values from ' + url);
-      return;
-    } catch(e) {
-      console.warn('euler_values.json fetch failed (' + url + '):', e.message);
     }
+    return false;
   }
-  // Failed to load — page still works, just no value display
-  setStatus('⚠ Could not load euler_values.json — continuing without it', 'warn');
-  // Don't throw — let caller continue
+
+  // Load all chunks in parallel
+  const results = await Promise.all(chunks.map((f, i) => fetchChunk(f, i)));
+  const loaded  = results.filter(Boolean).length;
+  console.log('Loaded ' + Object.keys(eulerValues).length + ' Euler values total (' + loaded + '/' + chunks.length + ' chunks)');
+
+  if (loaded === 0) {
+    setStatus('⚠ Could not load Euler values — continuing without them', 'warn');
+  }
 }
 
 // Init order: load settings → pull from GitHub → replay cache → render
