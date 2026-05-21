@@ -621,6 +621,7 @@
     <span style="font-size:10px;color:var(--text-muted)">Sort:</span>
     <button class="sort-btn active" id="sortNBtn" onclick="toggleSortN()">E(n) ↑</button>
     <button class="sort-btn" id="sortDiffBtn" onclick="toggleSortDiff()">Difficulty ↑</button>
+    <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()">CPU ↓</button>
   </div>
 </div>
 
@@ -937,15 +938,8 @@ let searchQuery  = '';
 // fdbFactors: in-memory only (factors/cofactors) — NOT in localStorage
 // Populated from results.json pull and from live FDB queries
 const fdbFactors = {};
-
-// On startup: pre-populate fdbFactors from whatever slim data is in localStorage
-// This provides factor data even if the GitHub pull fails
-(function initFdbFactors() {
-  // fdbFactors pre-population happens in loadFDBCache() and mergeSyncPayload()
-  // Nothing to do here — fdbFactors starts empty and gets filled as data loads
-})();
-
-let fdbCache     = loadFDBCache();
+// fdbCache starts empty — loaded AFTER eulerValues so number-string keys can be rebuilt
+let fdbCache = {};
 let activityLog  = loadLog();
 let logOpen      = false;
 let polling      = false;
@@ -1621,12 +1615,22 @@ function setSortMode(mode) {
 }
 
 function toggleSortN() {
-  // Toggle between n-asc and n-desc
   sortMode = (sortMode === 'default') ? 'n-desc' : 'default';
   const btn = document.getElementById('sortNBtn');
-  const diffBtn = document.getElementById('sortDiffBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
   if (btn) { btn.textContent = sortMode === 'default' ? 'E(n) ↑' : 'E(n) ↓'; btn.classList.add('active'); }
-  if (diffBtn) { diffBtn.classList.remove('active'); diffBtn.textContent = 'Difficulty ↑'; }
+  applyFilters();
+}
+
+function toggleSortCpu() {
+  if (sortMode !== 'cpu-asc' && sortMode !== 'cpu-desc') {
+    sortMode = 'cpu-desc'; // most CPU first by default
+  } else {
+    sortMode = sortMode === 'cpu-desc' ? 'cpu-asc' : 'cpu-desc';
+  }
+  const btn   = document.getElementById('sortCpuBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'cpu-desc' ? 'CPU ↓' : 'CPU ↑'; btn.classList.add('active'); }
   applyFilters();
 }
 
@@ -1857,12 +1861,10 @@ function drawTimeline() {
 
 function toggleLog() {
   logOpen = !logOpen;
-  document.getElementById('logEntries').classList.toggle('open', logOpen);
-  document.querySelector('.log-toggle').textContent = (logOpen ? '▾' : '▸') +
-    ` Activity log `;
-  document.querySelector('.log-toggle').appendChild(document.getElementById('logCount').parentNode
-    ? document.getElementById('logCount')
-    : (() => { const s=document.createElement('span'); s.className='log-count'; s.id='logCount'; return s; })());
+  const entries = document.getElementById('logEntries');
+  const toggle  = document.querySelector('.log-toggle');
+  if (entries) entries.classList.toggle('open', logOpen);
+  if (toggle)  toggle.textContent = (logOpen ? '▾' : '▸') + ' Activity log ';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2212,6 +2214,16 @@ function applyFilters() {
     });
   } else if (sortMode === 'n-desc') {
     filtered.sort((a, b) => b.n - a.n);
+  } else if (sortMode === 'cpu-asc' || sortMode === 'cpu-desc') {
+    filtered.sort((a, b) => {
+      const ca = getTotalCpuForEntry(a) || 0;
+      const cb = getTotalCpuForEntry(b) || 0;
+      // Entries with no CPU time go to the end
+      if (!ca && !cb) return a.n - b.n;
+      if (!ca) return 1;
+      if (!cb) return -1;
+      return sortMode === 'cpu-desc' ? cb - ca : ca - cb;
+    });
   } else {
     filtered.sort((a, b) => a.n - b.n);
   }
@@ -2219,6 +2231,22 @@ function applyFilters() {
   renderGrid();
   renderPagination();
   renderStats();
+}
+
+function getTotalCpuForEntry(e) {
+  const ecmData  = loadECM();
+  const attempts = ecmData[String(e.n)] || [];
+  if (!attempts.length) return null;
+  const digits = getCofactorDigits(e);
+  if (!digits) return null;
+  let total = 0;
+  for (const a of attempts) {
+    const b1n = a.b1 ? parseFloat(String(a.b1).replace(/[eE]/,'e')) : 0;
+    const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+    const s   = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
+    if (s) total += s;
+  }
+  return total > 0 ? total : null;
 }
 
 function getDifficultyForEntry(e) {
@@ -2287,6 +2315,7 @@ function renderGrid() {
       ${badge}${attemptBadge}
       ${e.status === 'full' ? '' : (() => { try { const diff = getDifficultyForEntry(e); if (!diff || diff.score === undefined || diff.score === null) return ''; const dl = difficultyLabel(diff.score); return `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`; } catch(err) { return ''; } })()}
       ${preview}
+      ${(() => { try { const cpu = getTotalCpuForEntry(e); if (!cpu) return ''; return '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ' + fmtCpuTime(cpu) + ' CPU</div>'; } catch(err) { return ''; } })()}
       ${fdbTagForEntry(e)}
     </div>`;
   }).join('');
@@ -3584,6 +3613,9 @@ setTimeout(async () => {
   } catch(e) {
     console.warn('fetchEulerValues failed:', e);
   }
+
+  // Now eulerValues is loaded — initialise fdbCache so number-string keys can be rebuilt
+  fdbCache = loadFDBCache();
 
   // Phase 2: pull from GitHub (merges remote into localStorage)
   // githubPull internally re-renders — that's fine, we'll re-render again below
