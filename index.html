@@ -1000,15 +1000,16 @@ function replayFDBCache() {
     }
 
     // Partial resolution: FDB CF for full value or cofactor
-    if (status === 'CF' && factors && factors.length >= 1) {
-      const allFDB = factors.filter(f => f && f !== '1');
-      if (allFDB.length > 0) {
-        const lastF    = allFDB[allFDB.length - 1];
-        const isLastBig = lastF.length > 15 && allFDB.length > 1;
-        const knownFactors = isLastBig ? allFDB.slice(0, -1) : allFDB;
-        const cofactorNum  = isLastBig ? lastF : null;
+    if (status === 'CF' && ((factors && factors.length >= 1) || cached.cofactorLen)) {
+      const allFDB = (factors || []).filter(f => f && f !== '1');
+      const cofactorLen = cached.cofactorLen || null;
+      // If we have cofactorLen, we know prime factors are all but the implied cofactor
+      const knownFactors = allFDB.length > 0 ? allFDB : [];
+      // Reconstruct cofactor placeholder if we have its length but not the string
+      const cofactorNum  = cofactorLen ? ('(~' + cofactorLen + 'd cofactor)') : null;
+      if (knownFactors.length > 0 || cofactorLen) {
         entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
-        entry.cofactor = cofactorNum;
+        entry.cofactor = cofactorNum; // may be a placeholder string like "(~1247d cofactor)"
         entry.status   = 'partial';
         entry._fdbVerified = true;
         restored++;
@@ -1399,11 +1400,20 @@ function buildSyncPayload() {
     const n   = parseInt(nStr);
     const num = eulerValues[n] || '';
     const fd  = num ? (fdbFactors[num] || {}) : {};
-    // Truncate each factor to 200 chars (prime factors are typically small; huge ones are cofactors)
-    const slimFactors = (fd.factors || []).map(f => String(f).slice(0, 200));
-    full[nStr] = { status: v.status, timestamp: v.timestamp, n,
-                   ...(slimFactors.length ? { factors: slimFactors } : {}) };
-    // cofactor deliberately excluded — too large, not needed for replayFDBCache
+    const allFactors = (fd.factors || []).filter(f => f && f !== '1');
+    // Separate prime factors (small) from cofactor (last large factor in CF entries)
+    let primeFactors = allFactors, cofactorLen = null;
+    if (allFactors.length > 1) {
+      const last = allFactors[allFactors.length - 1];
+      if (last.length > 500) { // likely the cofactor, not a prime
+        primeFactors = allFactors.slice(0, -1);
+        cofactorLen  = last.length; // store length only, not the huge string
+      }
+    }
+    const entry = { status: v.status, timestamp: v.timestamp, n };
+    if (primeFactors.length) entry.factors = primeFactors; // full prime factors (small)
+    if (cofactorLen)        entry.cofactorLen = cofactorLen; // length only
+    full[nStr] = entry;
   }
   return {
     fdbCache:  full,
@@ -1424,8 +1434,9 @@ function mergeSyncPayload(remote) {
   for (const [k, v] of Object.entries(rawRemote)) {
     const n   = v.n != null ? v.n : parseInt(k);
     const num = eulerValues[n] || '';
-    if (num) remoteCache[num] = { ...v, n };
-    else remoteCache[k] = v; // fallback: keep as-is if no eulerValues
+    const entry = { ...v, n };
+    if (num) remoteCache[num] = entry;
+    else remoteCache[k] = entry; // fallback
   }
   const merged = { ...localCache };
   let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0 };
@@ -2737,9 +2748,11 @@ function recommendNextRun(digits, attempts) {
   if (bestGain < 0.001) {
     // ECM well covered — suggest P-1 if not done
     if (!pm1Attempts.length) {
+      const pm1CpuSec = estimateCpuSeconds('P-1', 1e7, 1e11, 1, digits);
       return { method:'P-1', b1:'1e7', b2:'1e11', curves:null, targetDigits:20,
         gain:(Math.log(25/20)/Math.log(digits)*100).toFixed(2),
-        reason:'No P-1 runs logged yet. P-1 is fast and finds primes with smooth p−1 — complementary to ECM.' };
+        reason:'No P-1 runs logged yet. P-1 is fast and finds primes with smooth p−1 — complementary to ECM.',
+        cpuTime: pm1CpuSec };
     }
     return null;
   }
@@ -2751,8 +2764,10 @@ function recommendNextRun(digits, attempts) {
       : `Current coverage at ${bestD}d: ${fmtCurves(cov)} curves (${fmtPct(ecmProbability(bestD, cov))}). Adding ${fmtCurves(bestCurves)} curves improves by ~20 percentage points.`;
   };
 
+  const ecmCpuSec = estimateCpuSeconds('ECM', optimalB1(bestD), null, bestCurves, digits);
   return { method:'ECM', b1:bestB1, b2:null, curves:fmtCurves(bestCurves),
-    targetDigits: bestD, gain: bestGain.toFixed(2), reason: reason(bestD) };
+    targetDigits: bestD, gain: bestGain.toFixed(2), reason: reason(bestD),
+    cpuTime: ecmCpuSec };
 }
 
 function computeDifficulty(digits, attempts) {
@@ -2892,45 +2907,7 @@ function buildECMSection(n, e) {
           P±1 coverage (${diff.pm1Coverage}% of 20-40d range): <span style="color:var(--green)">−${diff.pm1Reduction}</span>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--text-muted);max-width:220px;line-height:1.8;border-left:1px solid var(--border2);padding-left:12px">
-        ${(() => {
-          // Estimate total CPU-core-hours to fully factor this cofactor
-          // Strategy: run ECM to 90% confidence at each digit level up to 65d
-          // then the number is either NFS territory or has a small factor
-          const ecmRange = [20,25,30,35,40,45,50,55,60,65].filter(d => d < Math.min(digits, 66));
-          let remainingCpuSec = 0;
-          let doneCpuSec = 0;
-          const curvesPerD = {};
-          for (const a of (attempts || [])) {
-            if (a.method !== 'ECM' || !a.b1) continue;
-            const b1val = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-            const lnB1  = Math.log(b1val);
-            const lnln  = Math.log(Math.max(lnB1, 1.1));
-            const td    = Math.round((lnB1*lnB1)/(Math.log(10)*lnln));
-            const c     = parseInt(a.curves)||0;
-            for (let d = td-3; d <= td+3; d++) curvesPerD[d] = (curvesPerD[d]||0) + c;
-          }
-          for (const d of ecmRange) {
-            const need  = curvesForProb(d, 0.90);
-            const done  = curvesPerD[d] || 0;
-            const b1opt = optimalB1(d);
-            const secPer = estimateCpuSeconds('ECM', b1opt, null, 1, digits) || 1;
-            doneCpuSec      += secPer * Math.min(done, need);
-            remainingCpuSec += secPer * Math.max(0, need - done);
-          }
-          const totalSec  = doneCpuSec + remainingCpuSec;
-          const remainDays = remainingCpuSec / 86400;
-          const totalDays  = totalSec / 86400;
-          const fmtDays = d => d > 9999 ? '>9999 days' : d > 1 ? d.toFixed(1)+' days' : (d*24).toFixed(1)+' hrs';
-          const pctDone = totalSec > 0 ? Math.min(100, Math.round(doneCpuSec/totalSec*100)) : 0;
-          const color   = remainDays > 9999 ? 'var(--red)' : remainDays > 365 ? 'var(--orange)' : remainDays > 30 ? 'var(--yellow)' : 'var(--green)';
-          return '<span style="color:var(--text)">Est. to fully factor (ECM to 65d):</span><br>'
-            + '<span style="color:'+color+';font-size:12px;font-weight:600">' + fmtDays(remainDays) + ' remaining</span><br>'
-            + 'Total est: ' + fmtDays(totalDays) + '<br>'
-            + 'Progress: ' + pctDone + '% done<br>'
-            + (digits > 65 ? '<span style="color:var(--text-muted)">NFS needed beyond 65d</span>' : '');
-        })()}
-      </div>
+
     </div>`;
   }
   } // end if (digits) — diff banner
@@ -3278,9 +3255,10 @@ function buildECMSection(n, e) {
   if (digits) {
     const rec = recommendNextRun(digits, attempts);
     if (rec) {
+      const cpuStr = rec.cpuTime ? ' · <span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + ' on 5900X core</span>' : '';
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
         + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">★ Recommended next run</div>'
-        + '<div style="font-size:12px;color:var(--text);margin-bottom:4px">' + rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '') + '</div>'
+        + '<div style="font-size:12px;color:var(--text);margin-bottom:4px">' + rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '') + cpuStr + '</div>'
         + '<div style="font-size:11px;color:var(--text-dim);line-height:1.6">' + rec.reason + '</div>'
         + '<div style="font-size:10px;color:var(--green);margin-top:4px">Expected gain: +' + rec.gain + '% probability at ' + rec.targetDigits + 'd factors</div>'
         + '</div>';
