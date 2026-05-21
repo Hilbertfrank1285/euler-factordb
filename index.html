@@ -822,7 +822,21 @@ function saveECM(d) {
 }
 
 function loadChangelog() {
-  try { return JSON.parse(localStorage.getItem(CHANGELOG_KEY) || '[]'); } catch { return []; }
+  try {
+    const entries = JSON.parse(localStorage.getItem(CHANGELOG_KEY) || '[]');
+    // Strip any large cofactor/factor strings from old entries (backward compat cleanup)
+    return entries.map(e => {
+      if (!e.detail) return e;
+      // Remove "Cofactor: <long number>" and "Factors: <long numbers>" from detail
+      const clean = e.detail
+        .replace(/Cofactor: \d+/g, '')
+        .replace(/New factors: [\d\s×^]+/g, '')
+        .replace(/Factors: [\d\s×^]+/g, '')
+        .replace(/\.\s*$/, '')
+        .trim();
+      return { ...e, detail: clean };
+    });
+  } catch { return []; }
 }
 function saveChangelog(c) {
   try {
@@ -3598,6 +3612,8 @@ setTimeout(async () => {
   }
 
   setStatus('Ready — use the buttons above to query FactorDB');
+  // One-time cleanup: re-save changelog without large strings (trims old stored data)
+  try { saveChangelog(loadChangelog()); } catch(e) {}
 }, 0);
 </script>
 </body>
