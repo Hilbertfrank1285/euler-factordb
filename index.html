@@ -2156,11 +2156,9 @@ function startUnknownPoll() {
     setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
     return;
   }
-  // Only entries with status 'unknown' or 'composite' that returned U or were never checked
-  const targets = getUnknownTargets().filter(t => {
-    const cached = fdbCache[t.number];
-    return !cached || cached.status === 'U';
-  });
+  // All unknown/composite entries — user explicitly wants to check these
+  // regardless of prior cache status (re-checks previously queried ones too)
+  const targets = getUnknownTargets();
   if (targets.length === 0) {
     setStatus('No unknown entries to check', 'warn');
     addLog('Check unknowns: no targets', 'warn');
