@@ -1327,15 +1327,25 @@ function buildSyncPayload() {
 
 // Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
 function mergeSyncPayload(remote) {
-  // FDB cache: take entry with newer timestamp
+  // FDB cache: take entry with newer timestamp (remote wins if newer)
   const localCache  = loadFDBCache();
   const remoteCache = remote.fdbCache || {};
   const merged = { ...localCache };
+  let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0 };
   for (const [k, v] of Object.entries(remoteCache)) {
-    if (!merged[k] || (v.timestamp || 0) > (merged[k].timestamp || 0)) {
+    const localTs  = Number(merged[k]?.timestamp) || 0;
+    const remoteTs = Number(v.timestamp) || 0;
+    if (!merged[k]) {
       merged[k] = v;
+      mergeStats.remoteAdded++;
+    } else if (remoteTs > localTs) {
+      merged[k] = v;
+      mergeStats.remoteWins++;
+    } else {
+      mergeStats.localWins++;
     }
   }
+  console.log('FDB merge:', mergeStats);
   saveFDBCache(merged);
   fdbCache = merged;
 
@@ -3423,24 +3433,42 @@ try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e)
 try { applyFilters(); } catch(e) { console.error('applyFilters', e); }
 setStatus('Ready — loading values in background…');
 
-// Step 2: load euler values + github data in background, then re-render
+// Step 2: load euler values + github data in background
+// IMPORTANT: render order matters — must be buildEntries → replayFDBCache → applyFilters
+// Otherwise the cache gets wiped by the next buildEntries
 setTimeout(async () => {
-  // Load euler values first — without these, replayFDBCache can't match entries
-  try { await fetchEulerValues(); } catch(e) { console.warn('euler values:', e); }
+  // Phase 1: load static Euler values JSON
+  try {
+    await fetchEulerValues();
+  } catch(e) {
+    console.warn('fetchEulerValues failed:', e);
+  }
 
-  // Now rebuild entries WITH values loaded
-  try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries2', e); }
+  // Phase 2: pull from GitHub (merges remote into localStorage)
+  // githubPull internally re-renders — that's fine, we'll re-render again below
+  try {
+    await maybeAutoPull();
+  } catch(e) {
+    console.warn('maybeAutoPull failed:', e);
+  }
 
-  // Pull GitHub results.json
-  try { await maybeAutoPull(); } catch(e) { console.warn('github pull:', e); }
+  // Phase 3: FINAL consistent state — re-read all data from localStorage
+  // (because mergeSyncPayload may have updated it) and render in correct order
+  try {
+    fdbCache    = loadFDBCache();
+    allEntries  = buildEntries();     // build fresh entries with vals
+    replayFDBCache();                  // promote entries based on merged cache
+    applyFilters();                    // render grid with promoted entries
+    renderChangelog();                 // refresh changelog with merged data
+    renderStats();                     // refresh stats counts
+    console.log('Init complete:',
+      'entries=' + allEntries.length,
+      'fdbCache=' + Object.keys(fdbCache).length,
+      'ecm=' + Object.keys(loadECM()).length);
+  } catch(e) {
+    console.error('Final render failed:', e);
+  }
 
-  // Replay FDB cache AFTER values are loaded so entries can be matched and promoted
-  try { replayFDBCache(); } catch(e) { console.error('replayFDBCache2', e); }
-
-  // Final render
-  try { applyFilters(); } catch(e) { console.error('applyFilters2', e); }
-  try { renderChangelog(); } catch(e) {}
-  try { renderStats(); } catch(e) {}
   setStatus('Ready — use the buttons above to query FactorDB');
 }, 0);
 </script>
