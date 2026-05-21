@@ -1390,11 +1390,17 @@ function setGHBtns(disabled) {
 
 // Serialise all local data into one object
 function buildSyncPayload() {
-  // fdbCache for sync: slim localStorage version + full factor data from memory
+  // slim localStorage is keyed by n (integer string like "22")
+  // fdbFactors is keyed by number string (actual Euler number)
+  // results.json must be keyed by number string so replayFDBCache works
   const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   const full = {};
-  for (const [k, v] of Object.entries(slim)) {
-    full[k] = { ...v, ...(fdbFactors[k] || {}) };
+  for (const [nStr, v] of Object.entries(slim)) {
+    const n   = parseInt(nStr);
+    const num = eulerValues[n] || '';
+    if (!num) continue; // skip if eulerValues not loaded
+    const factors = fdbFactors[num] || {};
+    full[num] = { status: v.status, timestamp: v.timestamp, n, ...factors };
   }
   return {
     fdbCache:  full,
@@ -1425,14 +1431,13 @@ function mergeSyncPayload(remote) {
     }
   }
   console.log('FDB merge:', mergeStats);
-  // Populate fdbFactors from remote before saving
+  // Populate fdbFactors (keyed by number string) from merged data
   for (const [k, v] of Object.entries(merged)) {
-    if (v.factors || v.cofactor) {
-      fdbFactors[k] = { factors: v.factors, cofactor: v.cofactor };
-    }
+    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
   }
-  saveFDBCache(merged); // saves slim version to localStorage
-  fdbCache = merged;    // in-memory has full data
+  saveFDBCache(merged); // saves slim (n-keyed) to localStorage
+  fdbCache = merged;    // in-memory: number-string keyed with full data
 
   // Changelog: merge by timestamp dedup
   const localCL  = loadChangelog();
