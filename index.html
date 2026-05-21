@@ -1013,6 +1013,7 @@ const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 
 function getUnknownTargets() {
   // Include both unknown and composite (confirmed composite but no factors yet)
+  // Skip numbers too large for the FDB API (> 7000 digits)
   return allEntries
     .filter(e => (e.status === 'unknown' || e.status === 'composite') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }));
@@ -2509,7 +2510,7 @@ function openModal(n) {
     }
     const qTimeout = e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120;
     unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})| <span style="font-size:9px;opacity:0.7">(${e.val ? e.val.length+'d · up to '+qTimeout+'s' : ''})</span></button>
-    <div id="fdbQueryStatus_${n}" style="font-size:10px;color:var(--yellow);margin-top:4px;min-height:14px"></div>`;
+    <div id="fdbQueryStatus_${n}" style="font-size:11px;color:var(--yellow);margin-top:6px;min-height:16px;padding:4px 0"></div>`;
   }
 
   document.getElementById('modalBody').innerHTML = `
@@ -2622,7 +2623,13 @@ async function modalCheckFull(n) {
       btn.disabled = false;
       btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
     }
-    if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+    // Make error persistent — store in a data attribute so it survives re-renders
+    const errEl = document.getElementById('fdbQueryStatus_' + n);
+    if (errEl) {
+      errEl.textContent = '⚠ ' + err.message;
+      errEl.style.color = 'var(--red)';
+      errEl.setAttribute('data-persistent', '1');
+    }
   }
 }
 
