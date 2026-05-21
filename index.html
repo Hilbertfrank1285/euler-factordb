@@ -838,7 +838,7 @@ function addChangelogEntry(n, type, detail) {
   // Store only n, type, ts — strip detail (may contain large factor strings)
   // Detail goes to results.json via changelog sync
   log.unshift({ n, type, detail: detail ? String(detail).slice(0, 100) : '', ts: Date.now() });
-  saveChangelog(log.slice(0, 200)); // cap at 200 entries in localStorage
+  saveChangelog(log.slice(0, 100)); // cap at 100 entries in localStorage
 }
 
 // 24 hours between auto-polls, 5 minutes between manual polls
@@ -852,24 +852,30 @@ let MAX_PER_SESSION    = 30;    // cap requests per manual session (user-adjusta
 function loadFDBCache() {
   try {
     const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    // Merge in-memory factor data back into the cache for callers that need it
-    for (const [k, v] of Object.entries(slim)) {
-      if (fdbFactors[k]) slim[k] = { ...slim[k], ...fdbFactors[k] };
+    // Rebuild full cache: slim uses n as key, we need to map back to number string
+    // For each entry, look up the number string via eulerValues
+    const full = {};
+    for (const [nStr, v] of Object.entries(slim)) {
+      const n   = parseInt(nStr);
+      const num = eulerValues[n] || v.numKey || '';
+      if (!num) continue;
+      full[num] = { status: v.status, timestamp: v.timestamp, n,
+                    ...(fdbFactors[num] || {}) };
     }
-    return slim;
+    return full;
   } catch { return {}; }
 }
 function saveFDBCache(c) {
+  // Use n (small integer) as key in localStorage — NOT the number string (up to 2498 digits)
+  // This alone reduces storage from MB to KB
   const slim = {};
   for (const [k, v] of Object.entries(c)) {
-    // Store slim version in localStorage: status + timestamp + n + truncated factor list
-    // Factors truncated to 60 chars each — enough to show in UI, full value in results.json
-    const slimFactors = (v.factors || []).map(f => String(f).slice(0, 60));
-    slim[k] = { status: v.status, timestamp: v.timestamp, n: v.n, factors: slimFactors };
-    // Store full factors in memory
-    if (v.factors || v.cofactor) {
-      fdbFactors[k] = { factors: v.factors, cofactor: v.cofactor };
-    }
+    if (v.n == null) continue; // skip entries without n index
+    const key = String(v.n);  // key by n, not by number string
+    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20) };
+    // Store full factors in memory keyed by number string (for fast replay lookup)
+    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
   }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
@@ -921,12 +927,8 @@ const fdbFactors = {};
 // On startup: pre-populate fdbFactors from whatever slim data is in localStorage
 // This provides factor data even if the GitHub pull fails
 (function initFdbFactors() {
-  try {
-    const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    for (const [k, v] of Object.entries(slim)) {
-      if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
-    }
-  } catch(e) {}
+  // fdbFactors pre-population happens in loadFDBCache() and mergeSyncPayload()
+  // Nothing to do here — fdbFactors starts empty and gets filled as data loads
 })();
 
 let fdbCache     = loadFDBCache();
@@ -1960,7 +1962,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           entry._resolvedViaCofactor = target.number;
           invalidateDifficultyCache(target.n);
           addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved`, 'ok');
-          addChangelogEntry(target.n, 'promoted', `Cofactor resolved via FactorDB (${fdbStatusLabel(status)}). New factors: ${fdbFactors.join(' × ')}`);
+          addChangelogEntry(target.n, 'promoted', 'Cofactor resolved via FactorDB (' + fdbStatusLabel(status) + ')');
 
         // Path 2: full value lookup resolved (unknown → full)
         } else if (entry.val === target.number && (entry.status === 'unknown' || entry.status === 'composite') && resolved) {
@@ -1970,7 +1972,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           entry.status   = 'full';
           entry._fdbVerified = true;
           addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
-          addChangelogEntry(target.n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: ' + fdbFactors.join(' × ') : ' (unit)'}`);
+          addChangelogEntry(target.n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
 
         // Path 3a: confirmed composite, no factors (C status) → mark as composite
         } else if (status === 'C' && (entry.status === 'unknown' || entry.status === 'composite')) {
@@ -1997,7 +1999,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
             entry._fdbVerified = true;
             const logMsg = `E(${target.n}) partial: ${knownFactors.join(' × ')}${cofactorNum ? ' × [cofactor '+cofactorNum.length+'d]' : ''}`;
             addLog(logMsg, 'ok');
-            addChangelogEntry(target.n, 'updated', `FDB CF: known factors: ${knownFactors.join(' × ')}${cofactorNum ? '. Cofactor: '+cofactorNum : ''}`);
+            addChangelogEntry(target.n, 'updated', 'FDB CF: ' + knownFactors.length + ' factor(s) known, cofactor ' + (cofactorNum ? cofactorNum.length + 'd' : 'none'));
           }
         }
       }
@@ -2526,7 +2528,7 @@ async function modalCheckFull(n) {
       e.cofactor = null;
       e.status   = 'full';
       e._fdbVerified = true;
-      addChangelogEntry(n, 'promoted', `Full value resolved via FactorDB (${fdbStatusLabel(status)})${fdbFactors.length ? '. Factors: '+fdbFactors.join(' × ') : ' (unit)'}`);
+      addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
     } else if (status === 'CF' && factors.length >= 1) {
       const allFDB = factors.filter(f => f && f !== '1');
       const lastF  = allFDB[allFDB.length - 1];
