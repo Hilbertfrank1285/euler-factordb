@@ -848,11 +848,27 @@ const REQUEST_DELAY_MS = 1000;  // 1 s between requests
 let MAX_PER_SESSION    = 30;    // cap requests per manual session (user-adjustable)
 
 function loadFDBCache() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
+  try {
+    const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    // Merge in-memory factor data back into the cache for callers that need it
+    for (const [k, v] of Object.entries(slim)) {
+      if (fdbFactors[k]) slim[k] = { ...slim[k], ...fdbFactors[k] };
+    }
+    return slim;
+  } catch { return {}; }
 }
 function saveFDBCache(c) {
+  // Strip factor strings — only keep status, timestamp, n in localStorage
+  const slim = {};
+  for (const [k, v] of Object.entries(c)) {
+    slim[k] = { status: v.status, timestamp: v.timestamp, n: v.n };
+    // Store factors in memory-only fdbFactors
+    if (v.factors || v.cofactor) {
+      fdbFactors[k] = { factors: v.factors, cofactor: v.cofactor };
+    }
+  }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(c));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
   } catch(e) {
     console.error('saveFDBCache failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
@@ -894,6 +910,9 @@ let filtered     = [...allEntries];
 let currentPage  = 1;
 let activeFilter = 'all';
 let searchQuery  = '';
+// fdbFactors: in-memory only (factors/cofactors) — NOT in localStorage
+// Populated from results.json pull and from live FDB queries
+const fdbFactors = {};
 let fdbCache     = loadFDBCache();
 let activityLog  = loadLog();
 let logOpen      = false;
@@ -913,6 +932,7 @@ function replayFDBCache() {
       const cleaned = entry.factors.map(f => typeof f === 'string' ? f.replace(/\^1$/,'') : f);
       if (cleaned.join() !== entry.factors.join()) {
         fdbCache[key] = { ...entry, factors: cleaned };
+        if (cleaned.length) fdbFactors[key] = { factors: cleaned };
         migrated = true;
       }
     }
@@ -1344,11 +1364,17 @@ function setGHBtns(disabled) {
 
 // Serialise all local data into one object
 function buildSyncPayload() {
+  // fdbCache for sync: slim localStorage version + full factor data from memory
+  const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  const full = {};
+  for (const [k, v] of Object.entries(slim)) {
+    full[k] = { ...v, ...(fdbFactors[k] || {}) };
+  }
   return {
-    fdbCache:   loadFDBCache(),
-    changelog:  loadChangelog(),
-    ecm:        loadECM(),
-    updatedAt:  new Date().toISOString(),
+    fdbCache:  full,
+    changelog: loadChangelog(),
+    ecm:       loadECM(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -1373,8 +1399,14 @@ function mergeSyncPayload(remote) {
     }
   }
   console.log('FDB merge:', mergeStats);
-  saveFDBCache(merged);
-  fdbCache = merged;
+  // Populate fdbFactors from remote before saving
+  for (const [k, v] of Object.entries(merged)) {
+    if (v.factors || v.cofactor) {
+      fdbFactors[k] = { factors: v.factors, cofactor: v.cofactor };
+    }
+  }
+  saveFDBCache(merged); // saves slim version to localStorage
+  fdbCache = merged;    // in-memory has full data
 
   // Changelog: merge by timestamp dedup
   const localCL  = loadChangelog();
@@ -1890,7 +1922,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       const factors = (data.factors || []).map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f)).filter(Boolean);
 
       const prev    = fdbCache[target.number];
-      fdbCache[target.number] = { status, factors, timestamp: Date.now(), n: target.n };
+      const fullEntry = { status, factors, timestamp: Date.now(), n: target.n };
+      fdbCache[target.number] = fullEntry;
+      if (factors && factors.length) fdbFactors[target.number] = { factors };
       saveFDBCache(fdbCache);
 
       const resolved = ['FF', 'P', 'PRP'].includes(status);
@@ -2412,6 +2446,7 @@ async function modalCheckCofactor(n) {
     const status = rawStC === 'UN' ? 'FF' : rawStC;
     const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
+    if (factors && factors.length) fdbFactors[e.cofactor] = { factors };
     saveFDBCache(fdbCache);
     addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
     renderGrid();
@@ -2444,6 +2479,7 @@ async function modalCheckFull(n) {
     const status  = (rawSt === 'UN') ? 'FF' : rawSt;
     const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
     fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
+    if (factors && factors.length) fdbFactors[e.val] = { factors };
     saveFDBCache(fdbCache);
 
     // Promote entry immediately
