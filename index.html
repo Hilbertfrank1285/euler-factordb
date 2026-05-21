@@ -1105,6 +1105,29 @@ function optimalB1(digits) {
 
 // Probability of finding a d-digit prime factor with k curves at optimal B1
 // P = 1 - exp(-k / L(p))
+// With -I n: B1 varies per curve — but probability per curve at a fixed digit target
+// doesn't change with B1 (it's always 1/L(d)). -I spreads coverage across MULTIPLE
+// digit targets, so we use ecmProbabilityWithI for that.
+function ecmProbabilityWithI(d, b1_0, curves, I_val) {
+  if (!I_val || I_val <= 0 || curves <= 1) return ecmProbability(d, curves);
+  // With -I n, curve i uses B1_i = B1_0 * exp(i/n)
+  // Each B1_i targets a different digit range d_i
+  // Count how many curves effectively target digit range d
+  // d_i = (ln(B1_i))^2 / (ln(10) * ln(ln(B1_i)))
+  // We sum up the fraction of curves whose target is within ±3 of d
+  let effectiveCurves = 0;
+  const sampleN = Math.min(curves, 200);
+  for (let i = 0; i < sampleN; i++) {
+    const b1_i = b1_0 * Math.exp(i / I_val);
+    const lnB1 = Math.log(b1_i);
+    const lnln = Math.log(Math.max(lnB1, 1.1));
+    const td   = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+    if (Math.abs(td - d) <= 3) effectiveCurves++;
+  }
+  const scaledCurves = effectiveCurves * curves / sampleN;
+  return ecmProbability(d, Math.round(scaledCurves));
+}
+
 function ecmProbability(digits, curves) {
   const L = lenstраL(digits);
   return 1 - Math.exp(-curves / L);
@@ -2683,6 +2706,7 @@ function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
   // Stage 2: B2/B1 ratio matters, scales linearly with B2/B1 but only sqrt of d
   // Default B2 ≈ 100*B1 gives stage2 ≈ 0.5 × stage1
   const b2eff = b2 || (100 * b1);
+  // k blocks: default k=4; each doubling of k from default adds ~8% to stage 2 time
   const stage2 = stage1 * Math.sqrt(b2eff / b1) / 10 * Math.sqrt(d / 100);
 
   const perCurve = stage1 + stage2;
@@ -3143,7 +3167,7 @@ function buildECMSection(n, e) {
   if (attempts.length) {
     tableHtml = `<table class="ecm-table">
       <thead><tr>
-        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~5900X core</span></th><th>Date</th><th>Note</th><th></th>
+        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~5900X core</span></th><th>Date</th><th>Note</th><th></th>
       </tr></thead>
       <tbody>
         ${attempts.map((a, i) => {
@@ -3156,10 +3180,13 @@ function buildECMSection(n, e) {
             const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
             const curves  = parseInt(a.curves) || 1;
             // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
+            const I_val = a.I ? parseFloat(a.I) : 0;
             const showDigits = [15,20,25,30,35,40,45,50,55,60,65].filter(d => d < digits);
             if (showDigits.length === 0) showDigits.push(targetD);
             const parts = showDigits.map(d => {
-              const p   = ecmProbability(d, curves);
+              const p = I_val > 0
+                ? ecmProbabilityWithI(d, b1val, curves, I_val)
+                : ecmProbability(d, curves);
               const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
               return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
             });
@@ -3183,6 +3210,7 @@ function buildECMSection(n, e) {
             <td>${a.b2||'—'}</td>
             <td>${a.curves||'—'}</td>
             <td>${a.poly||'—'}</td>
+            <td style="font-size:10px;color:var(--text-muted)">${a.I||'—'}</td>
             <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
             <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
             <td title="Estimated time on a single Zen 3 / 5900X core" style="font-size:10px;color:var(--text-dim)">${(() => {
@@ -3220,7 +3248,7 @@ function buildECMSection(n, e) {
         <input type="text" id="ecm_b1_${n}" placeholder="e.g. 3e6" required>
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
-        <label>B2 <span style="color:var(--red)">*</span></label>
+        <label>B2</label>
         <input type="text" id="ecm_b2_${n}" placeholder="e.g. 3e8">
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
@@ -3228,8 +3256,12 @@ function buildECMSection(n, e) {
         <input type="number" id="ecm_curves_${n}" placeholder="e.g. 1000" min="1" required>
       </div>
       <div class="ecm-field ecm-ecm-only_${n}">
-        <label>Poly (Dickson k=)</label>
-        <input type="text" id="ecm_poly_${n}" placeholder="e.g. k=3, Dickson">
+        <label>Poly</label>
+        <input type="text" id="ecm_poly_${n}" placeholder="e.g. Dickson 10">
+      </div>
+      <div class="ecm-field">
+        <label title="-I n: multiply B1 by exp(1/n) after each curve. Used when running same number on n machines. Affects probability — each curve uses a different B1. Leave blank if B1 was fixed.">-I <span style="color:var(--text-muted);font-weight:400;font-size:9px">(B1 vary)</span></label>
+        <input type="number" id="ecm_I_${n}" placeholder="blank=fixed B1" min="1">
       </div>
       <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
         <label>B1 <span style="color:var(--red)">*</span></label>
@@ -3388,6 +3420,46 @@ function syncAttemptedStatus(n) {
   renderStats();
 }
 
+// Default B2 for GMP-ECM ≈ B1 * 100 (rough approximation; actual default varies)
+function defaultB2(b1) {
+  // GMP-ECM computes default B2 as roughly: exp(sqrt(2 * ln(B1) * ln(ln(B1)))) / 2
+  // But in practice it's close to B1 * 100 for typical B1 values
+  // Better approximation from GMP-ECM source: default B2 ≈ B1^1.5 / 3
+  if (!b1 || b1 <= 0) return 0;
+  return Math.round(Math.pow(b1, 1.5) / 3);
+}
+
+function updateB2FromScale(n) {
+  const b1El    = document.getElementById('ecm_b1_' + n);
+  const b2El    = document.getElementById('ecm_b2_' + n);
+  const scaleEl = document.getElementById('ecm_b2scale_' + n);
+  if (!b1El || !b2El || !scaleEl) return;
+  const scale = parseFloat(scaleEl.value);
+  const b1    = parseFloat(String(b1El.value).replace(/,/g, '').replace(/[eE]/,'e'));
+  if (scale > 0 && b1 > 0) {
+    const defB2    = defaultB2(b1);
+    const computed = Math.round(defB2 * scale);
+    b2El.value     = computed;
+    b2El.style.color = 'var(--accent)';
+    b2El.title = 'Auto-computed: default B2 (' + defB2.toExponential(2) + ') × ' + scale;
+  } else {
+    b2El.style.color = '';
+    b2El.title = '';
+  }
+}
+
+function updateKCpuHint(n) {
+  // Just a visual hint — k doesn't affect probability
+  const kEl = document.getElementById('ecm_k_' + n);
+  const b2El = document.getElementById('ecm_b2_' + n);
+  if (!kEl) return;
+  const k  = parseInt(kEl.value) || 4;
+  const b2 = b2El ? parseFloat(String(b2El.value).replace(/[eE]/,'e')) || 0 : 0;
+  // Rough memory estimate: memory ∝ sqrt(B2/B1) / k
+  // At k=4, B2=1e10, 155d: ~55MB — scale from there
+  kEl.title = 'k=' + k + ': ' + (k <= 4 ? 'more memory, faster' : k <= 16 ? 'balanced' : 'low memory, slower') + ' · no effect on probability';
+}
+
 function toggleECMFields(n) {
   const method    = document.getElementById('ecm_method_' + n)?.value || 'ECM';
   const ecmFields = document.querySelectorAll('.ecm-ecm-only_' + n);
@@ -3408,6 +3480,7 @@ function addECMAttempt(n) {
     b2:      isECM ? get(`ecm_b2_${n}`)         : isPM1 ? get(`ecm_pm1b2_${n}`)     : '',
     curves:  isECM ? get(`ecm_curves_${n}`)     : isPM1 ? get(`ecm_pm1curves_${n}`) : '',
     poly:    isECM ? get(`ecm_poly_${n}`)       : '',
+    I:       get(`ecm_I_${n}`) || '',
     tool:    get(`ecm_tool_${n}`),
     note:    get(`ecm_note_${n}`),
     date:    new Date().toISOString().slice(0,10),
@@ -3469,7 +3542,7 @@ function deleteECMAttempt(n, i) {
   noBtn.onclick = () => confirmRow.remove();
 
   const td = document.createElement('td');
-  td.colSpan = 11;
+  td.colSpan = 12;
   td.style.cssText = 'padding:8px 10px;font-size:11px;color:var(--red)';
   td.appendChild(document.createTextNode('⚠ Delete ' + a.method + ' (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')? '));
   td.appendChild(yesBtn);
