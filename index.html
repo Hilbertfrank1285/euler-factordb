@@ -1390,16 +1390,20 @@ function setGHBtns(disabled) {
 
 // Serialise all local data into one object
 function buildSyncPayload() {
-  // Use n as key in results.json — shrinks file from MB to KB
-  // factors stored separately in fdbFactors, keyed by number string in memory only
+  // results.json is keyed by n (small integer)
+  // factors: include known prime factors but truncated to 200 chars each (enough to identify)
+  // cofactor: EXCLUDED — huge strings, can be recomputed from eulerValues / FDB
   const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   const full = {};
   for (const [nStr, v] of Object.entries(slim)) {
     const n   = parseInt(nStr);
     const num = eulerValues[n] || '';
-    const factors = num ? (fdbFactors[num] || {}) : {};
-    // Key by n — small integer, not huge number string
-    full[nStr] = { status: v.status, timestamp: v.timestamp, n, ...factors };
+    const fd  = num ? (fdbFactors[num] || {}) : {};
+    // Truncate each factor to 200 chars (prime factors are typically small; huge ones are cofactors)
+    const slimFactors = (fd.factors || []).map(f => String(f).slice(0, 200));
+    full[nStr] = { status: v.status, timestamp: v.timestamp, n,
+                   ...(slimFactors.length ? { factors: slimFactors } : {}) };
+    // cofactor deliberately excluded — too large, not needed for replayFDBCache
   }
   return {
     fdbCache:  full,
@@ -2888,11 +2892,44 @@ function buildECMSection(n, e) {
           P±1 coverage (${diff.pm1Coverage}% of 20-40d range): <span style="color:var(--green)">−${diff.pm1Reduction}</span>
         </div>
       </div>
-      <div style="font-size:10px;color:var(--text-muted);max-width:200px;line-height:1.6;border-left:1px solid var(--border2);padding-left:12px">
-        Lower = easier to attack next.<br>
-        Score drops as you run more ECM curves and P±1 tests.<br>
-        ${digits > 500 ? '<span style="color:var(--red)">Note: factors of '+digits+'d numbers are likely 100d+ — beyond ECM range. Only NFS/GNFS applies.</span>' : ''}
-        ${digits <= 65 ? '<span style="color:var(--green)">Small enough for direct ECM factoring.</span>' : ''}
+      <div style="font-size:10px;color:var(--text-muted);max-width:220px;line-height:1.8;border-left:1px solid var(--border2);padding-left:12px">
+        ${(() => {
+          // Estimate total CPU-core-hours to fully factor this cofactor
+          // Strategy: run ECM to 90% confidence at each digit level up to 65d
+          // then the number is either NFS territory or has a small factor
+          const ecmRange = [20,25,30,35,40,45,50,55,60,65].filter(d => d < Math.min(digits, 66));
+          let remainingCpuSec = 0;
+          let doneCpuSec = 0;
+          const curvesPerD = {};
+          for (const a of (attempts || [])) {
+            if (a.method !== 'ECM' || !a.b1) continue;
+            const b1val = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+            const lnB1  = Math.log(b1val);
+            const lnln  = Math.log(Math.max(lnB1, 1.1));
+            const td    = Math.round((lnB1*lnB1)/(Math.log(10)*lnln));
+            const c     = parseInt(a.curves)||0;
+            for (let d = td-3; d <= td+3; d++) curvesPerD[d] = (curvesPerD[d]||0) + c;
+          }
+          for (const d of ecmRange) {
+            const need  = curvesForProb(d, 0.90);
+            const done  = curvesPerD[d] || 0;
+            const b1opt = optimalB1(d);
+            const secPer = estimateCpuSeconds('ECM', b1opt, null, 1, digits) || 1;
+            doneCpuSec      += secPer * Math.min(done, need);
+            remainingCpuSec += secPer * Math.max(0, need - done);
+          }
+          const totalSec  = doneCpuSec + remainingCpuSec;
+          const remainDays = remainingCpuSec / 86400;
+          const totalDays  = totalSec / 86400;
+          const fmtDays = d => d > 9999 ? '>9999 days' : d > 1 ? d.toFixed(1)+' days' : (d*24).toFixed(1)+' hrs';
+          const pctDone = totalSec > 0 ? Math.min(100, Math.round(doneCpuSec/totalSec*100)) : 0;
+          const color   = remainDays > 9999 ? 'var(--red)' : remainDays > 365 ? 'var(--orange)' : remainDays > 30 ? 'var(--yellow)' : 'var(--green)';
+          return '<span style="color:var(--text)">Est. to fully factor (ECM to 65d):</span><br>'
+            + '<span style="color:'+color+';font-size:12px;font-weight:600">' + fmtDays(remainDays) + ' remaining</span><br>'
+            + 'Total est: ' + fmtDays(totalDays) + '<br>'
+            + 'Progress: ' + pctDone + '% done<br>'
+            + (digits > 65 ? '<span style="color:var(--text-muted)">NFS needed beyond 65d</span>' : '');
+        })()}
       </div>
     </div>`;
   }
