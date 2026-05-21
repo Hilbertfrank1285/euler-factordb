@@ -2463,7 +2463,9 @@ function openModal(n) {
 
   let factorsHtml = '';
   if (e.factors && e.factors.length && e.factors[0] !== '1') {
-    const chips = e.factors.map(f => {
+    // Exclude the cofactor from the chips — it's shown separately below
+    const primeFactors = e.factors.filter(f => !e.cofactor || f !== e.cofactor);
+    const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
       let lbl;
       if (allVerifiedPrime) {
@@ -2487,7 +2489,9 @@ function openModal(n) {
     const sourceNote = allVerifiedPrime
       ? '— all prime, verified by FactorDB'
       : '— click to open on FactorDB';
-    factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">${sourceNote}</span></div><div class="factors-list">${chips}</div></div>`;
+    if (primeFactors.length) {
+      factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">${sourceNote}</span></div><div class="factors-list">${chips}</div></div>`;
+    }
   }
 
   // Cofactor + FactorDB result
@@ -2511,13 +2515,16 @@ function openModal(n) {
         ↻ Query FactorDB now
       </button>`;
     }
-    const digitTag = isReal ? `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${e.cofactor.length} digits</span>` : '';
-    // Direct FDB link to the unfactored cofactor
-    const cofactorFdbUrl = isReal ? `https://factordb.com/index.php?query=${encodeURIComponent(e.cofactor)}` : '#';
+    const cofDigits   = isReal ? e.cofactor.length : (e.cofactorLen || 0);
+    const cofPreview  = isReal ? (e.cofactor.length > 30 ? e.cofactor.slice(0, 30) + '…' : e.cofactor) : '(cofactor unavailable)';
+    const digitTag    = `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${cofDigits} digits</span>`;
     cofactorHtml = `<div class="modal-section">
       <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
-      <a class="value-box cofactor-link" href="${cofactorFdbUrl}" target="_blank" rel="noopener" title="Open cofactor on FactorDB" style="position:relative"><button class="copy-btn" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(this.dataset.val,this)" data-val="${e.cofactor}" title="Copy cofactor">⎘</button>${e.cofactor} <span class="cofactor-fdb-arrow">↗</span></a>
-      ${isReal ? `<a class="fdb-check-btn" href="${cofactorFdbUrl}" target="_blank" rel="noopener" style="margin-top:6px;text-decoration:none">↗ Open unfactored part on FactorDB</a>` : ''}
+      <div class="value-box" style="position:relative;cursor:default;font-family:monospace;letter-spacing:0.5px">
+        ${isReal ? `<button class="copy-btn" onclick="copyToClipboard(this.dataset.val,this)" data-val="${e.cofactor}" title="Copy full cofactor">⎘</button>` : ''}
+        ${cofPreview}
+      </div>
+ : ''}
       ${fdbHtml}
     </div>`;
   }
