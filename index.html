@@ -621,9 +621,15 @@
 
 <!-- Bulk ECM Log -->
 <div class="bulk-ecm-bar">
-  <div class="bulk-ecm-toggle" onclick="toggleBulkECM()">
-    <span id="bulkToggleArrow">▸</span>
-    Bulk log factoring attempts — apply same parameters to multiple E(n) entries
+  <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+    <div class="bulk-ecm-toggle" onclick="toggleBulkECM()">
+      <span id="bulkToggleArrow">▸</span>
+      Bulk log factoring attempts
+    </div>
+    <div class="bulk-ecm-toggle" onclick="toggleBulkDelete()" style="color:var(--red);opacity:0.7">
+      <span id="bulkDeleteArrow">▸</span>
+      Bulk delete attempts
+    </div>
   </div>
   <div class="bulk-ecm-panel" id="bulkECMPanel">
     <div class="bulk-range">
@@ -663,6 +669,30 @@
     <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
     <button class="bulk-submit" id="bulkSubmitBtn" onclick="applyBulkECM()">+ Log attempt for all entries above</button>
     <div class="bulk-result" id="bulkResult"></div>
+  </div>
+
+  <!-- Bulk Delete Panel -->
+  <div class="bulk-ecm-panel" id="bulkDeletePanel">
+    <div class="bulk-range" style="margin-bottom:12px">
+      <label>E(n) range</label>
+      <input type="number" id="bulkDel_from" placeholder="From n" min="0" step="2" style="width:90px">
+      <span style="color:var(--text-muted)">to</span>
+      <input type="number" id="bulkDel_to" placeholder="To n" min="0" step="2" style="width:90px">
+    </div>
+    <div class="bulk-range" style="margin-bottom:12px">
+      <label>Method filter</label>
+      <select id="bulkDel_method" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:4px 8px;font-size:11px">
+        <option value="all">All methods</option>
+        <option value="ECM">ECM only</option>
+        <option value="P-1">P-1 only</option>
+        <option value="P+1">P+1 only</option>
+      </select>
+    </div>
+    <div id="bulkDelPreview" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;min-height:16px"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button onclick="previewBulkDelete()" style="padding:5px 14px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:11px;cursor:pointer">Preview</button>
+      <button onclick="executeBulkDelete()" style="padding:5px 14px;background:var(--red);border:none;color:#fff;font-size:11px;cursor:pointer;font-weight:600">Delete matching attempts</button>
+    </div>
   </div>
 </div>
 
@@ -2923,9 +2953,8 @@ function difficultyLabel(score) {
 
 function getCofactorDigits(e) {
   if (e.cofactor && /^\d+$/.test(e.cofactor)) return e.cofactor.length;
-  if (e.val && e.status !== 'full') return e.val.length;
-  // partial with no stored cofactor — use val length as proxy
-  if (e.val && e.status === 'partial') return e.val.length;
+  if (e.cofactorLen) return e.cofactorLen;
+  if (e.val && e.val.length > 0 && e.status !== 'full') return e.val.length;
   return null;
 }
 
@@ -3204,7 +3233,7 @@ function buildECMSection(n, e) {
           // Per-row: show the digit range this B1 targets + whether it's practical
           let probCell = '';
           if (a.method === 'ECM' && a.b1) {
-            const b1val   = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+            const b1val   = parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e'));
             const lnB1    = Math.log(b1val);
             const lnln    = Math.log(Math.max(lnB1, 1.1));
             const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
@@ -3244,8 +3273,8 @@ function buildECMSection(n, e) {
             <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
             <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
             <td title="Estimated time on a single Zen 3 / 5900X core" style="font-size:10px;color:var(--text-dim)">${(() => {
-              const b1n = a.b1 ? parseFloat(String(a.b1).replace(/[eE]/,'e')) : 0;
-              const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+              const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
+              const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
               const cpuS = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
               return fmtCpuTime(cpuS);
             })()}</td>
@@ -3338,6 +3367,64 @@ function buildECMSection(n, e) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BULK ECM LOG
 // ─────────────────────────────────────────────────────────────────────────────
+
+function toggleBulkDelete() {
+  const panel = document.getElementById('bulkDeletePanel');
+  const arrow = document.getElementById('bulkDeleteArrow');
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  if (arrow) arrow.textContent = open ? '▾' : '▸';
+  // Close the other panel
+  if (open) {
+    document.getElementById('bulkECMPanel')?.classList.remove('open');
+    document.getElementById('bulkToggleArrow').textContent = '▸';
+  }
+}
+
+function previewBulkDelete() {
+  const from   = parseInt(document.getElementById('bulkDel_from').value) || 0;
+  const to     = parseInt(document.getElementById('bulkDel_to').value) || 99999;
+  const method = document.getElementById('bulkDel_method').value;
+  const ecmData = loadECM();
+  let totalEntries = 0, totalAttempts = 0;
+  for (const [nStr, attempts] of Object.entries(ecmData)) {
+    const n = parseInt(nStr);
+    if (n < from || n > to) continue;
+    const matching = method === 'all' ? attempts : attempts.filter(a => a.method === method);
+    if (matching.length) { totalEntries++; totalAttempts += matching.length; }
+  }
+  const el = document.getElementById('bulkDelPreview');
+  if (el) el.textContent = totalAttempts
+    ? `Will delete ${totalAttempts} attempt${totalAttempts===1?'':'s'} across ${totalEntries} entr${totalEntries===1?'y':'ies'}`
+    : 'No matching attempts found.';
+}
+
+function executeBulkDelete() {
+  const from   = parseInt(document.getElementById('bulkDel_from').value) || 0;
+  const to     = parseInt(document.getElementById('bulkDel_to').value) || 99999;
+  const method = document.getElementById('bulkDel_method').value;
+  const ecmData = loadECM();
+  let totalDeleted = 0;
+  for (const [nStr, attempts] of Object.entries(ecmData)) {
+    const n = parseInt(nStr);
+    if (n < from || n > to) continue;
+    const before = attempts.length;
+    ecmData[nStr] = method === 'all' ? [] : attempts.filter(a => a.method !== method);
+    totalDeleted += before - ecmData[nStr].length;
+    if (ecmData[nStr].length === 0) delete ecmData[nStr];
+  }
+  if (totalDeleted === 0) {
+    document.getElementById('bulkDelPreview').textContent = 'Nothing deleted — no matching attempts found.';
+    return;
+  }
+  saveECM(ecmData);
+  // Re-sync attempted status for all affected entries
+  allEntries.forEach(e => syncAttemptedStatus(e.n));
+  renderGrid();
+  scheduleECMPush();
+  document.getElementById('bulkDelPreview').textContent = `✓ Deleted ${totalDeleted} attempt${totalDeleted===1?'':'s'}.`;
+  addLog(`Bulk delete: removed ${totalDeleted} attempts (n=${from}–${to}, method=${method})`, 'warn');
+}
 
 function toggleBulkECM() {
   const panel = document.getElementById('bulkECMPanel');
