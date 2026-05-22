@@ -567,7 +567,7 @@
       onchange="MIN_N = Math.max(0, parseInt(this.value)||0); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
-    <input type="number" id="maxNInput" value="6000" min="2" step="2"
+    <input type="number" id="maxNInput" value="8000" min="2" step="2"
       onchange="MAX_N = Math.max(MIN_N+2, parseInt(this.value)||300); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
@@ -803,7 +803,7 @@ function labelFactor(f) {
 const factoData = {};
 
 let MIN_N      = 0;    // user-adjustable start
-let MAX_N      = 6000; // user-adjustable end
+let MAX_N      = 8000; // user-adjustable end
 const PAGE_SIZE = 100;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2087,8 +2087,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
             const cofactorNum  = isLastBig ? lastF : null;
 
             entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
-            entry.cofactor = cofactorNum;
-            entry.status   = 'partial';
+            entry.cofactor    = cofactorNum;
+            entry.cofactorLen = cofactorNum && /^\d+$/.test(cofactorNum) ? cofactorNum.length : entry.cofactorLen;
+            entry.status      = 'partial';
             entry._fdbVerified = true;
             const logMsg = `E(${target.n}) partial: ${knownFactors.join(' × ')}${cofactorNum ? ' × [cofactor '+cofactorNum.length+'d]' : ''}`;
             addLog(logMsg, 'ok');
@@ -2545,13 +2546,34 @@ function openModal(n) {
         ↻ Query FactorDB now
       </button>`;
     }
-    const cofDigits   = isReal ? e.cofactor.length : (e.cofactorLen || 0);
-    const cofPreview  = isReal ? (e.cofactor.length > 30 ? e.cofactor.slice(0, 30) + '…' : e.cofactor) : '(cofactor unavailable)';
-    const digitTag    = `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${cofDigits} digits</span>`;
+    // Determine cofactor state:
+    // FULL: we have the real digit string (length matches known length, or no length stored)
+    // TRUNCATED: we have a string but it's shorter than the known total (old cache artifact)
+    // UNAVAILABLE: we only know the length, not the digits
+    const knownLen    = e.cofactorLen || 0;
+    const hasString   = isReal && e.cofactor && /^\d+$/.test(e.cofactor);
+    const isFull      = hasString && (!knownLen || e.cofactor.length >= knownLen - 5);
+    const isTruncated = hasString && knownLen > 0 && e.cofactor.length < knownLen - 5;
+    const cofDigits   = isFull ? e.cofactor.length : knownLen || (hasString ? e.cofactor.length : 0);
+    const digitTag    = cofDigits ? `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${cofDigits} digits</span>` : '';
+
+    let cofPreview, cofCopyBtn;
+    if (isFull) {
+      cofPreview  = e.cofactor.length > 30 ? e.cofactor.slice(0, 30) + '…' : e.cofactor;
+      cofCopyBtn  = `<button class="copy-btn" onclick="copyToClipboard(this.dataset.val,this)" data-val="${e.cofactor}" title="Copy full ${cofDigits}-digit cofactor">⎘</button>`;
+    } else if (isTruncated || !hasString) {
+      // Don't show truncated string — it's misleading
+      cofPreview = `<span style="color:var(--text-muted);font-style:italic">~${cofDigits}-digit composite — re-query FactorDB to load</span>`;
+      cofCopyBtn = '';
+    } else {
+      cofPreview = '<span style="color:var(--text-muted);font-style:italic">unknown</span>';
+      cofCopyBtn = '';
+    }
+
     cofactorHtml = `<div class="modal-section">
       <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
       <div class="value-box" style="position:relative;cursor:default;font-family:monospace;letter-spacing:0.5px">
-        ${isReal ? `<button class="copy-btn" onclick="copyToClipboard(this.dataset.val,this)" data-val="${e.cofactor}" title="Copy full cofactor">⎘</button>` : ''}
+        ${cofCopyBtn}
         ${cofPreview}
       </div>
  : ''}
@@ -3794,6 +3816,9 @@ async function fetchEulerValues() {
     'euler_values_2500_4000.json',
     'euler_values_4002_5000.json',
     'euler_values_5002_6000.json',
+    'euler_values_6002_7000.json',
+    'euler_values_7002_7500.json',
+    'euler_values_7502_8000.json',
   ];
 
   setStatus('Loading Euler values…');
