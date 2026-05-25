@@ -1042,10 +1042,9 @@ function getCofactorTargets() {
 const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 
 function getUnknownTargets() {
-  // Include both unknown and composite (confirmed composite but no factors yet)
-  // Skip numbers too large for the FDB API (> 7000 digits)
+  // Pure unknowns only — entries never queried on FactorDB
   return allEntries
-    .filter(e => (e.status === 'unknown' || e.status === 'composite') && e.val && e.n > 2)
+    .filter(e => e.status === 'unknown' && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }));
 }
 
