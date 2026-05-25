@@ -1421,33 +1421,37 @@ function setGHBtns(disabled) {
 
 // Serialise all local data into one object
 function buildSyncPayload() {
-  // results.json is keyed by n (small integer)
-  // factors: include known prime factors but truncated to 200 chars each (enough to identify)
-  // cofactor: EXCLUDED — huge strings, can be recomputed from eulerValues / FDB
   const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   const full = {};
   for (const [nStr, v] of Object.entries(slim)) {
-    const n   = parseInt(nStr);
-    const num = eulerValues[n] || '';
-    const fd  = num ? (fdbFactors[num] || {}) : {};
+    const n      = parseInt(nStr);
+    const num    = eulerValues[n] || '';
+    const status = v.status;
+
+    // Skip U (unknown) — not useful to sync
+    if (status === 'U') continue;
+
+    const entry = { status, timestamp: v.timestamp, n };
+
+    // C (composite, no known factors) — status only, no factors
+    // FDB returns the full Euler number as its own "factor" for C — useless KB
+    if (status === 'C') { full[nStr] = entry; continue; }
+
+    // CF/FF/P/PRP — include prime factors + cofactor metadata
+    const fd = num ? (fdbFactors[num] || {}) : {};
     const allFactors = (fd.factors || []).filter(f => f && f !== '1');
-    // Separate prime factors (small) from cofactor (last large factor in CF entries)
-    let primeFactors = allFactors, cofactorLen = null;
-    if (allFactors.length > 1) {
+    let primeFactors = allFactors, cofactorLen = null, cofactorPreview = null;
+    if (allFactors.length >= 1) {
       const last = allFactors[allFactors.length - 1];
-      if (last.length > 500) { // likely the cofactor, not a prime
-        primeFactors = allFactors.slice(0, -1);
-        cofactorLen  = last.length; // store length only, not the huge string
+      if (last.length > 500) { // large final factor = cofactor
+        primeFactors    = allFactors.slice(0, -1);
+        cofactorLen     = last.length;
+        cofactorPreview = last.slice(0, 35);
       }
     }
-    const entry = { status: v.status, timestamp: v.timestamp, n };
-    if (primeFactors.length) entry.factors = primeFactors;
-    if (cofactorLen) {
-      entry.cofactorLen     = cofactorLen;
-      // Store first 35 digits so we can always show a preview
-      const lastFactor = allFactors[allFactors.length - 1];
-      entry.cofactorPreview = String(lastFactor).slice(0, 35);
-    }
+    if (primeFactors.length) entry.factors      = primeFactors;
+    if (cofactorLen)         entry.cofactorLen   = cofactorLen;
+    if (cofactorPreview)     entry.cofactorPreview = cofactorPreview;
     full[nStr] = entry;
   }
   return {
