@@ -2220,11 +2220,10 @@ function startCompositePoll() {
     setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
     return;
   }
-  // Only composite (confirmed no known factors) entries
-  const targets = allTargets().filter(t => {
-    const entry = allEntries.find(e => e.n === t.n);
-    return entry && (entry.status === 'composite' || entry.status === 'attempted');
-  });
+  // Composite = confirmed by FDB as no known factors (C status)
+  const targets = allEntries
+    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }));
   if (targets.length === 0) {
     setStatus('No "no known factors" entries to check', 'warn');
     return;
