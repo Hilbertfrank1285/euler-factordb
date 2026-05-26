@@ -567,7 +567,7 @@
       onchange="MIN_N = Math.max(0, parseInt(this.value)||0); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
-    <input type="number" id="maxNInput" value="10000" min="2" step="2"
+    <input type="number" id="maxNInput" value="11000" min="2" step="2"
       onchange="MAX_N = Math.max(MIN_N+2, parseInt(this.value)||300); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
@@ -803,7 +803,7 @@ function labelFactor(f) {
 const factoData = {};
 
 let MIN_N      = 0;    // user-adjustable start
-let MAX_N      = 10000; // user-adjustable end
+let MAX_N      = 11000; // user-adjustable end
 const PAGE_SIZE = 100;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -867,7 +867,7 @@ const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
 const MANUAL_COOLDOWN = 10 * 1000; // 10 seconds
 
 // Request spacing — be polite to FactorDB
-const REQUEST_DELAY_MS = 1000;  // 1 s between requests
+const REQUEST_DELAY_MS = 500;  // 1 s between requests
 let MAX_PER_SESSION    = 30;    // cap requests per manual session (user-adjustable)
 
 function loadFDBCache() {
@@ -1974,11 +1974,12 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Sleeps but resolves early if cancelRequested is set
 function cancellableSleep(ms) {
-  // Skip delay entirely when tab is hidden — browser throttles timers in background
-  // The network request itself provides natural pacing
-  if (document.hidden || cancelRequested) return Promise.resolve();
+  if (cancelRequested) return Promise.resolve();
+  // When tab is hidden: use short 200ms delay instead of full 1000ms
+  // Avoids browser throttling while still respecting proxy rate limits
+  const delay = ms; // 500ms both foreground and background
   return new Promise(resolve => {
-    const timer = setTimeout(resolve, ms);
+    const timer = setTimeout(resolve, delay);
     // Also resolve early if tab becomes hidden during wait
     const onHide = () => { clearTimeout(timer); resolve(); };
     document.addEventListener('visibilitychange', onHide, { once: true });
@@ -3846,6 +3847,8 @@ async function fetchEulerValues() {
     'euler_values_8502_9000.json',
     'euler_values_9002_9500.json',
     'euler_values_9502_10000.json',
+    'euler_values_10002_10500.json',
+    'euler_values_10502_11000.json',
   ];
 
   setStatus('Loading Euler values…');
