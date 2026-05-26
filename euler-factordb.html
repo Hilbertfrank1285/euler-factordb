@@ -1,0 +1,3949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Euler Numbers — Factorization Database</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111418;
+    --surface2: #181d24;
+    --border: #1e2530;
+    --border2: #2a3340;
+    --text: #c8d4e0;
+    --text-dim: #5a6a7a;
+    --text-muted: #3a4a5a;
+    --accent: #4a9eff;
+    --accent-dim: #1a3a5a;
+    --green: #3dd68c;
+    --green-dim: #0d3020;
+    --yellow: #f5c542;
+    --yellow-dim: #2a2000;
+    --red: #ff6b6b;
+    --red-dim: #2a1010;
+    --purple: #b88aff;
+    --purple-dim: #1e1030;
+    --orange: #ff9f43;
+    --orange-dim: #2a1800;
+    --teal: #1dd1a1;
+    --teal-dim: #0a2a20;
+    --cyan: #3dd6d6;
+    --cyan-dim: #0d2a2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px 24px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .header-left h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; color: #fff; line-height: 1.2; }
+  .header-left h1 span { color: var(--accent); }
+  .header-left p { color: var(--text-dim); font-size: 11px; margin-top: 4px; font-family: 'IBM Plex Sans', sans-serif; font-weight: 300; letter-spacing: 0.3px; }
+  .header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+  /* ── FactorDB Status Bar ── */
+  .factordb-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .factordb-label {
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .factordb-label::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--cyan);
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 6px var(--cyan);
+  }
+  .factordb-status {
+    color: var(--text-dim);
+    flex: 1;
+  }
+  .factordb-status strong { color: var(--cyan); }
+  .factordb-status .warn { color: var(--yellow); }
+  .factordb-status .ok   { color: var(--green); }
+  .factordb-status .err  { color: var(--red); }
+
+  .poll-btn {
+    background: var(--cyan-dim);
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .poll-btn:hover:not(:disabled) { background: var(--cyan); color: #000; }
+  .poll-btn:disabled { opacity: 0.4; cursor: default; }
+  .poll-btn .spinner { display: none; }
+  .poll-btn.polling .spinner { display: inline; animation: spin 0.8s linear infinite; }
+  .poll-btn.polling .poll-icon { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .queue-info {
+    color: var(--text-muted);
+    font-size: 10px;
+    border-left: 1px solid var(--border2);
+    padding-left: 12px;
+  }
+  .queue-info span { color: var(--yellow); }
+
+  /* ── Progress bar while polling ── */
+  .poll-progress {
+    height: 2px;
+    background: var(--border);
+    position: relative;
+    overflow: hidden;
+    display: none;
+  }
+  .poll-progress.active { display: block; }
+  .poll-progress-inner {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cyan), var(--accent));
+    transition: width 0.4s ease;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    padding: 16px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: var(--surface);
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; max-width: 340px; }
+  .search-wrap input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 7px 10px 7px 32px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap::before { content: '⌕'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-dim); font-size: 15px; pointer-events: none; }
+  .filter-btns { display: flex; gap: 6px; }
+  .filter-btn {
+    background: var(--bg); border: 1px solid var(--border2); color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 5px 10px;
+    cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active.full    { background: var(--green-dim);  border-color: var(--green);  color: var(--green); }
+  .filter-btn.active.partial { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
+  .filter-btn.active.unknown   { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
+  .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+  .filter-btn.active.attempted  { background: var(--teal-dim);   border-color: var(--teal);   color: var(--teal); }
+  .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
+  .stat-item strong { color: var(--text); }
+
+  /* ── Grid ── */
+  .grid-container { padding: 24px 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); }
+  .card { background: var(--surface); padding: 14px 16px; cursor: pointer; transition: background 0.12s; position: relative; overflow: hidden; }
+  .card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; transition: opacity 0.15s; opacity: 0; }
+  .card.full::before    { background: var(--green); }
+  .card.partial::before { background: var(--yellow); }
+  .card.unknown::before { background: var(--red); }
+  .card:hover { background: var(--surface2); }
+  .card:hover::before { opacity: 1; }
+
+  /* Newly updated card flash */
+  .card.just-updated { animation: cardFlash 1.5s ease; }
+  @keyframes cardFlash {
+    0%   { background: #0d3020; }
+    100% { background: var(--surface); }
+  }
+
+  /* Currently fetching highlight */
+  .card.fetching { background: var(--surface2); }
+  .card.fetching::before { opacity: 1; background: var(--cyan); }
+  .card.fetching::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    animation: fetchSweep 1.2s linear infinite;
+  }
+  @keyframes fetchSweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
+
+  .card-index { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px; }
+  .card-label { font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px; }
+  .card-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; letter-spacing: 0.4px; padding: 2px 7px; font-weight: 500;
+  }
+  .badge-full    { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(61,214,140,0.25); }
+  .badge-partial { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(245,197,66,0.25); }
+  .badge-unknown { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(255,107,107,0.25); }
+  .badge-checking  { background: var(--cyan-dim);   color: var(--cyan);   border: 1px solid rgba(61,214,214,0.25); }
+  .badge-composite  { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,159,67,0.25); }
+  .badge-attempted  { background: var(--teal-dim);   color: var(--teal);   border: 1px solid rgba(29,209,161,0.25); }
+
+  .card-preview { margin-top: 8px; font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Factordb tag on card ── */
+  .card-fdb { margin-top: 6px; font-size: 9px; color: var(--text-muted); letter-spacing: 0.3px; display: flex; align-items: center; gap: 4px; }
+  .card-fdb.fresh { color: var(--cyan); }
+  .card-fdb.stale { color: var(--text-muted); }
+
+  /* ── Modal ── */
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(5,7,10,0.88); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border2); width: min(720px, 92vw); max-height: 88vh; overflow-y: auto; animation: modalIn 0.18s ease; }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; position: sticky; top: 0; background: var(--surface); }
+  .modal-title { font-size: 22px; font-weight: 600; color: #fff; letter-spacing: -0.5px; }
+  .modal-close { background: none; border: 1px solid var(--border2); color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; font-size: 16px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+  .modal-close:hover { border-color: var(--red); color: var(--red); }
+  .modal-body { padding: 20px 24px 24px; }
+  .modal-section { margin-bottom: 20px; }
+  .modal-section-label { font-size: 10px; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
+  .sign-row { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
+  .sign-row span { color: var(--text); }
+  .status-block { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border2); background: var(--bg); }
+  .status-icon { font-size: 18px; }
+  .status-text { font-size: 13px; color: var(--text); }
+  .status-text small { display: block; color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .factors-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .factor-chip { background: var(--bg); border: 1px solid var(--border2); color: var(--purple); padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px; text-decoration: none; transition: border-color 0.15s, background 0.15s; cursor: pointer; }
+  .factor-chip:hover { border-color: var(--purple); background: var(--purple-dim); }
+  .factor-chip .prime-tag { font-size: 9px; color: var(--text-muted); letter-spacing: 0.4px; }
+  .factor-chip .composite-tag { font-size: 9px; color: var(--yellow); letter-spacing: 0.4px; }
+  .factor-chip .fdb-arrow { font-size: 9px; color: var(--text-muted); margin-left: 2px; opacity: 0; transition: opacity 0.15s; }
+  .factor-chip:hover .fdb-arrow { opacity: 1; }
+  .value-box { background: var(--bg); border: 1px solid var(--border); padding: 12px 14px; font-size: 11px; color: var(--text-dim); word-break: break-all; line-height: 1.7; max-height: 120px; overflow-y: auto; font-family: 'IBM Plex Mono', monospace; }
+  .value-box strong { color: var(--text); }
+  .copy-btn {
+    position: absolute; top: 6px; right: 28px;
+    background: var(--surface2); border: 1px solid var(--border2);
+    color: var(--text-muted); font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px; padding: 2px 6px; cursor: pointer; transition: all 0.15s;
+    opacity: 0; z-index: 2;
+  }
+  .value-box:hover .copy-btn, .cofactor-link:hover .copy-btn { opacity: 1; }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+  .value-box.cofactor-link {
+    display: block;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
+  }
+  .value-box.cofactor-link:hover {
+    border-color: var(--accent);
+    background: #0d1520;
+  }
+  .cofactor-fdb-arrow {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s;
+    position: absolute;
+    top: 8px;
+    right: 10px;
+  }
+  .value-box.cofactor-link:hover .cofactor-fdb-arrow {
+    opacity: 1;
+    color: var(--accent);
+  }
+  .download-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 8px 16px; cursor: pointer; transition: all 0.15s; text-decoration: none; margin-top: 4px; }
+  .download-btn:hover { background: var(--accent); color: #000; }
+
+  /* ── FactorDB result block in modal ── */
+  .fdb-block {
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    padding: 12px 14px;
+  }
+  .fdb-block .fdb-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; font-size: 12px; }
+  .fdb-block .fdb-key { color: var(--text-muted); width: 90px; flex-shrink: 0; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .fdb-block .fdb-val { color: var(--text); }
+  .fdb-block .fdb-val.ff  { color: var(--green); }
+  .fdb-block .fdb-val.cf  { color: var(--yellow); }
+  .fdb-block .fdb-val.p   { color: var(--cyan); }
+  .fdb-block .fdb-val.prp { color: var(--purple); }
+  .fdb-block .fdb-timestamp { font-size: 10px; color: var(--text-muted); margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
+  .fdb-check-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--cyan-dim); border: 1px solid var(--cyan);
+    color: var(--cyan); font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; padding: 6px 12px; cursor: pointer; transition: all 0.15s;
+    margin-top: 8px;
+  }
+  .fdb-check-btn:hover:not(:disabled) { background: var(--cyan); color: #000; }
+  .fdb-check-btn:disabled { opacity: 0.4; cursor: default; }
+
+
+  .sort-btn {
+    background: var(--bg); border: 1px solid var(--border2); color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 5px 10px;
+    cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px;
+  }
+  .sort-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .sort-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+  .cancel-btn {
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    color: var(--red);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    animation: cancelPulse 1.5s ease-in-out infinite;
+  }
+  .cancel-btn:hover:not(:disabled) { background: var(--red); color: #fff; animation: none; }
+  .cancel-btn:disabled { opacity: 0.5; cursor: default; animation: none; }
+  @keyframes cancelPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
+    50%       { box-shadow: 0 0 0 3px rgba(255,107,107,0.25); }
+  }
+
+  /* ── Legend ── */
+  .legend { padding: 12px 40px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; background: var(--bg); font-size: 11px; color: var(--text-dim); flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; flex-shrink: 0; }
+
+  /* ── Pagination ── */
+  .pagination { padding: 20px 40px; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .page-btn { background: var(--surface); border: 1px solid var(--border2); color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 5px 10px; cursor: pointer; transition: all 0.12s; min-width: 36px; text-align: center; }
+  .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .page-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .page-btn:disabled { opacity: 0.3; cursor: default; }
+  .page-info { color: var(--text-dim); font-size: 11px; margin-left: 8px; }
+
+  /* ── Log panel ── */
+  .log-panel { border-top: 1px solid var(--border); background: var(--surface); }
+  .log-toggle { padding: 10px 40px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; }
+  .log-toggle:hover { color: var(--text); }
+  .log-toggle .log-count { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); padding: 1px 6px; font-size: 10px; }
+  .log-entries { display: none; max-height: 200px; overflow-y: auto; padding: 0 40px 16px; }
+  .log-entries.open { display: block; }
+  .log-entry { font-size: 10px; color: var(--text-muted); padding: 3px 0; border-bottom: 1px solid var(--border); display: flex; gap: 12px; }
+  .log-entry .log-time { color: var(--text-muted); flex-shrink: 0; }
+  .log-entry .log-msg  { color: var(--text-dim); }
+  .log-entry.log-ok   .log-msg { color: var(--green); }
+  .log-entry.log-warn .log-msg { color: var(--yellow); }
+  .log-entry.log-err  .log-msg { color: var(--red); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); }
+
+  .empty { grid-column: 1 / -1; padding: 60px 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+  .empty big { display: block; font-size: 32px; margin-bottom: 8px; opacity: 0.3; }
+
+  /* ── Bulk ECM panel ── */
+  .bulk-ecm-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 40px;
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .bulk-ecm-toggle {
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; color: var(--text-dim); user-select: none;
+    padding: 2px 0;
+  }
+  .bulk-ecm-toggle:hover { color: var(--text); }
+  .bulk-ecm-panel {
+    display: none;
+    margin-top: 12px;
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    padding: 16px;
+  }
+  .bulk-ecm-panel.open { display: block; }
+  .bulk-ecm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .bulk-range {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .bulk-range label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .bulk-range input {
+    width: 90px; background: var(--surface); border: 1px solid var(--border2);
+    color: var(--text); font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; padding: 4px 8px; outline: none;
+  }
+  .bulk-range input:focus { border-color: var(--accent); }
+  .bulk-preview {
+    font-size: 10px; color: var(--text-muted); margin-bottom: 10px;
+    padding: 6px 10px; background: var(--surface); border: 1px solid var(--border);
+    max-height: 60px; overflow-y: auto; line-height: 1.6;
+  }
+  .bulk-submit {
+    background: var(--accent-dim); border: 1px solid var(--accent);
+    color: var(--accent); font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; padding: 6px 16px; cursor: pointer; transition: all 0.15s;
+  }
+  .bulk-submit:hover { background: var(--accent); color: #000; }
+  .bulk-submit:disabled { opacity: 0.4; cursor: default; }
+  .bulk-result {
+    margin-top: 8px; font-size: 11px; color: var(--green);
+    display: none;
+  }
+
+  /* ── GitHub sync ── */
+  .github-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 40px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--surface);
+    font-size: 11px;
+  }
+  .github-label { color: var(--text-muted); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .github-status { color: var(--text-dim); flex: 1; min-width: 200px; }
+  .github-status.ok   { color: var(--green); }
+  .github-status.err  { color: var(--red); }
+  .github-status.busy { color: var(--yellow); }
+  .github-btn {
+    background: var(--surface2); border: 1px solid var(--border2); color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 4px 10px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .github-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .github-btn.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .github-btn.primary:hover { background: var(--accent); color: #000; }
+  .github-settings-panel {
+    display: none;
+    border: 1px solid var(--border2);
+    background: var(--bg);
+    padding: 16px;
+    margin: 0 40px 12px;
+    gap: 12px;
+  }
+  .github-settings-panel.open { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .gh-field label { display: block; font-size: 9px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 3px; }
+  .gh-field input { width: 100%; background: var(--surface); border: 1px solid var(--border2); color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 5px 7px; outline: none; }
+  .gh-field input:focus { border-color: var(--accent); }
+  .gh-hint { font-size: 10px; color: var(--text-muted); grid-column: 1/-1; line-height: 1.6; }
+  .gh-hint a { color: var(--accent); }
+
+  /* ── ECM/Factoring attempt log ── */
+  .ecm-section { margin-bottom: 20px; }
+  .ecm-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .ecm-table th { text-align: left; color: var(--text-muted); font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase; padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: 400; }
+  .ecm-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); color: var(--text-dim); vertical-align: top; }
+  .ecm-table td:first-child { color: var(--purple); font-weight: 500; }
+  .ecm-table tr:hover td { background: var(--surface2); }
+  .ecm-table .prob-high   { color: var(--green); }
+  .ecm-table .prob-mid    { color: var(--yellow); }
+  .ecm-table .prob-low    { color: var(--red); }
+  .ecm-add-form { background: var(--bg); border: 1px solid var(--border2); padding: 12px; margin-top: 10px; }
+  .ecm-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .ecm-field label { display: block; font-size: 9px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 3px; }
+  .ecm-field input, .ecm-field select { width: 100%; background: var(--surface); border: 1px solid var(--border2); color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 5px 7px; outline: none; transition: border-color 0.15s; }
+  .ecm-field input:focus, .ecm-field select:focus { border-color: var(--accent); }
+  .ecm-field select option { background: var(--surface); }
+  .ecm-submit { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 6px 14px; cursor: pointer; transition: all 0.15s; }
+  .ecm-submit:hover { background: var(--accent); color: #000; }
+  .ecm-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 0 4px; }
+  .ecm-delete:hover { color: var(--red); }
+  .prob-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-top: 8px; }
+  .prob-cell { background: var(--bg); border: 1px solid var(--border); padding: 6px 8px; text-align: center; }
+  .prob-cell .prob-d { font-size: 10px; color: var(--text-muted); }
+  .prob-cell .prob-v { font-size: 13px; font-weight: 500; margin-top: 2px; }
+  .prob-cell .prob-b1 { font-size: 9px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ── Changelog panel ── */
+  .changelog-panel { border-top: 1px solid var(--border); background: var(--surface); }
+  .changelog-toggle { padding: 10px 40px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-dim); font-size: 11px; user-select: none; justify-content: space-between; }
+  .changelog-toggle:hover { color: var(--text); }
+  .changelog-toggle-left { display: flex; align-items: center; gap: 10px; }
+  .changelog-count { background: var(--green-dim); color: var(--green); border: 1px solid rgba(61,214,140,0.3); padding: 1px 6px; font-size: 10px; }
+  .changelog-clear { font-size: 10px; color: var(--text-muted); background: none; border: 1px solid var(--border2); font-family: 'IBM Plex Mono', monospace; padding: 2px 8px; cursor: pointer; transition: all 0.15s; }
+  .changelog-clear:hover { border-color: var(--red); color: var(--red); }
+  .changelog-entries { display: none; max-height: 320px; overflow-y: auto; padding: 0 40px 16px; }
+  .changelog-entries.open { display: block; }
+  .changelog-entry {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 80px 100px 1fr;
+    gap: 12px;
+    align-items: baseline;
+    font-size: 11px;
+  }
+  .changelog-entry:first-child { border-top: 1px solid var(--border); }
+  .changelog-n { color: var(--accent); font-weight: 500; font-size: 12px; }
+  .changelog-type-promoted { color: var(--green); }
+  .changelog-type-updated  { color: var(--yellow); }
+  .changelog-detail { color: var(--text-dim); line-height: 1.5; }
+  .changelog-ts { color: var(--text-muted); font-size: 10px; display: block; margin-top: 2px; }
+  .changelog-empty { padding: 20px 0; color: var(--text-muted); font-size: 11px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
+    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span> · index.html: <span id="indexVersion" style="color:var(--text-dim)">loading…</span></p>
+  </div>
+</header>
+
+<!-- FactorDB status bar -->
+<div class="factordb-bar">
+  <div class="factordb-label">FactorDB sync</div>
+  <button class="poll-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)" onclick="clearAllCache()">
+    ⊗ Clear cache
+  </button>
+  <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
+    ↓ Export CSV
+  </button>
+  <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
+  <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
+  <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
+    ⊘ Cancel
+  </button>
+  <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border2);padding:6px 12px;background:var(--bg)">
+    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Range E(</label>
+    <input type="number" id="minNInput" value="0" min="0" step="2"
+      onchange="MIN_N = Math.max(0, parseInt(this.value)||0); rebuildAndRender();"
+      style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
+    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
+    <input type="number" id="maxNInput" value="11000" min="2" step="2"
+      onchange="MAX_N = Math.max(MIN_N+2, parseInt(this.value)||300); rebuildAndRender();"
+      style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
+    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border2);padding:4px 8px;background:var(--bg)">
+    <label style="font-size:10px;color:var(--text-muted);white-space:nowrap">Max requests</label>
+    <input type="number" id="maxRequestsInput" value="500" min="1" max="9999"
+      onchange="MAX_PER_SESSION = Math.max(1, parseInt(this.value)||500)"
+      style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
+  </div>
+  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Check unknowns
+  </button>
+  <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Check no known factors
+  </button>
+  <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Check all
+  </button>
+</div>
+<div class="poll-progress" id="pollProgress">
+  <div class="poll-progress-inner" id="pollProgressInner" style="width:0%"></div>
+</div>
+
+<div class="controls">
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Search E(n), factor, or value prefix…">
+  </div>
+  <div class="filter-btns">
+    <button class="filter-btn active" data-filter="all">ALL</button>
+    <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
+    <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
+    <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
+    <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
+    <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
+  </div>
+  <div class="stats-bar" id="statsBar"></div>
+  <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
+    <span style="font-size:10px;color:var(--text-muted)">Sort:</span>
+    <button class="sort-btn active" id="sortNBtn" onclick="toggleSortN()">E(n) ↑</button>
+    <button class="sort-btn" id="sortDiffBtn" onclick="toggleSortDiff()">Difficulty ↑</button>
+    <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()">CPU ↓</button>
+  </div>
+</div>
+
+<!-- Bulk ECM Log -->
+<div class="bulk-ecm-bar">
+  <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+    <div class="bulk-ecm-toggle" onclick="toggleBulkECM()">
+      <span id="bulkToggleArrow">▸</span>
+      Bulk log factoring attempts
+    </div>
+    <div class="bulk-ecm-toggle" onclick="toggleBulkDelete()" style="color:var(--red);opacity:0.7">
+      <span id="bulkDeleteArrow">▸</span>
+      Bulk delete attempts
+    </div>
+  </div>
+  <div class="bulk-ecm-panel" id="bulkECMPanel">
+    <div class="bulk-range">
+      <label>Method</label>
+      <select id="bulk_method" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
+        <option value="ECM">ECM</option>
+        <option value="P-1">P-1</option>
+        <option value="P+1">P+1</option>
+      </select>
+      <label style="margin-left:8px">B1 *</label>
+      <input type="text" id="bulk_b1" placeholder="e.g. 3e6" oninput="updateBulkPreview()">
+      <label>B2 *</label>
+      <input type="text" id="bulk_b2" placeholder="e.g. 3e9" oninput="updateBulkPreview()">
+      <label id="bulk_curves_label">Curves *</label>
+      <input type="number" id="bulk_curves" placeholder="e.g. 1000" min="1" oninput="updateBulkPreview()">
+      <label id="bulk_poly_label">Poly</label>
+      <input type="text" id="bulk_poly" placeholder="e.g. Dickson k=3" style="width:140px" oninput="updateBulkPreview()">
+      <label>Tool</label>
+      <input type="text" id="bulk_tool" placeholder="GMP-ECM 7.0.6" style="width:130px">
+      <label>Note</label>
+      <input type="text" id="bulk_note" placeholder="optional" style="width:130px">
+    </div>
+    <div class="bulk-range">
+      <label>Apply to E(</label>
+      <input type="number" id="bulk_from" placeholder="start" min="0" step="2" value="0" oninput="updateBulkPreview()">
+      <label>) to E(</label>
+      <input type="number" id="bulk_to" placeholder="end" min="2" step="2" value="300" oninput="updateBulkPreview()">
+      <label>) &nbsp;·&nbsp; Only apply to:</label>
+      <select id="bulk_filter" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
+        <option value="all">All entries in range</option>
+        <option value="unknown">Unknown only</option>
+        <option value="composite">No known factors only</option>
+        <option value="partial">Partial only</option>
+        <option value="unfactored">Unknown + No known factors + Partial</option>
+      </select>
+    </div>
+    <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
+    <button class="bulk-submit" id="bulkSubmitBtn" onclick="applyBulkECM()">+ Log attempt for all entries above</button>
+    <div class="bulk-result" id="bulkResult"></div>
+  </div>
+
+  <!-- Bulk Delete Panel -->
+  <div class="bulk-ecm-panel" id="bulkDeletePanel">
+    <div class="bulk-range" style="margin-bottom:12px">
+      <label>E(n) range</label>
+      <input type="number" id="bulkDel_from" placeholder="From n" min="0" step="2" style="width:90px">
+      <span style="color:var(--text-muted)">to</span>
+      <input type="number" id="bulkDel_to" placeholder="To n" min="0" step="2" style="width:90px">
+    </div>
+    <div class="bulk-range" style="margin-bottom:12px">
+      <label>Method filter</label>
+      <select id="bulkDel_method" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:4px 8px;font-size:11px">
+        <option value="all">All methods</option>
+        <option value="ECM">ECM only</option>
+        <option value="P-1">P-1 only</option>
+        <option value="P+1">P+1 only</option>
+      </select>
+    </div>
+    <div id="bulkDelPreview" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;min-height:16px"></div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <button onclick="previewBulkDelete()" style="padding:5px 14px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:11px;cursor:pointer">Preview</button>
+      <button onclick="executeBulkDelete()" style="padding:5px 14px;background:var(--red);border:none;color:#fff;font-size:11px;cursor:pointer;font-weight:600">Delete matching attempts</button>
+    </div>
+  </div>
+</div>
+
+<!-- GitHub Sync -->
+<div class="github-bar" id="githubBar">
+  <div class="github-label">⬡ GitHub sync</div>
+  <div class="github-status" id="githubStatus">Not configured — click ⚙ to set up</div>
+  <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
+  <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
+  <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push</button>
+  <button class="github-btn" onclick="toggleGithubSettings()" title="GitHub settings">⚙</button>
+</div>
+<div class="github-settings-panel" id="githubSettingsPanel">
+  <div class="gh-field">
+    <label>GitHub username</label>
+    <input type="text" id="ghUser" placeholder="hilbertfrank1285" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-field">
+    <label>Repository name</label>
+    <input type="text" id="ghRepo" placeholder="euler-factordb" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-field">
+    <label>Branch</label>
+    <input type="text" id="ghBranch" placeholder="main" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-field">
+    <label>Personal Access Token</label>
+    <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx" oninput="saveGHSettings()">
+  </div>
+  <div class="gh-hint">
+    Token needs <strong>Contents: Read &amp; Write</strong> scope only.
+    Create one at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>
+    (Fine-grained token → your repo → Contents read/write).
+    Data is saved as <code>results.json</code> in your repo root.
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Fully factored — all prime factors known</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Unknown — not yet checked</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — confirmed composite, no factors found</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Attempted — ECM/P-1/P+1 logged, no factors found yet</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
+</div>
+
+<div class="grid-container">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="pagination" id="pagination"></div>
+
+<!-- Activity log -->
+<div class="log-panel">
+  <div class="log-toggle" onclick="toggleLog()">
+    ▸ Activity log <span class="log-count" id="logCount">0</span>
+  </div>
+  <div class="log-entries" id="logEntries"></div>
+</div>
+
+<!-- Changelog -->
+<div class="changelog-panel">
+  <div class="changelog-toggle" onclick="toggleChangelog()">
+    <div class="changelog-toggle-left">
+      ▸ Changelog — discovered factors <span class="changelog-count" id="changelogCount">0</span>
+    </div>
+    <button class="changelog-clear" onclick="clearChangelog(event)">Clear</button>
+  </div>
+  <div class="changelog-entries" id="changelogEntries"></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">E(0)</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────────────────────────────────────────
+
+const eulerValues = {}; // populated by fetchEulerValues() on load
+
+function eulerSign(n) { return (n % 4 === 2) ? -1 : 1; }
+
+function isPrime(n) {
+  if (n < 2n) return false;
+  if (n < 4n) return true;
+  if (n % 2n === 0n || n % 3n === 0n) return false;
+  for (let i = 5n; i * i <= n; i += 6n)
+    if (n % i === 0n || n % (i + 2n) === 0n) return false;
+  return true;
+}
+function labelFactor(f) {
+  try {
+    const big = BigInt(f);
+    return big > 999999999999999n ? 'large' : (isPrime(big) ? 'prime' : 'composite');
+  } catch { return 'large'; }
+}
+
+// Your base factorization data
+const factoData = {};
+
+let MIN_N      = 0;    // user-adjustable start
+let MAX_N      = 11000; // user-adjustable end
+const PAGE_SIZE = 100;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORAGE — factordb cache, keyed by number string
+// Structure: { status:'FF'|'CF'|'P'|'PRP'|'C'|'U', factors:[], timestamp:ms }
+// ─────────────────────────────────────────────────────────────────────────────
+const STORAGE_KEY    = 'eulerFDB_v1';
+const LOG_KEY        = 'eulerFDB_log_v1';
+const COOLDOWN_KEY   = 'eulerFDB_lastPoll';
+const CHANGELOG_KEY  = 'eulerFDB_changelog_v1';
+const ECM_KEY        = 'eulerFDB_ecm_v1';
+
+function loadECM() {
+  try { return JSON.parse(localStorage.getItem(ECM_KEY) || '{}'); } catch { return {}; }
+}
+function saveECM(d) {
+  try {
+    localStorage.setItem(ECM_KEY, JSON.stringify(d));
+  } catch(e) {
+    console.error('saveECM failed:', e.name, e.message);
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
+
+function loadChangelog() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(CHANGELOG_KEY) || '[]');
+    // Strip any large cofactor/factor strings from old entries (backward compat cleanup)
+    return entries.map(e => {
+      if (!e.detail) return e;
+      // Remove "Cofactor: <long number>" and "Factors: <long numbers>" from detail
+      const clean = e.detail
+        .replace(/Cofactor: \d+/g, '')
+        .replace(/New factors: [\d\s×^]+/g, '')
+        .replace(/Factors: [\d\s×^]+/g, '')
+        .replace(/\.\s*$/, '')
+        .trim();
+      return { ...e, detail: clean };
+    });
+  } catch { return []; }
+}
+function saveChangelog(c) {
+  try {
+    localStorage.setItem(CHANGELOG_KEY, JSON.stringify(c));
+  } catch(e) {
+    console.error('saveChangelog failed:', e.name, e.message);
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
+
+function addChangelogEntry(n, type, detail) {
+  const log = loadChangelog();
+  // Store only n, type, ts — strip detail (may contain large factor strings)
+  // Detail goes to results.json via changelog sync
+  log.unshift({ n, type, detail: detail ? String(detail).slice(0, 100) : '', ts: Date.now() });
+  saveChangelog(log.slice(0, 100)); // cap at 100 entries in localStorage
+}
+
+// 24 hours between auto-polls, 5 minutes between manual polls
+const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
+const MANUAL_COOLDOWN = 0; // 10 seconds
+
+// Request spacing — be polite to FactorDB
+const REQUEST_DELAY_MS = 500;  // 1 s between requests
+let MAX_PER_SESSION    = 500;   // cap requests per manual session (user-adjustable)
+
+function loadFDBCache() {
+  try {
+    const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    // Rebuild full cache: slim uses n as key, we need to map back to number string
+    // For each entry, look up the number string via eulerValues
+    const full = {};
+    for (const [nStr, v] of Object.entries(slim)) {
+      const n   = parseInt(nStr);
+      const num = eulerValues[n] || v.numKey || '';
+      if (!num) continue;
+      full[num] = { status: v.status, timestamp: v.timestamp, n,
+                    ...(fdbFactors[num] || {}) };
+    }
+    return full;
+  } catch { return {}; }
+}
+function saveFDBCache(c) {
+  // Use n (small integer) as key in localStorage — NOT the number string (up to 2498 digits)
+  // This alone reduces storage from MB to KB
+  const slim = {};
+  for (const [k, v] of Object.entries(c)) {
+    if (v.n == null) continue; // skip entries without n index
+    const key = String(v.n);  // key by n, not by number string
+    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20) };
+    // Store full factors in memory keyed by number string (for fast replay lookup)
+    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+  } catch(e) {
+    console.error('saveFDBCache failed:', e.name, e.message);
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
+
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { return []; }
+}
+function saveLog(l) {
+  try {
+    localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-50))); // keep only last 50 in localStorage
+  } catch(e) {
+    if (e.name === 'QuotaExceededError') showStorageWarning();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTRIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildEntries() {
+  const entries = [];
+  for (let n = MIN_N % 2 === 0 ? MIN_N : MIN_N + 1; n <= MAX_N; n += 2) {
+    let fact = factoData[n] || { status:'unknown', factors:[], cofactor:null };
+    // E(0) = 1 and E(2) = 1 are units — treat as fully factored with no prime factors
+    if (n === 0 || n === 2) fact = { status:'full', factors:[], cofactor:null };
+    entries.push({ n, sign: eulerSign(n), val: eulerValues[n] || null, ...fact });
+  }
+  entries.sort((a,b) => a.n - b.n);
+  return entries;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let allEntries   = buildEntries();
+let filtered     = [...allEntries];
+let currentPage  = 1;
+let activeFilter = 'all';
+let searchQuery  = '';
+// fdbFactors: in-memory only (factors/cofactors) — NOT in localStorage
+// Populated from results.json pull and from live FDB queries
+const fdbFactors = {};
+// fdbCache starts empty — loaded AFTER eulerValues so number-string keys can be rebuilt
+let fdbCache = {};
+let activityLog  = loadLog();
+let logOpen      = false;
+let polling      = false;
+let cancelRequested = false;
+let sortMode     = 'default'; // 'default' | 'diff-asc' | 'diff-desc'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REPLAY — restore FDB discoveries from cache into allEntries on page load
+// ─────────────────────────────────────────────────────────────────────────────
+function replayFDBCache() {
+  // ── Migrate: strip ^1 from any factors stored before the fix ──
+  let migrated = false;
+  for (const key of Object.keys(fdbCache)) {
+    const entry = fdbCache[key];
+    if (entry.factors && Array.isArray(entry.factors)) {
+      const cleaned = entry.factors.map(f => typeof f === 'string' ? f.replace(/\^1$/,'') : f);
+      if (cleaned.join() !== entry.factors.join()) {
+        fdbCache[key] = { ...entry, factors: cleaned };
+        if (cleaned.length) fdbFactors[key] = { factors: cleaned };
+        migrated = true;
+      }
+    }
+  }
+  if (migrated) { saveFDBCache(fdbCache); console.log('Migrated: stripped ^1 from cached factors'); }
+
+  let restored = 0;
+  for (const [number, cached] of Object.entries(fdbCache)) {
+    const { status, factors, n } = cached;
+    if (n == null) continue;
+    const entry = allEntries.find(x => x.n === n);
+    if (!entry) continue;
+
+    // If this was a cofactor lookup and it resolved
+    const effectiveStatus = status === 'UN' ? 'FF' : status;
+    if (entry.cofactor === number && ['FF','P','PRP'].includes(effectiveStatus)) {
+      const fdbFactors = (factors || []).filter(f => f && f !== '1');
+      entry.factors  = [...(entry.factors || []), ...fdbFactors];
+      entry.cofactor = null;
+      entry.status   = 'full';
+      entry._fdbVerified = true;
+      entry._resolvedViaCofactor = number;
+      restored++;
+    }
+
+    // If this was a full-value lookup for an unknown entry and it resolved
+    if (entry.status === 'unknown' && entry.val === number && ['FF','P','PRP'].includes(effectiveStatus)) {
+      const fdbFactors = (factors || []).filter(f => f && f !== '1');
+      entry.factors  = fdbFactors;
+      entry.cofactor = null;
+      entry.status   = 'full';
+      entry._fdbVerified = true;
+      restored++;
+    }
+
+    // Confirmed composite, no factors
+    if (status === 'C' && (entry.status === 'unknown' || entry.status === 'composite')) {
+      entry.status = 'composite';
+    }
+
+    // Partial resolution: FDB CF for full value or cofactor
+    if (status === 'CF' && ((factors && factors.length >= 1) || cached.cofactorLen)) {
+      const allFDB = (factors || []).filter(f => f && f !== '1');
+      const cofactorLen = cached.cofactorLen || null;
+      // If we have cofactorLen, we know prime factors are all but the implied cofactor
+      const knownFactors = allFDB.length > 0 ? allFDB : [];
+      // Reconstruct cofactor placeholder if we have its length but not the string
+      const cofactorNum  = cofactorLen ? ('(~' + cofactorLen + 'd cofactor)') : null;
+      if (knownFactors.length > 0 || cofactorLen) {
+        entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
+        entry.cofactor = cofactorNum; // may be a placeholder string like "(~1247d cofactor)"
+        entry.status   = 'partial';
+        entry._fdbVerified = true;
+        restored++;
+      }
+    }
+  }
+  if (restored > 0) console.log(`Restored ${restored} FDB discoveries from cache`);
+  return restored;
+}
+
+// Which entries have cofactors that should be queried?
+function getCofactorTargets() {
+  return allEntries
+    .filter(e => {
+      // Has a numeric cofactor string (not null, not placeholder text)
+      if (!e.cofactor) return false;
+      if (e.cofactor.startsWith('(')) return false; // placeholder
+      return true;
+    })
+    .map(e => ({ n: e.n, number: e.cofactor }));
+}
+
+// Which are "unknown" entries with a known absolute value small enough to query?
+const MAX_AUTO_DIGITS = 50; // kept for modal warning only
+
+function getUnknownTargets() {
+  // Pure unknowns only — entries never queried on FactorDB
+  return allEntries
+    .filter(e => e.status === 'unknown' && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }));
+}
+
+function allTargets() {
+  // All entries except fully factored — check their full value or cofactor
+  return allEntries
+    .filter(e => e.status !== 'full' && e.val && e.n > 2)
+    .map(e => {
+      // Partial entries: query the cofactor if we have it, otherwise the full value
+      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
+        ? e.cofactor : e.val;
+      return { n: e.n, number: queryNum };
+    })
+    .filter(t => t.number); // skip if no value loaded yet
+}
+
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FACTORDB API  (via a CORS proxy or same-origin; FactorDB supports CORS)
+// We use a simple fetch with no API key required.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// FactorDB status codes:
+//   FF = fully factored, CF = composite with factors,
+//   C  = composite (no factors known), U = unknown,
+//   P  = prime, PRP = probably prime
+
+function fetchWithTimeout(url, ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { signal: controller.signal, keepalive: true })
+    .finally(() => clearTimeout(timer));
+}
+
+// Timeout scales with number size: bigger numbers take longer for FDB to process
+function timeoutForNumber(numStr) {
+  const digits = numStr.length;
+  if (digits < 50)  return 15000;   // 15s
+  if (digits < 100) return 30000;   // 30s
+  if (digits < 200) return 60000;   // 60s
+  return 120000;                    // 120s for very large
+}
+
+async function queryFactorDB(numberStr) {
+  if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
+
+  const timeout = timeoutForNumber(numberStr);
+  const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
+  const proxyUrl  = `https://corsproxy.io/?url=${encodeURIComponent(fdbApiUrl)}`;
+
+  // Always use proxy — factordb.com blocks direct browser requests (no CORS headers)
+  for (const url of [proxyUrl, fdbApiUrl]) {
+    try {
+      const r = await fetchWithTimeout(url, timeout);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const text = await r.text();
+      const data = JSON.parse(text);
+      const result = data.contents ? JSON.parse(data.contents) : data;
+      if (!result.status) throw new Error('No status in response');
+      return result;
+    } catch(e) {
+      if (e.name === 'AbortError') throw new Error(`Timeout after ${timeout/1000}s`);
+      // CORS error → try next
+      continue;
+    }
+  }
+  throw new Error('Both direct and proxy failed');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ECM PROBABILITY  (Lenstra heuristic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// L(x) = exp(sqrt(ln(x) * ln(ln(x)))) — the ECM smoothness constant
+function lenstраL(digits) {
+  const lnP  = digits * Math.log(10);            // ln(p) ≈ d * ln(10)
+  const lnln = Math.log(lnP);
+  return Math.exp(Math.sqrt(lnP * lnln));
+}
+
+// Optimal B1 for finding a d-digit prime factor (approximation)
+// B1 ≈ exp(0.5 * sqrt(ln(p) * ln(ln(p))))
+function optimalB1(digits) {
+  const lnP  = digits * Math.log(10);
+  const lnln = Math.log(lnP);
+  return Math.round(Math.exp(0.5 * Math.sqrt(lnP * lnln)));
+}
+
+// Probability of finding a d-digit prime factor with k curves at optimal B1
+// P = 1 - exp(-k / L(p))
+// With -I n: B1 varies per curve — but probability per curve at a fixed digit target
+// doesn't change with B1 (it's always 1/L(d)). -I spreads coverage across MULTIPLE
+// digit targets, so we use ecmProbabilityWithI for that.
+function ecmProbabilityWithI(d, b1_0, curves, I_val) {
+  if (!I_val || I_val <= 0 || curves <= 1) return ecmProbability(d, curves);
+  // With -I n, curve i uses B1_i = B1_0 * exp(i/n)
+  // Each B1_i targets a different digit range d_i
+  // Count how many curves effectively target digit range d
+  // d_i = (ln(B1_i))^2 / (ln(10) * ln(ln(B1_i)))
+  // We sum up the fraction of curves whose target is within ±3 of d
+  let effectiveCurves = 0;
+  const sampleN = Math.min(curves, 200);
+  for (let i = 0; i < sampleN; i++) {
+    const b1_i = b1_0 * Math.exp(i / I_val);
+    const lnB1 = Math.log(b1_i);
+    const lnln = Math.log(Math.max(lnB1, 1.1));
+    const td   = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+    if (Math.abs(td - d) <= 3) effectiveCurves++;
+  }
+  const scaledCurves = effectiveCurves * curves / sampleN;
+  return ecmProbability(d, Math.round(scaledCurves));
+}
+
+function ecmProbability(digits, curves) {
+  const L = lenstраL(digits);
+  return 1 - Math.exp(-curves / L);
+}
+
+// Expected curves to reach a given probability
+function curvesForProb(digits, prob) {
+  const L = lenstраL(digits);
+  return Math.ceil(-L * Math.log(1 - prob));
+}
+
+// Format large numbers nicely
+function fmtB1(n) {
+  if (n >= 1e9) return (n/1e9).toFixed(1) + 'G';
+  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(0) + 'k';
+  return String(n);
+}
+
+function fmtPct(p) {
+  if (p < 0.0001) return '<0.01%';
+  if (p > 0.9999) return '>99.99%';
+  return (p * 100).toFixed(2) + '%';
+}
+
+function fmtCurves(n) {
+  if (n >= 1e9) return '~' + (n/1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return '~' + (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return '~' + (n/1e3).toFixed(0) + 'k';
+  return String(n);
+}
+
+// P-1 probability: chance of finding a d-digit prime p where p-1 is B1-smooth
+// Rough heuristic: rho(d * ln(10) / ln(B1)) where rho is Dickman function approximation
+function dickmanRho(u) {
+  if (u <= 1) return 1;
+  if (u <= 2) return 1 - Math.log(u);
+  if (u <= 3) return 1 - Math.log(u) + 0.5 * Math.log(u - 1) * Math.log(u - 1) * (1 - 1/(u-1)) ;
+  // For larger u, use approximation rho(u) ≈ u^(-u)
+  return Math.exp(-u * Math.log(u));
+}
+
+// P-1 probability: finds p if p-1 is B1-smooth (with one B2-prime allowed)
+// P+1 probability: finds p if p+1 is B1-smooth — works on ~50% of primes
+//   (those where the Jacobi symbol of the seed is -1 mod p)
+//   So P+1 at given B1 is roughly equivalent to P-1 at same B1 on half the primes,
+//   BUT it covers different primes than P-1, so combined they cover more ground.
+//   Effective probability for P+1: same Dickman formula × 0.5 (only half of primes
+//   have smooth p+1 structure exploitable by P+1 method)
+function pm1Probability(digits, B1, B2, method = 'P-1') {
+  const lnP  = digits * Math.log(10);
+  const lnB1 = Math.log(Math.max(B1, 2));
+  const u1   = lnP / lnB1;
+  const p1   = dickmanRho(u1);
+
+  let prob;
+  if (!B2 || B2 <= B1) {
+    prob = p1;
+  } else {
+    const lnB2   = Math.log(B2);
+    const stage2 = lnP > lnB1 ? p1 * (lnB2 - lnB1) / (lnP - lnB1) : 0;
+    prob = p1 + stage2;
+  }
+
+  // P+1 works on a different (complementary) subset of primes — ~50% coverage
+  // It finds primes where p+1 is smooth (vs p-1 for P-1)
+  // Probability is the same formula but applies to a different half of the primes
+  if (method === 'P+1') prob = prob * 0.5;
+
+  return Math.min(prob, 1);
+}
+
+function fdbStatusLabel(s) {
+  return { FF:'Fully Factored', CF:'Composite (partial)', C:'Composite', U:'Unknown', P:'Prime', PRP:'Probably Prime', UN:'Fully Factored (unit)' }[s] || s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOG
+// ─────────────────────────────────────────────────────────────────────────────
+function addLog(msg, type = '') {
+  const now  = new Date().toLocaleTimeString();
+  activityLog.unshift({ t: now, msg, type });
+  saveLog(activityLog);
+  renderLog();
+}
+
+function renderLog() {
+  document.getElementById('logCount').textContent = activityLog.length;
+  const el = document.getElementById('logEntries');
+  el.innerHTML = activityLog.slice(0, 500).map(l =>
+    `<div class="log-entry log-${l.type}"><span class="log-time">${l.t}</span><span class="log-msg">${l.msg}</span></div>`
+  ).join('');
+}
+
+let changelogOpen = false;
+
+function renderChangelog() {
+  const log = loadChangelog();
+  document.getElementById('changelogCount').textContent = log.length;
+  const el = document.getElementById('changelogEntries');
+  if (!log.length) {
+    el.innerHTML = '<div class="changelog-empty">No changes recorded yet — run a FactorDB check to discover factors.</div>';
+    return;
+  }
+  el.innerHTML = log.map(e => {
+    const date = new Date(e.ts).toLocaleString();
+    const typeLabel = e.type === 'promoted'
+      ? '<span class="changelog-type-promoted">● FULLY FACTORED</span>'
+      : '<span class="changelog-type-updated">◐ UPDATED</span>';
+    return `<div class="changelog-entry">
+      <div class="changelog-n">E(${e.n})</div>
+      <div>${typeLabel}</div>
+      <div class="changelog-detail">${e.detail}<span class="changelog-ts">${date}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function toggleChangelog() {
+  changelogOpen = !changelogOpen;
+  document.getElementById('changelogEntries').classList.toggle('open', changelogOpen);
+  const toggle = document.querySelector('.changelog-toggle-left');
+  toggle.childNodes[0].textContent = (changelogOpen ? '▾' : '▸') + ' Changelog — discovered factors ';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GITHUB SYNC
+// ─────────────────────────────────────────────────────────────────────────────
+
+const GH_SETTINGS_KEY = 'eulerFDB_ghSettings';
+const GH_DATA_FILE    = 'results.json';
+
+function loadGHSettings() {
+  try { return JSON.parse(localStorage.getItem(GH_SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+function saveGHSettings() {
+  const s = {
+    user:   document.getElementById('ghUser')?.value?.trim()   || '',
+    repo:   document.getElementById('ghRepo')?.value?.trim()   || '',
+    branch: document.getElementById('ghBranch')?.value?.trim() || 'main',
+    token:  document.getElementById('ghToken')?.value?.trim()  || '',
+  };
+  localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify(s));
+  updateGHStatus();
+}
+
+function loadGHSettingsToUI() {
+  const s = loadGHSettings();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  set('ghUser',   s.user);
+  set('ghRepo',   s.repo);
+  set('ghBranch', s.branch || 'main');
+  set('ghToken',  s.token);
+  updateGHStatus();
+}
+
+function updateGHStatus() {
+  const s = loadGHSettings();
+  const el = document.getElementById('githubStatus');
+  if (!el) return;
+  if (!s.user || !s.repo || !s.token) {
+    el.className = 'github-status';
+    el.textContent = 'Auto-pull active (public) — configure ⚙ to push your results';
+  } else {
+    el.className = 'github-status ok';
+    el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — push enabled`;
+  }
+}
+
+async function fetchIndexVersion() {
+  const el = document.getElementById('indexVersion');
+  if (!el) return;
+  try {
+    const s      = loadGHSettings();
+    const user   = s.user   || 'hilbertfrank1285';
+    const repo   = s.repo   || 'euler-factordb';
+    const branch = s.branch || 'main';
+    const url = 'https://api.github.com/repos/' + user + '/' + repo + '/commits?path=index.html&sha=' + branch + '&per_page=1';
+    const r   = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const commits = await r.json();
+    if (!commits.length) { el.textContent = 'no data'; return; }
+    const date = new Date(commits[0].commit.committer.date);
+    el.textContent = date.toLocaleString();
+    el.title = commits[0].commit.message + ' · sha: ' + commits[0].sha.slice(0,7);
+  } catch(e) {
+    const el2 = document.getElementById('indexVersion');
+    if (el2) el2.textContent = 'unavailable';
+  }
+}
+
+async function fetchLastUpdateTime() {
+  const el = document.getElementById('ghLastUpdate');
+  if (!el) return;
+  try {
+    const s      = loadGHSettings();
+    const user   = s.user   || 'hilbertfrank1285';
+    const repo   = s.repo   || 'euler-factordb';
+    const branch = s.branch || 'main';
+    // Use GitHub commits API — public endpoint, no token needed
+    const url = `https://api.github.com/repos/${user}/${repo}/commits?path=${GH_DATA_FILE}&sha=${branch}&per_page=1`;
+    const r   = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const commits = await r.json();
+    if (!commits.length) { el.textContent = 'no data yet'; return; }
+    const date = new Date(commits[0].commit.committer.date);
+    el.textContent = date.toLocaleString();
+    el.title = commits[0].commit.message;
+  } catch(e) {
+    const el2 = document.getElementById('ghLastUpdate');
+    if (el2) el2.textContent = 'unavailable';
+  }
+}
+
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (btn) { btn.textContent = '✓'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = '⎘'; btn.classList.remove('copied'); }, 1500); }
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  });
+}
+
+function toggleGithubSettings() {
+  const panel = document.getElementById('githubSettingsPanel');
+  if (panel) panel.classList.toggle('open');
+}
+
+function ghApiBase() {
+  const s = loadGHSettings();
+  return `https://api.github.com/repos/${s.user}/${s.repo}/contents/${GH_DATA_FILE}`;
+}
+
+function ghHeaders() {
+  const s = loadGHSettings();
+  return {
+    'Authorization': `Bearer ${s.token}`,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  };
+}
+
+function setGHStatus(msg, cls = '') {
+  try {
+    const el = document.getElementById('githubStatus');
+    if (el) { el.textContent = msg; el.className = 'github-status' + (cls ? ' '+cls : ''); }
+    // Also log to activity log so it's visible even if bar is off-screen
+    if (cls === 'err') console.error('GitHub:', msg);
+  } catch(e) { console.warn('setGHStatus error:', e); }
+}
+
+function setGHBtns(disabled) {
+  try {
+    ['ghPullBtn','ghPushBtn'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = disabled;
+    });
+  } catch(e) {}
+}
+
+// Serialise all local data into one object
+function buildSyncPayload() {
+  const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  const full = {};
+  for (const [nStr, v] of Object.entries(slim)) {
+    const n      = parseInt(nStr);
+    const num    = eulerValues[n] || '';
+    const status = v.status;
+
+    // Skip U (unknown) — not useful to sync
+    if (status === 'U') continue;
+
+    const entry = { status, timestamp: v.timestamp, n };
+
+    // C (composite, no known factors) — status only, no factors
+    // FDB returns the full Euler number as its own "factor" for C — useless KB
+    if (status === 'C') { full[nStr] = entry; continue; }
+
+    // CF/FF/P/PRP — include prime factors + cofactor metadata
+    const fd = num ? (fdbFactors[num] || {}) : {};
+    const allFactors = (fd.factors || []).filter(f => f && f !== '1');
+    let primeFactors = allFactors, cofactorLen = null, cofactorPreview = null;
+    if (allFactors.length >= 1) {
+      const last = allFactors[allFactors.length - 1];
+      if (last.length > 500) { // large final factor = cofactor
+        primeFactors    = allFactors.slice(0, -1);
+        cofactorLen     = last.length;
+        cofactorPreview = last.slice(0, 35);
+      }
+    }
+    if (primeFactors.length) entry.factors      = primeFactors;
+    if (cofactorLen)         entry.cofactorLen   = cofactorLen;
+    if (cofactorPreview)     entry.cofactorPreview = cofactorPreview;
+    full[nStr] = entry;
+  }
+  return {
+    fdbCache:  full,
+    changelog: loadChangelog(),
+    ecm:       loadECM(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
+function mergeSyncPayload(remote) {
+  // FDB cache: both local and remote are number-string keyed
+  // Remote (results.json) is now n-keyed — convert to number-string keys using eulerValues
+  const localCache  = loadFDBCache();
+  const rawRemote   = remote.fdbCache || {};
+  // Convert remote n-keyed → number-string keyed
+  const remoteCache = {};
+  for (const [k, v] of Object.entries(rawRemote)) {
+    const n   = v.n != null ? v.n : parseInt(k);
+    const num = eulerValues[n] || '';
+    const entry = { ...v, n };
+    if (num) remoteCache[num] = entry;
+    else remoteCache[k] = entry; // fallback
+  }
+  const merged = { ...localCache };
+  let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0 };
+  for (const [k, v] of Object.entries(remoteCache)) {
+    const localTs  = Number(merged[k]?.timestamp) || 0;
+    const remoteTs = Number(v.timestamp) || 0;
+    if (!merged[k]) {
+      merged[k] = v;
+      mergeStats.remoteAdded++;
+    } else if (remoteTs > localTs) {
+      merged[k] = v;
+      mergeStats.remoteWins++;
+    } else {
+      // Local wins on timestamp — but copy factors from remote if local has none
+      // (local slim cache loses factors on reload; remote results.json has them)
+      if (!merged[k].factors && v.factors && v.factors.length) {
+        merged[k] = { ...merged[k], factors: v.factors, cofactor: v.cofactor };
+      }
+      mergeStats.localWins++;
+    }
+  }
+  console.log('FDB merge:', mergeStats);
+  // Populate fdbFactors and restore cofactorPreview/cofactorLen onto allEntries
+  for (const [k, v] of Object.entries(merged)) {
+    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
+    // Restore cofactorPreview + cofactorLen to allEntries so modal can display them
+    if ((v.cofactorLen || v.cofactorPreview) && v.n != null) {
+      const entry = allEntries.find(e => e.n === v.n);
+      if (entry) {
+        if (v.cofactorLen)     entry.cofactorLen     = v.cofactorLen;
+        if (v.cofactorPreview) entry.cofactorPreview = v.cofactorPreview;
+      }
+    }
+  }
+  saveFDBCache(merged); // saves slim (n-keyed) to localStorage
+  fdbCache = merged;    // in-memory: number-string keyed with full data
+
+  // Changelog: merge by timestamp dedup
+  const localCL  = loadChangelog();
+  const remoteCL = remote.changelog || [];
+  const clMap    = new Map();
+  [...localCL, ...remoteCL].forEach(e => clMap.set(`${e.n}_${e.ts}`, e));
+  const mergedCL = Array.from(clMap.values()).sort((a,b) => (b.ts||0)-(a.ts||0));
+  saveChangelog(mergedCL);
+
+  // ECM: merge by n + date + method (dedup) — normalise all keys to strings
+  const localECM  = loadECM();
+  const remoteECM = remote.ecm || {};
+  // Normalise local keys to strings
+  const normLocal = {};
+  for (const [k,v] of Object.entries(localECM)) normLocal[String(k)] = v;
+  const mergedECM = { ...normLocal };
+  for (const [n, attempts] of Object.entries(remoteECM)) {
+    const key = String(n);
+    if (!mergedECM[key]) { mergedECM[key] = attempts; continue; }
+    const existing = new Set(mergedECM[key].map(a => `${a.method}_${a.date}_${a.b1}`));
+    for (const a of attempts) {
+      if (!existing.has(`${a.method}_${a.date}_${a.b1}`)) mergedECM[key].push(a);
+    }
+  }
+  saveECM(mergedECM);
+}
+
+async function githubPull() {
+  const s = loadGHSettings();
+  const user   = s.user   || 'hilbertfrank1285';
+  const repo   = s.repo   || 'euler-factordb';
+  const branch = s.branch || 'main';
+  setGHBtns(true);
+  setGHStatus('Pulling from GitHub…', 'busy');
+  try {
+    // Use GitHub API contents endpoint — bypasses raw.githubusercontent.com CDN cache
+    // Returns base64-encoded content with current commit SHA — always fresh
+    const apiUrl = 'https://api.github.com/repos/' + user + '/' + repo + '/contents/' + GH_DATA_FILE + '?ref=' + branch + '&_=' + Date.now();
+    const headers = { 'Accept': 'application/vnd.github.raw+json' };
+    // Add token if available for higher rate limits (60/hr → 5000/hr)
+    if (s.token) headers['Authorization'] = 'Bearer ' + s.token;
+    const r = await fetch(apiUrl, { headers, cache: 'no-store' });
+    if (r.status === 404) {
+      setGHStatus('No results.json found in repo yet — push first to create it', '');
+      return;
+    }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    // raw accept header returns content directly as text
+    const text = await r.text();
+    const payload = JSON.parse(text);
+    // Skip the GitHub API base64 decode — raw URL returns plain JSON
+    mergeSyncPayload(payload);
+    allEntries = buildEntries();
+    replayFDBCache();
+    applyFilters();
+    renderChangelog();
+    addLog('GitHub pull complete — data merged', 'ok');
+    // Refresh the header timestamp from the actual GitHub commit (most accurate)
+    fetchLastUpdateTime();
+    setGHStatus('Pulled from GitHub — data merged', 'ok');
+  } catch(e) {
+    setGHStatus(`Pull failed: ${e.message}`, 'err');
+    addLog(`GitHub pull error: ${e.message}`, 'err');
+  } finally {
+    setGHBtns(false);
+  }
+}
+
+let _pushInFlight   = false;
+let _ecmPushTimer   = null;
+function scheduleECMPush() {
+  // Debounce: push 8 seconds after last ECM change (avoids pushing on every keystroke)
+  if (_ecmPushTimer) clearTimeout(_ecmPushTimer);
+  _ecmPushTimer = setTimeout(() => {
+    _ecmPushTimer = null;
+    const s = loadGHSettings();
+    if (s.token && s.user && s.repo) {
+      addLog('Auto-pushing after ECM log change…', '');
+      githubPush();
+    }
+  }, 8000);
+}
+async function githubPush() {
+  const s = loadGHSettings();
+  if (!s.user || !s.repo || !s.token) {
+    setGHStatus('Please configure GitHub settings ⚙ first (token required to push)', 'err');
+    addLog('GitHub push skipped — no token configured', 'warn');
+    return;
+  }
+  if (_pushInFlight) {
+    addLog('GitHub push already in progress — skipping', 'warn');
+    return;
+  }
+  _pushInFlight = true;
+  setGHBtns(true);
+  setGHStatus('Pushing to GitHub…', 'busy');
+  try {
+    // Helper to get current SHA
+    async function getCurrentSha() {
+      const r = await fetch(ghApiBase() + '?ref=' + (s.branch||'main'), { headers: ghHeaders() });
+      if (r.ok) { const d = await r.json(); return d.sha || null; }
+      return null;
+    }
+
+    // Helper to attempt one push with a given SHA
+    async function attemptPush(sha) {
+      const payload = buildSyncPayload();
+      const jsonStr = JSON.stringify(payload, null, 2);
+      console.log('Push payload stats:',
+        'fdbCache=' + Object.keys(payload.fdbCache || {}).length,
+        'changelog=' + (payload.changelog || []).length,
+        'ecm=' + Object.keys(payload.ecm || {}).length,
+        'jsonSize=' + (jsonStr.length / 1024 / 1024).toFixed(2) + 'MB',
+        'sha=' + sha);
+      const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+      const body    = {
+        message: 'Update Euler factorization data — ' + new Date().toISOString().slice(0,10),
+        content: encoded,
+        branch:  s.branch || 'main',
+        ...(sha ? { sha } : {}),
+      };
+      return fetch(ghApiBase(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
+    }
+
+    let sha = await getCurrentSha();
+    let r   = await attemptPush(sha);
+
+    // Retry up to 3 times on SHA conflict — every conflict gets a fresh SHA
+    let retries = 0;
+    while (!r.ok && retries < 5) {
+      // Peek at the error message to determine if it's a SHA conflict
+      const clone = r.clone();
+      let isConflict = (r.status === 409 || r.status === 422);
+      try {
+        const errBody = await clone.json();
+        if (errBody.message && /does not match|sha/i.test(errBody.message)) isConflict = true;
+      } catch(e) {}
+      if (!isConflict) break;
+
+      retries++;
+      setGHStatus('SHA conflict — retrying (' + retries + '/5)…', 'busy');
+      // Small backoff to let GitHub's API stabilise
+      await new Promise(res => setTimeout(res, 500 * retries));
+      sha = await getCurrentSha();
+      r   = await attemptPush(sha);
+    }
+
+    if (!r.ok) {
+      const err = await r.json();
+      throw new Error(err.message || 'HTTP ' + r.status);
+    }
+    const pushTime = new Date();
+    addLog('GitHub push complete', 'ok');
+    setGHStatus('Pushed to GitHub @ ' + pushTime.toLocaleTimeString(), 'ok');
+    // Update header timestamp directly — don't query API (CDN caches for minutes)
+    const el = document.getElementById('ghLastUpdate');
+    if (el) { el.textContent = pushTime.toLocaleString(); el.title = 'Just pushed'; }
+    const warn = document.getElementById('ghPushWarning');
+    if (warn) warn.style.display = 'none';
+  } catch(e) {
+    setGHStatus(`Push failed: ${e.message}`, 'err');
+    addLog(`GitHub push error: ${e.message}`, 'err');
+    const warnEl = document.getElementById('ghPushWarning');
+    if (warnEl) warnEl.style.display = 'flex';
+  } finally {
+    _pushInFlight = false;
+    setGHBtns(false);
+  }
+}
+
+// Auto-push after a successful poll
+async function maybeAutoPush() {
+  const s = loadGHSettings();
+  if (s.user && s.repo && s.token) {
+    try {
+      await githubPush();
+    } catch(e) {
+      // githubPush handles its own errors and shows the warning banner
+      addLog('Auto-push failed: ' + e.message, 'err');
+    }
+  }
+}
+
+// Auto-pull on page load if configured
+async function maybeAutoPull() {
+  // Pull is always public — no token needed
+  await githubPull();
+}
+
+function setSortMode(mode) {
+  sortMode = mode;
+  applyFilters();
+}
+
+function toggleSortN() {
+  sortMode = (sortMode === 'default') ? 'n-desc' : 'default';
+  const btn = document.getElementById('sortNBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'default' ? 'E(n) ↑' : 'E(n) ↓'; btn.classList.add('active'); }
+  applyFilters();
+}
+
+function toggleSortCpu() {
+  if (sortMode !== 'cpu-asc' && sortMode !== 'cpu-desc') {
+    sortMode = 'cpu-desc'; // most CPU first by default
+  } else {
+    sortMode = sortMode === 'cpu-desc' ? 'cpu-asc' : 'cpu-desc';
+  }
+  const btn   = document.getElementById('sortCpuBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'cpu-desc' ? 'CPU ↓' : 'CPU ↑'; btn.classList.add('active'); }
+  applyFilters();
+}
+
+function toggleSortDiff() {
+  // If not currently sorting by diff, start with asc; else toggle asc/desc
+  if (sortMode !== 'diff-asc' && sortMode !== 'diff-desc') {
+    sortMode = 'diff-asc';
+  } else {
+    sortMode = sortMode === 'diff-asc' ? 'diff-desc' : 'diff-asc';
+  }
+  const btn    = document.getElementById('sortDiffBtn');
+  const nBtn   = document.getElementById('sortNBtn');
+  if (btn)  { btn.textContent = sortMode === 'diff-asc' ? 'Difficulty ↑' : 'Difficulty ↓'; btn.classList.add('active'); }
+  if (nBtn) { nBtn.classList.remove('active'); nBtn.textContent = 'E(n) ↑'; }
+  applyFilters();
+}
+
+function rebuildAndRender() {
+  allEntries = buildEntries();
+  // Re-apply FDB cache
+  replayFDBCache();
+  filtered   = [...allEntries];
+  currentPage = 1;
+  applyFilters();
+}
+
+function csvEsc(v) {
+  const s = String(v);
+  // Force Excel/Sheets to treat large numeric strings as text by using ="..." notation
+  // This prevents scientific notation on long numbers
+  if (/^\d{10,}$/.test(s)) return '="' + s + '"';
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+function exportCSV() {
+  if (Object.keys(eulerValues).length === 0) {
+    alert('Euler values still loading — please wait a moment and try again.');
+    return;
+  }
+  const ecmData = loadECM();
+
+  // Find max factor count across all entries for dynamic columns
+  const maxFactors = allEntries.reduce((m, e) => Math.max(m, (e.factors||[]).length), 0);
+  const factorCols = Array.from({length: maxFactors}, (_, i) => 'factor_' + (i+1));
+
+  const rows = [
+    ['n', 'sign', ...factorCols, 'cofactor', 'cofactor_digits', 'val_digits',
+     'difficulty_score', 'difficulty_label', 'fdb_status', 'fdb_checked', 'ecm_attempts', 'note']
+  ];
+  for (const e of allEntries) {
+    const digits  = getCofactorDigits(e);
+    const diff    = digits ? getDifficultyForEntry(e) : null;
+    const dlbl    = diff ? difficultyLabel(diff.score).label : '';
+    const fdbKey  = e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : e.val;
+    const fdbRes  = fdbKey ? fdbCache[fdbKey] : null;
+    const ecmAtt  = (ecmData[String(e.n)] || []).length;
+
+    // Each factor gets its own column, padded to maxFactors
+    const factors = (e.factors || []).filter(f => f && f !== '1');
+    const factorVals = Array.from({length: maxFactors}, (_, i) => factors[i] || '');
+
+    // fdb_status: if entry is partial and fdbRes is null, mark as CF (partially factored)
+    let fdbStatus = '';
+    if (fdbRes) {
+      fdbStatus = fdbRes.status;
+    } else if (e.status === 'partial') {
+      fdbStatus = 'CF';
+    }
+
+    rows.push([
+      e.n,
+      e.sign === -1 ? '-' : '+',
+      ...factorVals,
+      e.cofactor || '',
+      e.cofactor ? e.cofactor.length : '',
+      e.val ? e.val.length : '',
+      diff ? diff.score.toFixed(2) : '',
+      dlbl,
+      fdbStatus,
+      fdbRes ? new Date(fdbRes.timestamp).toISOString().slice(0,10) : '',
+      ecmAtt,
+      '',
+    ]);
+  }
+    const csv  = rows.map(r => r.map(csvEsc).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `euler_factordb_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  addLog('Exported CSV — ' + allEntries.length + ' entries', '');
+}
+
+function clearAllCache() {
+  if (!confirm('Clear ALL cached FactorDB results? This will reset all discovered factors and statuses.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(CHANGELOG_KEY);
+  localStorage.removeItem(LOG_KEY);
+  localStorage.removeItem(COOLDOWN_KEY);
+  localStorage.removeItem(ECM_KEY);
+  fdbCache    = {};
+  activityLog = [];
+  allEntries  = buildEntries();
+  filtered    = [...allEntries];
+  renderLog();
+  renderChangelog();
+  applyFilters();
+  setStatus('Cache cleared — all FactorDB data removed');
+  addLog('Cache cleared by user', 'warn');
+}
+
+function clearChangelog(evt) {
+  evt.stopPropagation();
+  if (!confirm('Clear the entire changelog?')) return;
+  localStorage.removeItem(CHANGELOG_KEY);
+  renderChangelog();
+}
+
+let timelineOpen = false;
+
+function toggleTimeline() {
+  timelineOpen = !timelineOpen;
+  const body = document.getElementById('timelineBody');
+  const toggle = document.querySelector('.timeline-toggle');
+  body.classList.toggle('open', timelineOpen);
+  toggle.childNodes[0].textContent = (timelineOpen ? '▾' : '▸') + ' Timeline — factorization discoveries over time';
+  if (timelineOpen) drawTimeline();
+}
+
+function drawTimeline() {
+  const canvas = document.getElementById('timelineCanvas');
+  if (!canvas) return;
+  const wrap  = canvas.parentElement;
+  canvas.width  = wrap.clientWidth || 800;
+  canvas.height = 200;
+  const ctx   = canvas.getContext('2d');
+  const log   = loadChangelog();
+
+  if (!log.length) {
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+    ctx.font = '12px IBM Plex Mono, monospace';
+    ctx.fillText('No changelog entries yet — run FDB checks to populate', 20, 100);
+    return;
+  }
+
+  // Group by date
+  const byDate = {};
+  for (const entry of log) {
+    const d = new Date(entry.ts).toISOString().slice(0,10);
+    if (!byDate[d]) byDate[d] = { promoted: 0, updated: 0 };
+    byDate[d][entry.type === 'promoted' ? 'promoted' : 'updated']++;
+  }
+
+  const dates   = Object.keys(byDate).sort();
+  const W = canvas.width, H = canvas.height;
+  const pad = { top: 20, right: 20, bottom: 40, left: 40 };
+  const cW  = W - pad.left - pad.right;
+  const cH  = H - pad.top  - pad.bottom;
+
+  const maxVal = Math.max(...Object.values(byDate).map(d => d.promoted + d.updated), 1);
+  const barW   = Math.max(4, Math.min(40, cW / dates.length - 2));
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = '#1e2530';
+  ctx.lineWidth   = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + cH * (1 - i/4);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#3a4a5a';
+    ctx.font = '9px monospace';
+    ctx.fillText(Math.round(maxVal * i/4), 4, y + 3);
+  }
+
+  // Bars
+  dates.forEach((date, i) => {
+    const x    = pad.left + (i / Math.max(dates.length - 1, 1)) * cW;
+    const d    = byDate[date];
+    const total = d.promoted + d.updated;
+    const barH  = (total / maxVal) * cH;
+    const promH = (d.promoted / maxVal) * cH;
+
+    // Updated bar (yellow)
+    if (d.updated) {
+      ctx.fillStyle = '#f5c542';
+      ctx.fillRect(x - barW/2, pad.top + cH - barH, barW, barH - promH);
+    }
+    // Promoted bar (green, stacked on top)
+    if (d.promoted) {
+      ctx.fillStyle = '#3dd68c';
+      ctx.fillRect(x - barW/2, pad.top + cH - promH, barW, promH);
+    }
+
+    // Date label
+    if (dates.length <= 20 || i % Math.ceil(dates.length/10) === 0) {
+      ctx.fillStyle = '#3a4a5a';
+      ctx.font = '9px monospace';
+      ctx.save();
+      ctx.translate(x, H - pad.bottom + 8);
+      ctx.rotate(-Math.PI/4);
+      ctx.fillText(date.slice(5), 0, 0); // MM-DD
+      ctx.restore();
+    }
+  });
+
+  // Cumulative line (total discovered)
+  let cumulative = 0;
+  const cumulPoints = [];
+  for (const date of dates) {
+    cumulative += byDate[date].promoted + byDate[date].updated;
+    cumulPoints.push(cumulative);
+  }
+  const maxCumul = cumulPoints[cumulPoints.length - 1] || 1;
+
+  ctx.strokeStyle = '#4a9eff';
+  ctx.lineWidth   = 2;
+  ctx.beginPath();
+  dates.forEach((date, i) => {
+    const x = pad.left + (i / Math.max(dates.length - 1, 1)) * cW;
+    const y = pad.top + cH * (1 - cumulPoints[i] / maxCumul);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+function toggleLog() {
+  logOpen = !logOpen;
+  const entries = document.getElementById('logEntries');
+  const toggle  = document.querySelector('.log-toggle');
+  if (entries) entries.classList.toggle('open', logOpen);
+  if (toggle)  toggle.textContent = (logOpen ? '▾' : '▸') + ' Activity log ';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POLLING ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+function needsDailyCheck(numStr, forceU = false) {
+  const cached = fdbCache[numStr];
+  if (!cached) return true;
+  // 'U' (Unknown) = FDB hasn't processed it yet — always re-check on manual poll
+  if (cached.status === 'U' && forceU) return true;
+  return (Date.now() - cached.timestamp) > AUTO_INTERVAL;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Sleeps but resolves early if cancelRequested is set
+function cancellableSleep(ms) {
+  if (cancelRequested) return Promise.resolve();
+  // When tab is hidden: use short 200ms delay instead of full 1000ms
+  // Avoids browser throttling while still respecting proxy rate limits
+  const delay = ms; // 500ms both foreground and background
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, delay);
+    // Also resolve early if tab becomes hidden during wait
+    const onHide = () => { clearTimeout(timer); resolve(); };
+    document.addEventListener('visibilitychange', onHide, { once: true });
+  });
+}
+
+function cancelPoll() {
+  if (!polling) return;
+  cancelRequested = true;
+  addLog('Cancel requested — will stop after current request', 'warn');
+  document.getElementById('cancelBtn').disabled = true;
+  document.getElementById('cancelBtn').textContent = '⊘ Cancelling…';
+}
+
+async function runPollQueue(targets, isManual = false, activeBtn = null, forceU = false) {
+  if (polling) return;
+  polling = true;
+
+  // Disable both buttons; animate the one that was clicked
+  const mainBtn  = document.getElementById('pollBtn');
+  const unknownBtn   = document.getElementById('pollUnknownBtn');
+  const compositeBtn = document.getElementById('pollCompositeBtn');
+  const btn = activeBtn || mainBtn;
+  [mainBtn, unknownBtn, compositeBtn].forEach(b => { if (b) b.disabled = true; });
+  btn.classList.add('polling');
+
+  const progress   = document.getElementById('pollProgress');
+  const progressIn = document.getElementById('pollProgressInner');
+  progress.classList.add('active');
+
+  const queue = targets.filter(t => isManual || needsDailyCheck(t.number, forceU));
+  const total = Math.min(queue.length, MAX_PER_SESSION);
+
+  setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB — safe to switch tabs`);
+  // Update title to show progress when tab is in background
+  const origTitle = document.title;
+  const titleInterval = setInterval(() => {
+    if (!polling) { clearInterval(titleInterval); document.title = origTitle; return; }
+    document.title = `[${done}/${total}] Polling FDB…`;
+  }, 2000);
+  document.getElementById('queueInfo').style.display = 'flex';
+  document.getElementById('queueCount').textContent  = total;
+  document.getElementById('cancelBtn').style.display = 'flex';
+
+  addLog(`Poll started — ${total} targets`, '');
+
+  let done = 0, updated = 0, errors = 0;
+
+  cancelRequested = false;
+  for (const target of queue.slice(0, MAX_PER_SESSION)) {
+    if (cancelRequested) {
+      addLog(`Poll cancelled after ${done} of ${total} requests`, 'warn');
+      break;
+    }
+    const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
+    if (progressIn) progressIn.style.width = `${Math.round((done / total) * 100)}%`;
+    setStatus(`Checking E(${target.n}) [${target.number.length}d, ${timeoutForNumber(target.number)/1000}s timeout] — ${done + 1} of ${total}…`);
+
+    // Highlight the card being fetched
+    const fetchingCard = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
+    if (fetchingCard) {
+      fetchingCard.classList.add('fetching');
+      fetchingCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    try {
+      const data = await queryFactorDB(target.number);
+      const rawStatus = data.status || 'U';
+      // FactorDB returns 'UN' (unit) for |E(n)|=1; treat as fully factored
+      const status = rawStatus === 'UN' ? 'FF' : rawStatus;
+      const factors = (data.factors || []).map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f)).filter(Boolean);
+
+      const prev    = fdbCache[target.number];
+      const fullEntry = { status, factors, timestamp: Date.now(), n: target.n };
+      fdbCache[target.number] = fullEntry;
+      if (factors && factors.length) fdbFactors[target.number] = { factors };
+      saveFDBCache(fdbCache);
+
+      const resolved = ['FF', 'P', 'PRP'].includes(status);
+      const entry = allEntries.find(x => x.n === target.n);
+
+      // Always log what FDB returned
+      addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${factors.length} factor(s)${factors.length ? ': '+factors.slice(0,3).join(' × ')+(factors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
+
+      if (entry) {
+        // Path 1: cofactor lookup resolved
+        if (entry.cofactor === target.number && resolved) {
+          const fdbFactors = factors.filter(f => f && f !== '1');
+          entry.factors = [...(entry.factors || []), ...fdbFactors];
+          entry.cofactor = null;
+          entry.status   = 'full';
+          entry._fdbVerified = true;
+          entry._resolvedViaCofactor = target.number;
+          invalidateDifficultyCache(target.n);
+          addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved`, 'ok');
+          addChangelogEntry(target.n, 'promoted', 'Cofactor resolved via FactorDB (' + fdbStatusLabel(status) + ')');
+
+        // Path 2: full value lookup resolved (unknown → full)
+        } else if (entry.val === target.number && (entry.status === 'unknown' || entry.status === 'composite') && resolved) {
+          const fdbFactors = factors.filter(f => f && f !== '1');
+          entry.factors = fdbFactors;
+          entry.cofactor = null;
+          entry.status   = 'full';
+          entry._fdbVerified = true;
+          addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
+          addChangelogEntry(target.n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
+
+        // Path 3a: confirmed composite, no factors (C status) → mark as composite
+        } else if (status === 'C' && (entry.status === 'unknown' || entry.status === 'composite')) {
+          entry.status = 'composite';
+          addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
+
+        // Path 3b: partial factors found (CF) — update known factors + set cofactor
+        } else if (status === 'CF' && factors.length >= 1) {
+          // FDB CF: all factors listed, last one is the remaining composite
+          // Determine which are small/prime (all but the last in typical FDB response)
+          // We treat all returned factors as known, last one as the cofactor if it's large
+          const allFDB = factors.filter(f => f && f !== '1');
+          if (allFDB.length > 0) {
+            // Heuristic: last factor is the unfactored remainder if it's much larger than others
+            const sorted = [...allFDB].sort((a,b) => a.length - b.length);
+            const lastF  = allFDB[allFDB.length - 1];
+            const isLastBig = lastF.length > 15 && allFDB.length > 1;
+            const knownFactors = isLastBig ? allFDB.slice(0, -1) : allFDB;
+            const cofactorNum  = isLastBig ? lastF : null;
+
+            entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
+            entry.cofactor    = cofactorNum;
+            entry.cofactorLen     = cofactorNum && /^\d+$/.test(cofactorNum) ? cofactorNum.length : entry.cofactorLen;
+            entry.cofactorPreview = cofactorNum && /^\d+$/.test(cofactorNum) ? cofactorNum.slice(0,35) : entry.cofactorPreview;
+            entry.status          = 'partial';
+            entry._fdbVerified = true;
+            const logMsg = `E(${target.n}) partial: ${knownFactors.join(' × ')}${cofactorNum ? ' × [cofactor '+cofactorNum.length+'d]' : ''}`;
+            addLog(logMsg, 'ok');
+            addChangelogEntry(target.n, 'updated', 'FDB CF: ' + knownFactors.length + ' factor(s) known, cofactor ' + (cofactorNum ? cofactorNum.length + 'd' : 'none'));
+          }
+        }
+      }
+
+      const changed = !prev || prev.status !== status;
+      if (changed) {
+        updated++;
+        // Flash the card
+        const cardEl = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
+        if (cardEl) { cardEl.classList.remove('just-updated'); void cardEl.offsetWidth; cardEl.classList.add('just-updated'); }
+      } else {
+        // unchanged — skip logging to keep the log clean
+      }
+    } catch(err) {
+      errors++;
+      addLog(`E(${target.n}) error: ${err.message || err}`, 'err');
+      console.error(`FactorDB E(${target.n}):`, err);
+    }
+
+    // Remove fetching highlight
+    if (fetchingCard) fetchingCard.classList.remove('fetching');
+
+    done++;
+
+    // Rate limit: wait between requests (cancellable)
+    if (done < total && !cancelRequested) await cancellableSleep(REQUEST_DELAY_MS);
+  }
+
+  progressIn.style.width = '100%';
+  await sleep(400);
+  progress.classList.remove('active');
+  progressIn.style.width = '0%';
+
+  const leftover = queue.length - total;
+  let msg = cancelRequested
+    ? `Cancelled — ${updated} updated, ${errors} errors, ${total - done} not checked`
+    : `Done — ${updated} updated, ${errors} errors`;
+  if (!cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (session cap)`;
+
+  setStatus(msg, updated > 0 ? 'ok' : '');
+  addLog(msg, updated > 0 ? 'ok' : '');
+  if (updated > 0) maybeAutoPush();
+
+  const qi = document.getElementById('queueInfo'); if (qi) qi.style.display = 'none';
+  const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
+  btn.classList.remove('polling');
+  if (mainBtn) mainBtn.disabled = false;
+  if (unknownBtn) unknownBtn.disabled = false;
+  if (compositeBtn) compositeBtn.disabled = false;
+  polling = false;
+  cancelRequested = false;
+  clearInterval(titleInterval);
+  document.title = origTitle;
+
+  localStorage.setItem(COOLDOWN_KEY, Date.now());
+  renderGrid();
+}
+
+let _storageWarningShown = false;
+function showStorageWarning() {
+  if (_storageWarningShown) return;
+  _storageWarningShown = true;
+  const used = Object.keys(localStorage).reduce((sum, k) => sum + localStorage.getItem(k).length, 0);
+  const usedMB = (used / 1024 / 1024).toFixed(2);
+  console.error('localStorage quota exceeded! Used: ' + usedMB + 'MB');
+  setStatus('⚠ localStorage full (' + usedMB + 'MB) — data NOT being saved! Push to GitHub then clear cache.', 'err');
+}
+
+function getStorageBreakdown() {
+  const keys = {
+    [STORAGE_KEY]:   'fdbCache',
+    [ECM_KEY]:       'ecm',
+    [CHANGELOG_KEY]: 'changelog',
+    [LOG_KEY]:       'activityLog',
+    [COOLDOWN_KEY]:  'cooldown',
+    [GH_SETTINGS_KEY]: 'ghSettings',
+  };
+  const breakdown = {};
+  let total = 0;
+  for (const [k, label] of Object.entries(keys)) {
+    const val = localStorage.getItem(k) || '';
+    const kb = (val.length / 1024).toFixed(1);
+    breakdown[label] = kb + ' KB';
+    total += val.length;
+  }
+  breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
+  return breakdown;
+}
+
+function getStorageUsage() {
+  try {
+    let total = 0;
+    for (const k of Object.keys(localStorage)) total += localStorage.getItem(k).length;
+    return total;
+  } catch { return 0; }
+}
+
+function setStatus(msg, cls = '') {
+  const el = document.getElementById('fdbStatusText');
+  el.innerHTML = msg;
+  el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
+}
+
+function startCompositePoll() {
+  if (polling) return;
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
+    return;
+  }
+  // Composite = confirmed by FDB as no known factors (C status)
+  const targets = allEntries
+    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }));
+  if (targets.length === 0) {
+    setStatus('No "no known factors" entries to check', 'warn');
+    return;
+  }
+  addLog(`Checking ${targets.length} no-known-factors entries`, '');
+  runPollQueue(targets, true, document.getElementById('pollCompositeBtn'), true);
+}
+
+function startUnknownPoll() {
+  if (polling) return;
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
+    return;
+  }
+  // All unknown/composite entries — user explicitly wants to check these
+  // regardless of prior cache status (re-checks previously queried ones too)
+  const targets = getUnknownTargets();
+  if (targets.length === 0) {
+    setStatus('No unknown entries to check', 'warn');
+    addLog('Check unknowns: no targets', 'warn');
+    return;
+  }
+  addLog(`Checking ${targets.length} unknown/unchecked entries`, '');
+  runPollQueue(targets, true, document.getElementById('pollUnknownBtn'), true);
+}
+
+function startManualPoll() {
+  if (polling) return;
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining before next manual check`, 'warn');
+    addLog(`Manual poll blocked — cooldown ${Math.ceil(wait/1000)}s`, 'warn');
+    return;
+  }
+  runPollQueue(allTargets(), true, document.getElementById('pollBtn'), true);
+}
+
+function maybeAutoPoll() {
+  const targets = allTargets().filter(t => needsDailyCheck(t.number));
+  if (targets.length === 0) {
+    const oldest = Math.min(...allTargets().map(t => (fdbCache[t.number]?.timestamp || 0)));
+    const next   = oldest ? new Date(oldest + AUTO_INTERVAL).toLocaleTimeString() : '—';
+    setStatus(`All entries checked today · next auto-check ~${next}`);
+    return;
+  }
+  setStatus(`Auto-checking ${targets.length} stale entr${targets.length===1?'y':'ies'}…`);
+  setTimeout(() => runPollQueue(targets, false), 1500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function applyFilters() {
+  const ecmData = loadECM();
+  filtered = allEntries.filter(e => {
+    let matchFilter;
+    if (activeFilter === 'all') {
+      matchFilter = true;
+    } else if (activeFilter === 'attempted') {
+      // Show any entry that has ECM/P-1/P+1 log attempts, regardless of status
+      const attempts = ecmData[String(e.n)] || [];
+      matchFilter = attempts.length > 0;
+    } else {
+      matchFilter = e.status === activeFilter;
+    }
+    const q = searchQuery.trim().toLowerCase();
+    const matchSearch = !q || String(e.n).includes(q) ||
+      (e.factors && e.factors.some(f => f.includes(q))) ||
+      (e.cofactor && e.cofactor.includes(q)) ||
+      (e.val && e.val.startsWith(q));
+    return matchFilter && matchSearch;
+  });
+  // Sort
+  if (sortMode === 'diff-asc' || sortMode === 'diff-desc') {
+    const ecmData = loadECM();
+
+    // Status category order for grouping (fully factored always last when sorting by difficulty)
+    const statusOrder = { full: 0, partial: 1, composite: 2, attempted: 3, unknown: 4 };
+
+    filtered.sort((a, b) => {
+      const catA = statusOrder[a.status] ?? 5;
+      const catB = statusOrder[b.status] ?? 5;
+
+      // Within each status category, sort by difficulty
+      if (catA !== catB) return catA - catB;
+
+      const da = getCofactorDigits(a);
+      const db = getCofactorDigits(b);
+
+      // Entries with no cofactor (e.g. fully factored) sort by n
+      if (!da && !db) return a.n - b.n;
+      if (!da) return 1;
+      if (!db) return -1;
+
+      const sa = computeDifficulty(da, ecmData[String(a.n)] || []).score;
+      const sb = computeDifficulty(db, ecmData[String(b.n)] || []).score;
+
+      return sortMode === 'diff-asc' ? sa - sb : sb - sa;
+    });
+  } else if (sortMode === 'n-desc') {
+    filtered.sort((a, b) => b.n - a.n);
+  } else if (sortMode === 'cpu-asc' || sortMode === 'cpu-desc') {
+    filtered.sort((a, b) => {
+      const ca = getTotalCpuForEntry(a) || 0;
+      const cb = getTotalCpuForEntry(b) || 0;
+      // Entries with no CPU time go to the end
+      if (!ca && !cb) return a.n - b.n;
+      if (!ca) return 1;
+      if (!cb) return -1;
+      return sortMode === 'cpu-desc' ? cb - ca : ca - cb;
+    });
+  } else {
+    filtered.sort((a, b) => a.n - b.n);
+  }
+  currentPage = 1;
+  renderGrid();
+  renderPagination();
+  renderStats();
+}
+
+function getTotalCpuForEntry(e) {
+  const ecmData  = loadECM();
+  const attempts = ecmData[String(e.n)] || [];
+  if (!attempts.length) return null;
+  const digits = getCofactorDigits(e);
+  if (!digits) return null;
+  let total = 0;
+  for (const a of attempts) {
+    const b1n = a.b1 ? parseFloat(String(a.b1).replace(/[eE]/,'e')) : 0;
+    const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+    const s   = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
+    if (s) total += s;
+  }
+  return total > 0 ? total : null;
+}
+
+function getDifficultyForEntry(e) {
+  if (e.status === 'full') return null;
+  const digits   = getCofactorDigits(e);
+  if (!digits) return null;
+  const ecmData  = loadECM();
+  const attempts = ecmData[String(e.n)] || [];
+  try {
+    return getCachedDifficulty(e.n, digits, attempts);
+  } catch(err) {
+    console.warn('getDifficultyForEntry error for E(' + e.n + '):', err);
+    return null;
+  }
+}
+
+function fdbTagForEntry(e) {
+  const targets = [
+    e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
+    (e.status === 'unknown' || e.status === 'composite') && e.val ? e.val : null,
+  ].filter(Boolean);
+
+  if (!targets.length) return '';
+  // If eulerValues not yet loaded, don't show misleading 'not yet checked'
+  if (Object.keys(eulerValues).length === 0) return '<div class="card-fdb stale">⬡ values loading…</div>';
+
+  for (const num of targets) {
+    const c = fdbCache[num];
+    if (!c) return '<div class="card-fdb stale">⬡ not yet checked</div>';
+    const age   = Date.now() - c.timestamp;
+    const fresh = age < AUTO_INTERVAL;
+    const when  = fresh ? 'today' : new Date(c.timestamp).toLocaleDateString();
+    const time  = new Date(c.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    const label = fresh ? `today ${time}` : when;
+    return `<div class="card-fdb ${fresh?'fresh':'stale'}">⬡ FDB: ${fdbStatusLabel(c.status)} · ${label}</div>`;
+  }
+  return '';
+}
+
+function renderGrid() {
+  const grid  = document.getElementById('grid');
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const page  = filtered.slice(start, start + PAGE_SIZE);
+
+  if (!page.length) {
+    grid.innerHTML = '<div class="empty"><big>∅</big>No entries match your filter.</div>';
+    return;
+  }
+
+  grid.innerHTML = page.map(e => {
+    const sign    = e.sign === -1 ? '−' : '+';
+    const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
+    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>' }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
+    const ecmDataG   = loadECM();
+    const hasAttempt = (ecmDataG[String(e.n)]||[]).length > 0;
+    const attemptBadge = hasAttempt ? ' <span class="card-badge badge-attempted">⟳ ATTEMPTED</span>' : '';
+    let preview = '';
+    if (e.status === 'full' && e.factors.length)
+      preview = `<div class="card-preview">${e.factors.join(' × ')}</div>`;
+    else if (e.status === 'partial' && e.factors.length)
+      preview = `<div class="card-preview">${e.factors.join(' × ')} × …</div>`;
+
+    return `<div class="card ${e.status}" onclick="openModal(${e.n})">
+      <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
+      <div class="card-label">E(${e.n})</div>
+      ${badge}${attemptBadge}
+      ${e.status === 'full' ? '' : (() => { try { const diff = getDifficultyForEntry(e); if (!diff || diff.score === undefined || diff.score === null) return ''; const dl = difficultyLabel(diff.score); return `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`; } catch(err) { return ''; } })()}
+      ${preview}
+      ${(() => { try { const cpu = getTotalCpuForEntry(e); if (!cpu) return ''; return '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ' + fmtCpuTime(cpu) + ' CPU</div>'; } catch(err) { return ''; } })()}
+      ${fdbTagForEntry(e)}
+    </div>`;
+  }).join('');
+}
+
+function renderPagination() {
+  const total = Math.ceil(filtered.length / PAGE_SIZE);
+  const pag   = document.getElementById('pagination');
+  if (total <= 1) { pag.innerHTML = ''; return; }
+
+  const WING = 5; // pages to show either side of current
+  let html = '';
+
+  // Prev button
+  html += `<button class="page-btn" ${currentPage===1?'disabled':''} onclick="goPage(${currentPage-1})" title="Previous page">←</button>`;
+
+  // Build page list: always show first, last, and WING pages around current
+  const show = new Set();
+  show.add(1);
+  show.add(total);
+  for (let i = Math.max(1, currentPage - WING); i <= Math.min(total, currentPage + WING); i++) show.add(i);
+
+  const sorted = Array.from(show).sort((a,b) => a-b);
+  let prev = 0;
+  sorted.forEach(p => {
+    if (p - prev > 1) html += `<span class="page-btn" style="cursor:default;opacity:0.4">…</span>`;
+    html += `<button class="page-btn${p===currentPage?' active':''}" onclick="goPage(${p})">${p}</button>`;
+    prev = p;
+  });
+
+  // Next button
+  html += `<button class="page-btn" ${currentPage===total?'disabled':''} onclick="goPage(${currentPage+1})" title="Next page">→</button>`;
+
+  pag.innerHTML = html;
+}
+
+function renderStats() {
+  const full    = allEntries.filter(e => e.status==='full').length;
+  const partial = allEntries.filter(e => e.status==='partial').length;
+  const unknown = allEntries.filter(e => e.status==='unknown').length;
+  const composite = allEntries.filter(e => e.status==='composite').length;
+  const ecmD = loadECM();
+  const attempted = allEntries.filter(e => (ecmD[String(e.n)]||[]).length > 0).length;
+  document.getElementById('statsBar').innerHTML = `
+    <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
+    <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
+    <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
+    <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> attempted</span>
+    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown</span>
+    <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
+  `;
+}
+
+function goPage(p) {
+  currentPage = p;
+  renderGrid();
+  renderPagination();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+function openModal(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e) return;
+  document.getElementById('modalTitle').textContent = `E(${n})`;
+
+  const signWord   = e.sign === -1 ? 'negative' : 'positive';
+  const statusInfo = {
+    full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
+    partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
+    unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
+    composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
+    attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
+  }[e.status];
+
+  // Known factors
+  // Determine if this entry's factors are all verified prime via FDB (FF status on value or cofactor)
+  // Check both the full value AND any cofactor FDB result for FF confirmation
+  const entryFDBByVal      = e.val    ? fdbCache[e.val]    : null;
+  const entryFDBByCofactor = e._resolvedViaCofactor ? fdbCache[String(e._resolvedViaCofactor)] : null;
+  const allVerifiedPrime   = (entryFDBByVal      && entryFDBByVal.status      === 'FF') ||
+                             (entryFDBByCofactor  && entryFDBByCofactor.status === 'FF') ||
+                             e._fdbVerified === true;
+
+  let factorsHtml = '';
+  if (e.factors && e.factors.length && e.factors[0] !== '1') {
+    // Exclude the cofactor from the chips — it's shown separately below
+    const primeFactors = e.factors.filter(f => !e.cofactor || f !== e.cofactor);
+    const chips = primeFactors.map(f => {
+      // If FDB confirmed FF for this entry, all listed factors are prime by definition
+      let lbl;
+      if (allVerifiedPrime) {
+        lbl = 'prime';
+      } else {
+        // Also check if this specific factor was individually queried as prime by FDB
+        const factorFDB = fdbCache[f];
+        if (factorFDB && ['P','PRP','FF'].includes(factorFDB.status)) {
+          lbl = factorFDB.status === 'PRP' ? 'prp' : 'prime';
+        } else {
+          lbl = labelFactor(f);
+        }
+      }
+      const tag = lbl === 'prime'  ? '<span class="prime-tag">PRIME</span>'
+                : lbl === 'prp'    ? '<span class="prime-tag" style="color:var(--purple)">PRP</span>'
+                : lbl === 'composite' ? '<span class="composite-tag">COMPOSITE?</span>'
+                : '<span class="prime-tag">LARGE</span>';
+      const fdbUrl = `https://factordb.com/index.php?query=${encodeURIComponent(f)}`;
+      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}<span class="fdb-arrow">↗</span></a>`;
+    }).join('');
+    const sourceNote = allVerifiedPrime
+      ? '— all prime, verified by FactorDB'
+      : '— click to open on FactorDB';
+    if (primeFactors.length) {
+      factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">${sourceNote}</span></div><div class="factors-list">${chips}</div></div>`;
+    }
+  }
+
+  // Cofactor + FactorDB result
+  let cofactorHtml = '';
+  if (e.status === 'partial' && e.cofactor) {
+    let fdbHtml = '';
+    const isReal = e.cofactor && !e.cofactor.startsWith('(');
+    if (isReal) {
+      const c = fdbCache[e.cofactor];
+      if (c) {
+        const age   = Date.now() - c.timestamp;
+        const fresh = age < AUTO_INTERVAL;
+        const fList = (c.factors || []).filter(Boolean);
+        fdbHtml = `<div class="fdb-block" style="margin-top:10px">
+          <div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>
+          ${fList.length ? `<div class="fdb-row"><span class="fdb-key">FDB Factors</span><span class="fdb-val">${fList.join(' × ')}</span></div>` : ''}
+          <div class="fdb-timestamp">${fresh ? '✓ Checked today' : 'Last checked: '+new Date(c.timestamp).toLocaleDateString()} · Raw status: ${c.status}</div>
+        </div>`;
+      }
+      fdbHtml += `<button class="fdb-check-btn" id="modalCheckBtn" onclick="modalCheckCofactor(${n})" ${polling?'disabled':''}>
+        ↻ Query FactorDB now
+      </button>`;
+    }
+    // Get best available cofactor string: full > cofactorPreview from sync > nothing
+    const knownLen     = e.cofactorLen || (isReal ? e.cofactor.length : 0);
+    const fullCofactor = (isReal && /^\d+$/.test(e.cofactor) &&
+                          (!e.cofactorLen || e.cofactor.length >= e.cofactorLen - 5))
+                         ? e.cofactor : null;
+    const previewSrc   = fullCofactor || e.cofactorPreview || null;
+    const cofDigits    = knownLen || (fullCofactor ? fullCofactor.length : 0);
+    const digitTag     = cofDigits ? `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${cofDigits} digits</span>` : '';
+
+    // Always show first 30 digits + … + copy button (copies full if available, preview otherwise)
+    const cofPreview  = previewSrc
+      ? previewSrc.slice(0, 30) + (cofDigits > 30 ? '…' : '')
+      : '<span style="color:var(--text-muted);font-style:italic">not available — re-query FDB</span>';
+    const copyVal     = fullCofactor || previewSrc || '';
+    const cofCopyBtn  = copyVal
+      ? `<button class="copy-btn" onclick="copyToClipboard(this.dataset.val,this)" data-val="${copyVal}" title="${fullCofactor ? 'Copy full ' + cofDigits + '-digit cofactor' : 'Copy first 35 digits (full value: re-query FDB)'}">⎘</button>`
+      : '';
+
+    cofactorHtml = `<div class="modal-section">
+      <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
+      <div class="value-box" style="position:relative;cursor:default;font-family:monospace;letter-spacing:0.5px">
+        ${cofCopyBtn}
+        ${cofPreview}
+      </div>
+ : ''}
+      ${fdbHtml}
+    </div>`;
+  }
+
+  // Value
+  // Value — store in a global map to avoid attribute escaping issues with large numbers
+  window._eulerValMap = window._eulerValMap || {};
+  window._eulerValMap[n] = e.val || '';
+  // If eulerValues not yet loaded for this entry, show loading state
+  if (!e.val && Object.keys(eulerValues).length === 0) {
+    valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value</div><div class="value-box" style="color:var(--text-muted)">Loading…</div></div>';
+  }
+  const valCopyId = 'vc_' + n;
+  valueHtml = e.val ? ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
+    + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
+    + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>'
+    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>')
+    : '';  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
+
+  // Unknown + FactorDB check
+  let unknownFdbHtml = '';
+  if (e.status === 'unknown' && e.val) {
+    const c = fdbCache[e.val];
+    if (c) {
+      unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
+    }
+    const qTimeout = e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120;
+    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})| <span style="font-size:9px;opacity:0.7">(${e.val ? e.val.length+'d · up to '+qTimeout+'s' : ''})</span></button>
+    <div id="fdbQueryStatus_${n}" style="font-size:11px;color:var(--yellow);margin-top:6px;min-height:16px;padding:4px 0"></div>`;
+  }
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="modal-section-label">Sign</div>
+      <div class="sign-row">E(${n}) is <span>${signWord}</span> · PARI: <span>eulerfrac(${n})</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Factorization Status</div>
+      <div class="status-block">
+        <div class="status-icon" style="color:${statusInfo.color}">${statusInfo.icon}</div>
+        <div class="status-text">${statusInfo.label}<small>${statusInfo.desc}</small></div>
+      </div>
+    </div>
+    ${noteHtml}
+    ${factorsHtml}
+    ${cofactorHtml}
+    ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}</div>` : ''}
+    ${valueHtml}
+    <div class="modal-section">
+      <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
+      <div id="ecmSection_${n}">${buildECMSection(n, e)}</div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Download</div>
+      <button class="download-btn" onclick="downloadEntry(${n})">↓ Download E(${n}) data (.txt)</button>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-label">Cache</div>
+      <button class="fdb-check-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)" onclick="clearEntryCache(${n})">⊗ Clear cached data for E(${n})</button>
+    </div>
+  `;
+
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+// One-off modal check for cofactor
+async function modalCheckCofactor(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e || !e.cofactor || e.cofactor.startsWith('(')) return;
+  const btn = document.getElementById('modalCheckBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ Querying…'; }
+  try {
+    const data   = await queryFactorDB(e.cofactor);
+    const rawStC = data.status || 'U';
+    const status = rawStC === 'UN' ? 'FF' : rawStC;
+    const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
+    fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
+    if (factors && factors.length) fdbFactors[e.cofactor] = { factors };
+    saveFDBCache(fdbCache);
+    addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
+    renderGrid();
+    const bd = document.getElementById('modalBackdrop');
+    if (bd && bd.classList.contains('open')) openModal(n);
+  } catch(err) {
+    addLog(`E(${n}) cofactor query error: ${err.message}`, 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Query FactorDB now'; }
+  }
+}
+
+async function modalCheckFull(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e || !e.val) return;
+
+  // Show loading state on the button
+  const btn = document.querySelector(`button[onclick="modalCheckFull(${n})"]`);
+  const timeout = timeoutForNumber(e.val);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = `↻ Querying FactorDB… (up to ${Math.round(timeout/1000)}s)`;
+  }
+  // Also show status in the modal
+  const statusEl = document.getElementById('fdbQueryStatus_' + n);
+  if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
+
+  try {
+    const data    = await queryFactorDB(e.val);
+    const rawSt   = data.status || 'U';
+    const status  = (rawSt === 'UN') ? 'FF' : rawSt;
+    const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
+    fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
+    if (factors && factors.length) fdbFactors[e.val] = { factors };
+    saveFDBCache(fdbCache);
+
+    // Promote entry immediately
+    if (['FF','P','PRP'].includes(status)) {
+      const fdbFactors = factors.filter(f => f && f !== '1');
+      e.factors  = fdbFactors;
+      e.cofactor = null;
+      e.status   = 'full';
+      e._fdbVerified = true;
+      addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
+    } else if (status === 'CF' && factors.length >= 1) {
+      const allFDB = factors.filter(f => f && f !== '1');
+      const lastF  = allFDB[allFDB.length - 1];
+      const isLastBig = lastF && lastF.length > 15 && allFDB.length > 1;
+      e.factors  = [...new Set([...(e.factors||[]), ...(isLastBig ? allFDB.slice(0,-1) : allFDB)])];
+      e.cofactor = isLastBig ? lastF : null;
+      e.status   = 'partial';
+      e._fdbVerified = true;
+    }
+
+    addLog(`E(${n}) queried → ${fdbStatusLabel(status)}`, 'ok');
+    renderGrid();
+    const backdrop = document.getElementById('modalBackdrop');
+    if (backdrop && backdrop.classList.contains('open')) openModal(n);
+  } catch(err) {
+    addLog(`E(${n}) query error: ${err.message}`, 'err');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
+    }
+    // Make error persistent — store in a data attribute so it survives re-renders
+    const errEl = document.getElementById('fdbQueryStatus_' + n);
+    if (errEl) {
+      errEl.textContent = '⚠ ' + err.message;
+      errEl.style.color = 'var(--red)';
+      errEl.setAttribute('data-persistent', '1');
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ECM / FACTORING ATTEMPT TRACKER
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DIFFICULTY SCORE
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Returns a difficulty score [0.00 - 10.00] for a given cofactor size and
+// the factoring attempts already logged. Lower = easier/more promising to attack.
+// Cache: { n: { score, base, nfsReduction, ecmReduction, pm1Reduction, ecmCoverage, pm1Coverage, cofactorDigits, _ts } }
+const difficultyCache = {};
+const DIFFICULTY_CACHE_MAX = 500;
+
+function invalidateDifficultyCache(n) {
+  delete difficultyCache[n];
+}
+
+function getCachedDifficulty(n, digits, attempts) {
+  const cached = difficultyCache[n];
+  if (cached && cached.cofactorDigits === digits) {
+    cached._ts = Date.now(); // update access time
+    return cached;
+  }
+  // Evict oldest entry if at capacity
+  const keys = Object.keys(difficultyCache);
+  if (keys.length >= DIFFICULTY_CACHE_MAX) {
+    const oldest = keys.reduce((a, b) => (difficultyCache[a]._ts||0) < (difficultyCache[b]._ts||0) ? a : b);
+    delete difficultyCache[oldest];
+  }
+  const result = computeDifficulty(digits, attempts);
+  difficultyCache[n] = { ...result, cofactorDigits: digits, _ts: Date.now() };
+  return difficultyCache[n];
+}
+
+// Estimate CPU time on a single fast core (~Zen3 @ 4.5GHz / 5900X) in seconds
+// Empirically calibrated against GMP-ECM 7.0.6 benchmarks
+function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
+  if (!b1 || !cofactorDigits) return null;
+  const d = cofactorDigits;
+  const c = parseInt(curves) || 1;
+  // ECM/P-1 stage 1: roughly proportional to B1 × d^1.5 (FFT mulmod dominates)
+  // Calibration: B1=3e6, d=300 → ~16s stage 1 per curve
+  // Coefficient: 16 / (3e6 * 300^1.5) ≈ 1.027e-9
+  const k_s1 = 1.03e-9;
+  const stage1 = k_s1 * b1 * Math.pow(d, 1.5);
+
+  // Stage 2: B2/B1 ratio matters, scales linearly with B2/B1 but only sqrt of d
+  // Default B2 ≈ 100*B1 gives stage2 ≈ 0.5 × stage1
+  const b2eff = b2 || (100 * b1);
+  // k blocks: default k=4; each doubling of k from default adds ~8% to stage 2 time
+  const stage2 = stage1 * Math.sqrt(b2eff / b1) / 10 * Math.sqrt(d / 100);
+
+  const perCurve = stage1 + stage2;
+
+  // P-1/P+1: single run (curves field is ignored — effectively 1)
+  // ECM: multiplied by curves
+  const isPM1 = method === 'P-1' || method === 'P+1';
+  const totalCurves = isPM1 ? 1 : c;
+  return perCurve * totalCurves;
+}
+
+function fmtCpuTime(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 1)    return seconds.toFixed(2) + ' s';
+  if (seconds < 60)   return Math.round(seconds) + ' s';
+  if (seconds < 3600) return (seconds/60).toFixed(1) + ' min';
+  if (seconds < 86400) return (seconds/3600).toFixed(1) + ' hr';
+  return (seconds/86400).toFixed(1) + ' days';
+}
+
+function recommendNextRun(digits, attempts) {
+  if (!digits || digits > 10000) return null;
+
+  const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
+  const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
+
+  function b1ToTargetD(b1str) {
+    const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
+    if (!b1val || b1val <= 1) return 0;
+    const lnB1 = Math.log(b1val); const lnln = Math.log(Math.max(lnB1,1.1));
+    return Math.round((lnB1*lnB1)/(Math.log(10)*lnln));
+  }
+
+  const curvesPerD = {};
+  for (const a of ecmAttempts) {
+    const td = b1ToTargetD(a.b1); const c = parseInt(a.curves)||0;
+    for (let d = td-3; d <= td+3; d++) curvesPerD[d] = (curvesPerD[d]||0) + c;
+  }
+
+  const targetRange = [20,25,30,35,40,45,50,55,60,65].filter(d => d < Math.min(digits, 66));
+
+  // Find the digit range with the most probability gain potential
+  // Gain = pFactorExists(d,digits) × (targetProb - currentProb) where targetProb=0.5
+  let bestGain = 0, bestD = 25, bestCurves = 1000, bestB1 = '1e6';
+
+  for (const d of targetRange) {
+    const currentCurves = curvesPerD[d] || 0;
+    const currentP = currentCurves ? ecmProbability(d, currentCurves) : 0;
+    if (currentP >= 0.9) continue; // already well covered
+
+    // How many curves to add to reach 50% (or improve by 20 percentage points)?
+    const targetP  = Math.min(currentP + 0.20, 0.5);
+    const L        = lenstраL(d);
+    const totalNeeded = Math.ceil(-L * Math.log(1 - targetP));
+    const addCurves   = Math.max(totalNeeded - currentCurves, 100);
+    const pExists  = Math.log((d+5)/d) / Math.log(digits);
+    const gain     = pExists * (targetP - currentP) * 100;
+
+    if (gain > bestGain) {
+      bestGain    = gain;
+      bestD       = d;
+      bestCurves  = addCurves;
+      bestB1      = fmtB1(optimalB1(d));
+    }
+  }
+
+  if (bestGain < 0.001) {
+    // ECM well covered — suggest P-1 if not done
+    if (!pm1Attempts.length) {
+      const pm1CpuSec = estimateCpuSeconds('P-1', 1e7, 1e11, 1, digits);
+      return { method:'P-1', b1:'1e7', b2:'1e11', curves:null, targetDigits:20,
+        gain:(Math.log(25/20)/Math.log(digits)*100).toFixed(2),
+        reason:'No P-1 runs logged yet. P-1 is fast and finds primes with smooth p−1 — complementary to ECM.',
+        cpuTime: pm1CpuSec };
+    }
+    return null;
+  }
+
+  const reason = currentD => {
+    const cov = curvesPerD[bestD] || 0;
+    return cov === 0
+      ? `No ECM coverage at ${bestD}-digit range yet. Optimal B1 for this range is ${bestB1}.`
+      : `Current coverage at ${bestD}d: ${fmtCurves(cov)} curves (${fmtPct(ecmProbability(bestD, cov))}). Adding ${fmtCurves(bestCurves)} curves improves by ~20 percentage points.`;
+  };
+
+  const ecmCpuSec = estimateCpuSeconds('ECM', optimalB1(bestD), null, bestCurves, digits);
+  return { method:'ECM', b1:bestB1, b2:null, curves:fmtCurves(bestCurves),
+    targetDigits: bestD, gain: bestGain.toFixed(2), reason: reason(bestD),
+    cpuTime: ecmCpuSec };
+}
+
+function computeDifficulty(digits, attempts) {
+  if (!digits || digits <= 1) return { score:0, base:0, nfsReduction:0, ecmReduction:0, pm1Reduction:0, ecmCoverage:0, pm1Coverage:0 };
+
+  // ── Base difficulty from size (logarithmic) ──────────────────────────────
+  // log10(digits) / log10(2500) × 10 → ~2.3 at 20d, ~5.0 at 100d, ~7.5 at 500d, ~10 at 2500d
+  // Anchored scale: 0=trivial(15d), 5=RSA-1024(300d), 10=intractable(10000d+)
+  const D_base = Math.min(Math.log10(Math.max(digits, 1)) / Math.log10(10000) * 10, 10);
+
+  // ── NFS accessibility reduction ──────────────────────────────────────────
+  // Numbers ≤ 200d are theoretically attackable with world-class NFS
+  // Numbers ≤ 100d are routinely factored with NFS
+  // Scale: full reduction at 0d, zero reduction at 200d+
+  const nfsReduction = digits <= 200
+    ? 0.8 * Math.max(0, (200 - digits) / 200)
+    : 0;
+
+  // ── ECM coverage reduction ───────────────────────────────────────────────
+  // How well have we covered the practical ECM range (20-65 digits)?
+  // For each 5d bucket, compute P(found if exists) and weight by importance
+  const ecmAttempts = (attempts || []).filter(a => a.method === 'ECM' && a.b1);
+
+  function b1ToTargetD(b1str) {
+    const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
+    if (!b1val || b1val <= 1) return 0;
+    const lnB1 = Math.log(b1val);
+    const lnln = Math.log(Math.max(lnB1, 1.1));
+    return Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+  }
+
+  const curvesPerD = {};
+  for (const a of ecmAttempts) {
+    const td = b1ToTargetD(a.b1);
+    const c  = parseInt(a.curves) || 0;
+    for (let d = td - 3; d <= td + 3; d++) curvesPerD[d] = (curvesPerD[d] || 0) + c;
+  }
+
+  // Weighted coverage: smaller factors are more likely to exist → weight more
+  // Weight for d-digit range: proportional to 1/d (smaller = more likely)
+  const ecmRange = [20,25,30,35,40,45,50,55,60,65];
+  let weightedCoverage = 0, totalWeight = 0;
+  for (const d of ecmRange) {
+    const weight  = 1 / d;               // smaller factors more likely
+    const curves  = curvesPerD[d] || 0;
+    const pFind   = curves ? ecmProbability(d, curves) : 0;
+    weightedCoverage += weight * pFind;
+    totalWeight      += weight;
+  }
+  const ecmCoverage    = totalWeight > 0 ? weightedCoverage / totalWeight : 0;
+  const ecmReduction   = 1.5 * ecmCoverage; // max 1.5 point reduction for full ECM coverage
+
+  // ── P-1/P+1 coverage reduction ───────────────────────────────────────────
+  const pm1Attempts = (attempts || []).filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
+  let pm1Coverage = 0;
+  if (pm1Attempts.length) {
+    const pm1Range = [20,25,30,35,40];
+    let wCov = 0, wTot = 0;
+    for (const d of pm1Range) {
+      const w = 1 / d;
+      let failProd = 1;
+      for (const a of pm1Attempts) {
+        const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+        const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+        failProd *= (1 - pm1Probability(d, b1n, b2n, a.method));
+      }
+      wCov += w * (1 - failProd);
+      wTot += w;
+    }
+    pm1Coverage = wTot > 0 ? wCov / wTot : 0;
+  }
+  const pm1Reduction = 0.5 * pm1Coverage; // max 0.5 point reduction
+
+  // ── Final score ───────────────────────────────────────────────────────────
+  // Reductions only matter when the number is small enough to be meaningfully
+  // affected by ECM/P-1 work. For very large numbers (D_base near 10),
+  // ruling out small factors barely changes the difficulty.
+  // Scale reductions by how much of the problem space they cover:
+  // at 300d a 65d factor is 22% of the number — meaningful
+  // at 80000d a 65d factor is 0.08% of the number — irrelevant
+  const reductionScale = Math.max(0, 1 - D_base / 10);  // 1.0 at 0d, 0 at 10000d+
+  const scaledReductions = (nfsReduction + ecmReduction + pm1Reduction) * reductionScale;
+  const score = Math.max(0, Math.min(10, D_base - scaledReductions));
+
+  return {
+    score:         Math.round(score * 100) / 100,
+    base:          Math.round(D_base * 100) / 100,
+    nfsReduction:  Math.round(nfsReduction * 100) / 100,
+    ecmReduction:  Math.round(ecmReduction * 100) / 100,
+    pm1Reduction:  Math.round(pm1Reduction * 100) / 100,
+    ecmCoverage:   Math.round(ecmCoverage * 1000) / 10,  // as %
+    pm1Coverage:   Math.round(pm1Coverage * 1000) / 10,
+  };
+}
+
+function difficultyLabel(score) {
+  if (score < 2)  return { label: 'Trivial',     color: 'var(--green)' };
+  if (score < 3.5)return { label: 'Easy',        color: '#7ed321' };
+  if (score < 5)  return { label: 'Moderate',    color: 'var(--yellow)' };
+  if (score < 6.5)return { label: 'Hard',        color: '#ff9f43' };
+  if (score < 8)  return { label: 'Very Hard',   color: 'var(--red)' };
+  if (score < 9)  return { label: 'Extreme',     color: '#ff6b9d' };
+  return              { label: 'Intractable',    color: '#b44fff' };
+}
+
+function getCofactorDigits(e) {
+  if (e.cofactor && /^\d+$/.test(e.cofactor)) return e.cofactor.length;
+  if (e.cofactorLen) return e.cofactorLen;
+  if (e.val && e.val.length > 0 && e.status !== 'full') return e.val.length;
+  return null;
+}
+
+function buildECMSection(n, e) {
+  const ecmData  = loadECM();
+  const attempts = (ecmData[String(n)] || []);
+  const digits   = getCofactorDigits(e);
+  let diffHtml = '', recommendHtml = '', probHtml = '', tableHtml = '', formHtml = '';
+
+  // Difficulty score banner
+  if (digits) {
+    const diff  = computeDifficulty(digits, attempts);
+    if (diff && diff.score !== undefined && diff.score !== null) {
+    const dlbl  = difficultyLabel(diff.score);
+    diffHtml = `<div style="display:flex;align-items:center;gap:16px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);margin-bottom:14px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Difficulty Score</div>
+        <div style="font-size:26px;font-weight:600;color:${dlbl.color};letter-spacing:-1px">${diff.score.toFixed(2)}<span style="font-size:12px;margin-left:6px;font-weight:400">/10</span></div>
+        <div style="font-size:12px;color:${dlbl.color};margin-top:2px">${dlbl.label}</div>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Score breakdown</div>
+        <div style="font-size:11px;color:var(--text-dim);line-height:1.8">
+          Base (${digits}d cofactor): <span style="color:var(--text)">+${diff.base}</span><br>
+          NFS accessibility (${digits}d ${digits<=100?'≤100d':'≤200d'} range): <span style="color:var(--green)">−${diff.nfsReduction}</span><br>
+          ECM coverage (${diff.ecmCoverage}% of 20-65d range): <span style="color:var(--green)">−${diff.ecmReduction}</span><br>
+          P±1 coverage (${diff.pm1Coverage}% of 20-40d range): <span style="color:var(--green)">−${diff.pm1Reduction}</span>
+        </div>
+      </div>
+
+    </div>`;
+  }
+  } // end if (digits) — diff banner
+
+  // Probability table for cofactor
+  if (digits) {
+    const targetDigits = [20,25,30,35,40,45,50,55,60,65,70];
+    const checkDigits  = targetDigits.filter(d => d < digits);
+    if (checkDigits.length) {
+      const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
+      const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
+
+      // ── ECM grid ──────────────────────────────────────────────────────────
+      function b1ToTargetDigits(b1str) {
+        const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
+        if (!b1val || b1val <= 1) return 0;
+        const lnB1 = Math.log(b1val);
+        const lnln = Math.log(Math.max(lnB1, 1.1));
+        return Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+      }
+
+      const curvesPerDigit = {};
+      for (const a of ecmAttempts) {
+        const td = b1ToTargetDigits(a.b1);
+        const c  = parseInt(a.curves) || 0;
+        for (let d = td - 3; d <= td + 3; d++) {
+          curvesPerDigit[d] = (curvesPerDigit[d] || 0) + c;
+        }
+      }
+      const totalECMCurves = ecmAttempts.reduce((s,a) => s + (parseInt(a.curves)||0), 0);
+
+      // ── Combined matrix (ECM + P-1/P+1 together) ──────────────────────────
+      if (ecmAttempts.length && pm1Attempts.length) {
+        probHtml += `<div style="margin-bottom:12px">
+          <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
+            ★ Combined ECM + P-1/P+1 — P(at least one method finds N-digit factor)
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--border2);padding-left:8px">
+            Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your ECM and P-1/P+1 runs together would have caught it?
+            Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance that at least one method succeeds.
+            <span style="color:var(--text-muted)">ECM breakdown and P±1 breakdown are shown separately below.</span>
+          </div>
+          <div class="prob-grid">
+            ${checkDigits.map(d => {
+              // ECM failure prob
+              const ecmCurves = curvesPerDigit[d] || 0;
+              const ecmP      = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
+              // PM1 failure prob
+              let pm1Fail = 1;
+              for (const a of pm1Attempts) {
+                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                pm1Fail *= (1 - pm1Probability(d, b1n, b2n, a.method));
+              }
+              const combined = 1 - (1 - ecmP) * pm1Fail;
+              const cls    = combined > 0.5 ? 'prob-high' : combined > 0.1 ? 'prob-mid' : 'prob-low';
+              const nfs    = d > 65;
+              const style  = nfs ? 'opacity:0.45' : '';
+              const pDisp  = nfs
+                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
+                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
+              return `<div class="prob-cell" style="${style}">
+                <div class="prob-d">${d}-digit factor</div>
+                ${pDisp}
+                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(1-pm1Fail)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+      if (ecmAttempts.length) {
+        probHtml += `<div style="margin-bottom:12px">
+          <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
+            ECM — P(find N-digit factor) · ${totalECMCurves} curves total · B1 optimal range ≤65d
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--purple);padding-left:8px">
+            ECM finds a d-digit factor by running random elliptic curves. Each curve is an independent attempt.
+            More curves = higher chance. <span style="color:var(--text)">done</span> = how many curves you've run targeting that digit size.
+            <span style="color:var(--text)">90%→</span> = curves needed to reach 90% probability. Above 65 digits, ECM is impractical — use NFS/GNFS instead.
+          </div>
+          <div class="prob-grid">
+            ${checkDigits.map(d => {
+              const curves   = curvesPerDigit[d] || 0;
+              const p        = curves ? ecmProbability(d, curves) : 0;
+              const b1opt    = optimalB1(d);
+              const cls      = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
+              const need     = curvesForProb(d, 0.9);
+              const nfs      = d > 65;
+              const style    = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
+              const pDisp    = nfs
+                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">use NFS</div>`
+                : `<div class="prob-v ${cls}">${fmtPct(p)}</div>`;
+              const doneNote = `<div class="prob-b1">B1≈${fmtB1(b1opt)} · done: ${fmtCurves(curves)}${nfs ? '' : ' · 90%→'+fmtCurves(need)}</div>`;
+              return `<div class="prob-cell" style="${style}">
+                <div class="prob-d">${d}-digit factor</div>
+                ${pDisp}
+                ${doneNote}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+
+      if (pm1Attempts.length) {
+        probHtml += `<div style="margin-bottom:12px">
+          <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
+            P-1 / P+1 — P(find N-digit factor) · ${pm1Attempts.length} attempt${pm1Attempts.length>1?'s':''} combined
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--yellow);padding-left:8px">
+            P-1 finds a prime factor p if p−1 is <span style="color:var(--text)">B1-smooth</span> (all prime factors of p−1 are ≤ B1), with one extra prime ≤ B2 allowed.
+            Unlike ECM, <span style="color:var(--text)">each P-1 run is a single independent test</span> — you can't improve it by repeating with the same B1/B2.
+            Running with higher B1 or B2 is the only way to improve odds. <span style="color:var(--text)">best single</span> = the single best attempt for that digit size.
+          </div>
+          <div class="prob-grid">
+            ${checkDigits.map(d => {
+              let failProd = 1;
+              for (const a of pm1Attempts) {
+                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                failProd *= (1 - pm1Probability(d, b1n, b2n, a.method));
+              }
+              const combined = 1 - failProd;
+              const best     = pm1Attempts.reduce((mx, a) => {
+                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                return Math.max(mx, pm1Probability(d, b1n, b2n, a.method));
+              }, 0);
+              const cls    = combined > 0.3 ? 'prob-high' : combined > 0.05 ? 'prob-mid' : 'prob-low';
+              const nfs    = d > 65;
+              const style  = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
+              const pDisp  = nfs
+                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
+                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
+              const bNote  = pm1Attempts.length > 1 ? `<div class="prob-b1">best single: ${fmtPct(best)}</div>` : '';
+              return `<div class="prob-cell" style="${style}">
+                <div class="prob-d">${d}-digit factor</div>
+                ${pDisp}
+                ${bNote}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }
+
+
+      // ── P(fully factored) matrix ────────────────────────────────────────
+      // Shows per digit size: P(factor exists) × P(runs find it | exists) = P(resolved)
+      if (attempts.length && digits) {
+        const halfDigits = Math.floor(digits / 2);
+
+        // P(N has a prime factor of exactly d digits) for a "random" d-digit composite
+        // Approximation: probability ≈ ln(d × ln10) / ln(digits × ln10) × (1/d)
+        // More precisely using the formula for smooth numbers:
+        // fraction of d-digit numbers that are prime ≈ 1/(d×ln10)
+        // and a random n-digit composite has a d-digit factor with prob ≈ ln(10) / ln(n/d)... 
+        // Simplest usable heuristic: P(d-digit factor exists) ≈ (ln10) / (ln(N) / d)
+        // = d × ln10 / ln(N) for each specific d — then normalise
+        // P(N has a prime factor in the d-digit to (d+5)-digit range)
+        // Based on the fact that for a random n-digit number,
+        // the probability of having a prime factor of exactly k digits is:
+        // P(k) ≈ (1/k) × (1 - 1/k) × ... ≈ ln(k+1)/ln(n) - ln(k)/ln(n) = ln((k+1)/k)/ln(n)
+        // For a 5-digit range [d, d+5): sum from k=d to d+4 of ln((k+1)/k)/ln(n)
+        // = ln((d+5)/d) / ln(n)   (telescoping)
+        function pFactorExists(d, totalDigits) {
+          if (d >= totalDigits) return 0;
+          const lnN = Math.log(totalDigits); // in digit-space, lnN ≈ totalDigits (natural log of 10^n = n×ln10)
+          // Probability of a factor in [d, d+5) digits:
+          // integral from d to d+5 of 1/(k × ln(n/k)) dk (Dickman-like)
+          // Simple closed form: ln((d+5)/d) / ln(totalDigits)
+          // Capped at 0.5 per bucket (can't be more than 50% likely for any one range)
+          const p = Math.log((d + 5) / d) / Math.log(totalDigits);
+          return Math.min(Math.max(p, 0), 0.5);
+        }
+
+        const resolveDigits = [20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
+        if (resolveDigits.length) {
+          probHtml = `<div style="margin-bottom:12px">
+            <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
+              ★ Chance of fully resolving this cofactor
+            </div>
+            <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;border-left:2px solid var(--accent);padding-left:8px">
+              Each cell answers: <em style="color:var(--text)">"What is the probability that this ${digits}-digit number has a prime factor of exactly Nd, AND that your factoring runs would have found it?"</em>
+              <br>• <span style="color:var(--text)">exists</span> = how likely a random ${digits}-digit composite has a factor of that size (number theory heuristic)
+              <br>• <span style="color:var(--text)">find | exists</span> = if that factor exists, how likely your ECM/P-1/P+1 runs catch it
+              <br>• <span style="color:var(--accent)">main %</span> = both together — the true chance you've resolved that digit range
+              <br><span style="color:var(--text-muted)">Factors larger than ~${halfDigits}d cannot exist as the smaller factor (since p × q = N means the smaller factor ≤ √N ≈ 10^${halfDigits})</span>
+            </div>
+            <div class="prob-grid">
+              ${resolveDigits.map(d => {
+                // P(factor of size d exists in this number)
+                const pExists = pFactorExists(d, digits);
+
+                // P(your runs find it | it exists) = combined ECM + PM1
+                const ecmCurves = curvesPerDigit[d] || 0;
+                const ecmFind   = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
+                let pm1Fail = 1;
+                for (const a of pm1Attempts) {
+                  const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+                  const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+                  pm1Fail  *= (1 - pm1Probability(d, b1n, b2n, a.method));
+                }
+                const totalFind = 1 - (1 - ecmFind) * pm1Fail;
+
+                // Combined: P(exists AND found)
+                const combined = pExists * totalFind;
+                const cls   = combined > 0.1 ? 'prob-high' : combined > 0.02 ? 'prob-mid' : 'prob-low';
+                const nfs   = d > 65;
+                const style = nfs ? 'opacity:0.45' : '';
+
+                return `<div class="prob-cell" style="${style}">
+                  <div class="prob-d">${d}-digit factor</div>
+                  <div class="prob-v ${cls}">${fmtPct(combined)}</div>
+                  <div class="prob-b1">exists: ${fmtPct(pExists)}</div>
+                  <div class="prob-b1">find|exists: ${fmtPct(totalFind)}</div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>` + probHtml;
+        }
+      }
+
+      if (!ecmAttempts.length && !pm1Attempts.length) {
+        probHtml = `<div style="font-size:11px;color:var(--text-muted);padding:8px 0;margin-bottom:10px">No attempts logged yet — add ECM or P-1/P+1 runs below to see probabilities.</div>`;
+      }
+    }
+  }
+
+  // Attempts table
+  if (attempts.length) {
+    const totalCpuSec = attempts.reduce((sum, a) => {
+      const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
+      const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+      return sum + (estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0);
+    }, 0);
+    tableHtml = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
+      <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 5900X core</span>
+      <span style="opacity:0.3">|</span>
+      <span>${attempts.length} attempt${attempts.length===1?'':'s'}</span>
+    </div>` +
+    `<table class="ecm-table">
+      <thead><tr>
+        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~5900X core</span></th><th>Date</th><th>Note</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${attempts.map((a, i) => {
+          // Per-row: show the digit range this B1 targets + whether it's practical
+          let probCell = '';
+          if (a.method === 'ECM' && a.b1) {
+            const b1val   = parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e'));
+            const lnB1    = Math.log(b1val);
+            const lnln    = Math.log(Math.max(lnB1, 1.1));
+            const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+            const curves  = parseInt(a.curves) || 1;
+            // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
+            const I_val = a.I ? parseFloat(a.I) : 0;
+            const showDigits = [15,20,25,30,35,40,45,50,55,60,65].filter(d => d < digits);
+            if (showDigits.length === 0) showDigits.push(targetD);
+            const parts = showDigits.map(d => {
+              const p = I_val > 0
+                ? ecmProbabilityWithI(d, b1val, curves, I_val)
+                : ecmProbability(d, curves);
+              const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
+              return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
+            });
+            probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ` + parts.join(' ');
+          } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
+            const b1num = parseFloat(String(a.b1).replace(/[eE]/,'e'));
+            const b2num = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+            // Show probability for each relevant digit size (20d, 25d, 30d...)
+            // P-1 is run once — no curves multiplier
+            const targetD = [20,25,30,35,40,45,50];
+            const probParts = targetD.filter(d => d < digits).map(d => {
+              const p   = pm1Probability(d, b1num, b2num, a.method);
+              const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
+              return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
+            }).join(' ');
+            probCell = probParts || `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
+          }
+          return `<tr>
+            <td>${a.method}</td>
+            <td>${a.b1||'—'}</td>
+            <td>${a.b2||'—'}</td>
+            <td>${a.curves||'—'}</td>
+            <td>${a.poly||'—'}</td>
+            <td style="font-size:10px;color:var(--text-muted)">${a.I||'—'}</td>
+            <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
+            <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
+            <td title="Estimated time on a single Zen 3 / 5900X core" style="font-size:10px;color:var(--text-dim)">${(() => {
+              const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
+              const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+              const cpuS = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
+              return fmtCpuTime(cpuS);
+            })()}</td>
+            <td>${a.date||'—'}</td>
+            <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note||''}</td>
+            <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  } else {
+    tableHtml = `<div style="font-size:11px;color:var(--text-muted);padding:8px 0">No attempts recorded yet.</div>`;
+  }
+
+  // Add form — local GMP-ECM / P-1 / P+1
+  // P-1/P+1 fields hidden by default since ECM is default method
+  formHtml = `<div class="ecm-add-form" style="margin-top:10px">
+    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Log new attempt</div>
+    <div class="ecm-form-grid">
+      <div class="ecm-field">
+        <label>Method</label>
+        <select id="ecm_method_${n}" onchange="toggleECMFields(${n})">
+          <option value="ECM">ECM</option>
+          <option value="P-1">P-1</option>
+          <option value="P+1">P+1</option>
+        </select>
+      </div>
+      <div class="ecm-field ecm-ecm-only_${n}">
+        <label>B1 <span style="color:var(--red)">*</span></label>
+        <input type="text" id="ecm_b1_${n}" placeholder="e.g. 3e6" required>
+      </div>
+      <div class="ecm-field ecm-ecm-only_${n}">
+        <label>B2</label>
+        <input type="text" id="ecm_b2_${n}" placeholder="e.g. 3e8">
+      </div>
+      <div class="ecm-field ecm-ecm-only_${n}">
+        <label>Curves <span style="color:var(--red)">*</span></label>
+        <input type="number" id="ecm_curves_${n}" placeholder="e.g. 1000" min="1" required>
+      </div>
+      <div class="ecm-field ecm-ecm-only_${n}">
+        <label>Poly</label>
+        <input type="text" id="ecm_poly_${n}" placeholder="e.g. Dickson 10">
+      </div>
+      <div class="ecm-field">
+        <label title="-I n: multiply B1 by exp(1/n) after each curve. Used when running same number on n machines. Affects probability — each curve uses a different B1. Leave blank if B1 was fixed.">-I <span style="color:var(--text-muted);font-weight:400;font-size:9px">(B1 vary)</span></label>
+        <input type="number" id="ecm_I_${n}" placeholder="blank=fixed B1" min="1">
+      </div>
+      <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
+        <label>B1 <span style="color:var(--red)">*</span></label>
+        <input type="text" id="ecm_pm1b1_${n}" placeholder="e.g. 1e8">
+      </div>
+      <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
+        <label>B2 (optional)</label>
+        <input type="text" id="ecm_pm1b2_${n}" placeholder="optional">
+      </div>
+      <div class="ecm-field ecm-pm1-only_${n}" style="display:none">
+        <label>Curves</label>
+        <input type="number" id="ecm_pm1curves_${n}" placeholder="e.g. 1" min="1">
+      </div>
+      <div class="ecm-field">
+        <label>Tool / version</label>
+        <input type="text" id="ecm_tool_${n}" placeholder="GMP-ECM 7.0.6…">
+      </div>
+      <div class="ecm-field">
+        <label>Note</label>
+        <input type="text" id="ecm_note_${n}" placeholder="optional">
+      </div>
+    </div>
+    <button class="ecm-submit" onclick="addECMAttempt(${n})">+ Log attempt</button>
+  </div>`;
+
+  // What to run next recommendation
+  if (digits) {
+    const rec = recommendNextRun(digits, attempts);
+    if (rec) {
+      const cpuStr = rec.cpuTime ? ' · <span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + ' on 5900X core</span>' : '';
+      recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
+        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">★ Recommended next run</div>'
+        + '<div style="font-size:12px;color:var(--text);margin-bottom:4px">' + rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '') + cpuStr + '</div>'
+        + '<div style="font-size:11px;color:var(--text-dim);line-height:1.6">' + rec.reason + '</div>'
+        + '<div style="font-size:10px;color:var(--green);margin-top:4px">Expected gain: +' + rec.gain + '% probability at ' + rec.targetDigits + 'd factors</div>'
+        + '</div>';
+    }
+  }
+
+  return diffHtml + recommendHtml + probHtml + tableHtml + formHtml;
+}
+
+// Refresh grid/stats after ECM log changes
+// ─────────────────────────────────────────────────────────────────────────────
+// BULK ECM LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+function toggleBulkDelete() {
+  const panel = document.getElementById('bulkDeletePanel');
+  const arrow = document.getElementById('bulkDeleteArrow');
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  if (arrow) arrow.textContent = open ? '▾' : '▸';
+  // Close the other panel
+  if (open) {
+    document.getElementById('bulkECMPanel')?.classList.remove('open');
+    document.getElementById('bulkToggleArrow').textContent = '▸';
+  }
+}
+
+function previewBulkDelete() {
+  const from   = parseInt(document.getElementById('bulkDel_from').value) || 0;
+  const to     = parseInt(document.getElementById('bulkDel_to').value) || 99999;
+  const method = document.getElementById('bulkDel_method').value;
+  const ecmData = loadECM();
+  let totalEntries = 0, totalAttempts = 0;
+  for (const [nStr, attempts] of Object.entries(ecmData)) {
+    const n = parseInt(nStr);
+    if (n < from || n > to) continue;
+    const matching = method === 'all' ? attempts : attempts.filter(a => a.method === method);
+    if (matching.length) { totalEntries++; totalAttempts += matching.length; }
+  }
+  const el = document.getElementById('bulkDelPreview');
+  if (el) el.textContent = totalAttempts
+    ? `Will delete ${totalAttempts} attempt${totalAttempts===1?'':'s'} across ${totalEntries} entr${totalEntries===1?'y':'ies'}`
+    : 'No matching attempts found.';
+}
+
+function executeBulkDelete() {
+  const from   = parseInt(document.getElementById('bulkDel_from').value) || 0;
+  const to     = parseInt(document.getElementById('bulkDel_to').value) || 99999;
+  const method = document.getElementById('bulkDel_method').value;
+  const ecmData = loadECM();
+  let totalDeleted = 0;
+  for (const [nStr, attempts] of Object.entries(ecmData)) {
+    const n = parseInt(nStr);
+    if (n < from || n > to) continue;
+    const before = attempts.length;
+    ecmData[nStr] = method === 'all' ? [] : attempts.filter(a => a.method !== method);
+    totalDeleted += before - ecmData[nStr].length;
+    if (ecmData[nStr].length === 0) delete ecmData[nStr];
+  }
+  if (totalDeleted === 0) {
+    document.getElementById('bulkDelPreview').textContent = 'Nothing deleted — no matching attempts found.';
+    return;
+  }
+  saveECM(ecmData);
+  // Batch re-sync: update allEntries status flags directly, then render once
+  const freshECM = loadECM();
+  allEntries.forEach(e => {
+    const hasAttempts = (freshECM[String(e.n)] || []).length > 0;
+    if (e.status === 'attempted' && !hasAttempts) e.status = 'composite';
+    if (e.status !== 'attempted' && hasAttempts &&
+        (e.status === 'unknown' || e.status === 'composite')) e.status = 'attempted';
+  });
+  applyFilters();
+  renderStats();
+  scheduleECMPush();
+  document.getElementById('bulkDelPreview').textContent = `✓ Deleted ${totalDeleted} attempt${totalDeleted===1?'':'s'}.`;
+  addLog(`Bulk delete: removed ${totalDeleted} attempts (n=${from}–${to}, method=${method})`, 'warn');
+}
+
+function toggleBulkECM() {
+  const panel = document.getElementById('bulkECMPanel');
+  const arrow = document.getElementById('bulkToggleArrow');
+  const open  = panel.classList.toggle('open');
+  if (arrow) arrow.textContent = open ? '▾' : '▸';
+  if (open) updateBulkPreview();
+}
+
+function getBulkTargets() {
+  const from   = parseInt(document.getElementById('bulk_from')?.value) || 0;
+  const to     = parseInt(document.getElementById('bulk_to')?.value)   || 300;
+  const filter = document.getElementById('bulk_filter')?.value || 'all';
+  const fromN  = from % 2 === 0 ? from : from + 1;
+  const toN    = to   % 2 === 0 ? to   : to - 1;
+
+  return allEntries.filter(e => {
+    if (e.n < fromN || e.n > toN) return false;
+    if (filter === 'all')        return true;
+    if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
+    return e.status === filter;
+  });
+}
+
+function updateBulkPreview() {
+  const targets = getBulkTargets();
+  const b1      = document.getElementById('bulk_b1')?.value?.trim();
+  const b2      = document.getElementById('bulk_b2')?.value?.trim();
+  const curves  = document.getElementById('bulk_curves')?.value?.trim();
+  const method  = document.getElementById('bulk_method')?.value || 'ECM';
+  const preview = document.getElementById('bulkPreview');
+  const btn     = document.getElementById('bulkSubmitBtn');
+  if (!preview) return;
+
+  const isECM = method === 'ECM';
+  const valid = b1 && (isECM ? (b2 && curves) : true);
+
+  if (!targets.length) {
+    preview.textContent = 'No entries match the selected range and filter.';
+    if (btn) btn.disabled = true;
+    return;
+  }
+  if (!valid) {
+    preview.textContent = `${targets.length} entries in range — fill in required fields to continue.`;
+    if (btn) btn.disabled = true;
+    return;
+  }
+
+  const ns = targets.map(e => 'E('+e.n+')').join(', ');
+  preview.textContent = `Will log to ${targets.length} entries: ${ns}`;
+  if (btn) btn.disabled = false;
+}
+
+function applyBulkECM() {
+  const targets = getBulkTargets();
+  const method  = document.getElementById('bulk_method')?.value || 'ECM';
+  const isECM   = method === 'ECM';
+  const isPM1   = method === 'P-1' || method === 'P+1';
+  const b1      = document.getElementById('bulk_b1')?.value?.trim()     || '';
+  const b2      = document.getElementById('bulk_b2')?.value?.trim()     || '';
+  const curves  = document.getElementById('bulk_curves')?.value?.trim() || '';
+  const poly    = document.getElementById('bulk_poly')?.value?.trim()   || '';
+  const tool    = document.getElementById('bulk_tool')?.value?.trim()   || '';
+  const note    = document.getElementById('bulk_note')?.value?.trim()   || '';
+
+  if (!b1) { alert('B1 is required.'); return; }
+  if (isECM && (!b2 || !curves)) { alert('B2 and Curves are required for ECM.'); return; }
+  if (!targets.length) { alert('No entries match the filter.'); return; }
+
+  const attempt = {
+    method,
+    b1:     isECM ? b1 : isPM1 ? b1 : '',
+    b2:     isECM ? b2 : isPM1 ? b2 : '',
+    curves: isECM ? curves : isPM1 ? curves : '',
+    poly:   isECM ? poly : '',
+    tool,
+    note,
+    date:   new Date().toISOString().slice(0,10),
+  };
+
+  const ecmData = loadECM();
+  for (const e of targets) {
+    const key = String(e.n);
+    if (!ecmData[key]) ecmData[key] = [];
+    // Skip if identical attempt already logged (same method+b1+b2+curves+date)
+    // Normalise B1/B2 to numeric for dedup (3e6 === 3000000)
+    function normNum(s) { return s ? String(parseFloat(String(s).replace(/[eE]/,'e'))) : ''; }
+    const sig = attempt.method + '_' + normNum(attempt.b1) + '_' + normNum(attempt.b2) + '_' + (attempt.curves||'');
+    const already = ecmData[key].some(a =>
+      (a.method+'_'+normNum(a.b1)+'_'+normNum(a.b2)+'_'+(a.curves||'')) === sig
+    );
+    if (!already) ecmData[key].push({ ...attempt });
+  }
+  saveECM(ecmData);
+
+  const resultEl = document.getElementById('bulkResult');
+  if (resultEl) {
+    resultEl.style.display = 'block';
+    resultEl.textContent   = '✓ Logged ' + method + ' attempt for ' + targets.length + ' entries (B1=' + b1 + (b2?', B2='+b2:'') + (curves?', curves='+curves:'') + ')';
+    setTimeout(() => { resultEl.style.display = 'none'; }, 4000);
+  }
+
+  addLog('Bulk ' + method + ' logged for ' + targets.length + ' entries (B1=' + b1 + ')', '');
+  renderGrid();
+  renderStats();
+}
+
+function syncAttemptedStatus(n) {
+  // Update just the affected entry's status, then re-render once
+  const ecmD    = loadECM();
+  const has     = (ecmD[String(n)] || []).length > 0;
+  const entry   = allEntries.find(e => e.n === n);
+  if (entry) {
+    if (has && (entry.status === 'unknown' || entry.status === 'composite')) {
+      entry.status = 'attempted';
+    } else if (!has && entry.status === 'attempted') {
+      entry.status = 'composite';
+    }
+  }
+  applyFilters();
+  renderStats();
+}
+
+// Default B2 for GMP-ECM ≈ B1 * 100 (rough approximation; actual default varies)
+function defaultB2(b1) {
+  // GMP-ECM computes default B2 as roughly: exp(sqrt(2 * ln(B1) * ln(ln(B1)))) / 2
+  // But in practice it's close to B1 * 100 for typical B1 values
+  // Better approximation from GMP-ECM source: default B2 ≈ B1^1.5 / 3
+  if (!b1 || b1 <= 0) return 0;
+  return Math.round(Math.pow(b1, 1.5) / 3);
+}
+
+function updateB2FromScale(n) {
+  const b1El    = document.getElementById('ecm_b1_' + n);
+  const b2El    = document.getElementById('ecm_b2_' + n);
+  const scaleEl = document.getElementById('ecm_b2scale_' + n);
+  if (!b1El || !b2El || !scaleEl) return;
+  const scale = parseFloat(scaleEl.value);
+  const b1    = parseFloat(String(b1El.value).replace(/,/g, '').replace(/[eE]/,'e'));
+  if (scale > 0 && b1 > 0) {
+    const defB2    = defaultB2(b1);
+    const computed = Math.round(defB2 * scale);
+    b2El.value     = computed;
+    b2El.style.color = 'var(--accent)';
+    b2El.title = 'Auto-computed: default B2 (' + defB2.toExponential(2) + ') × ' + scale;
+  } else {
+    b2El.style.color = '';
+    b2El.title = '';
+  }
+}
+
+function updateKCpuHint(n) {
+  // Just a visual hint — k doesn't affect probability
+  const kEl = document.getElementById('ecm_k_' + n);
+  const b2El = document.getElementById('ecm_b2_' + n);
+  if (!kEl) return;
+  const k  = parseInt(kEl.value) || 4;
+  const b2 = b2El ? parseFloat(String(b2El.value).replace(/[eE]/,'e')) || 0 : 0;
+  // Rough memory estimate: memory ∝ sqrt(B2/B1) / k
+  // At k=4, B2=1e10, 155d: ~55MB — scale from there
+  kEl.title = 'k=' + k + ': ' + (k <= 4 ? 'more memory, faster' : k <= 16 ? 'balanced' : 'low memory, slower') + ' · no effect on probability';
+}
+
+function toggleECMFields(n) {
+  const method    = document.getElementById('ecm_method_' + n)?.value || 'ECM';
+  const ecmFields = document.querySelectorAll('.ecm-ecm-only_' + n);
+  const pm1Fields = document.querySelectorAll('.ecm-pm1-only_' + n);
+  ecmFields.forEach(el => el.style.display = (method === 'ECM') ? '' : 'none');
+  pm1Fields.forEach(el => el.style.display = (method === 'P-1' || method === 'P+1') ? '' : 'none');
+}
+
+function addECMAttempt(n) {
+  const get = id => document.getElementById(id)?.value?.trim() || '';
+  const method = get(`ecm_method_${n}`) || 'ECM';
+  const isECM  = method === 'ECM';
+  const isPM1  = method === 'P-1' || method === 'P+1';
+
+  const attempt = {
+    method,
+    b1:      isECM ? get(`ecm_b1_${n}`)         : isPM1 ? get(`ecm_pm1b1_${n}`)     : '',
+    b2:      isECM ? get(`ecm_b2_${n}`)         : isPM1 ? get(`ecm_pm1b2_${n}`)     : '',
+    curves:  isECM ? get(`ecm_curves_${n}`)     : isPM1 ? get(`ecm_pm1curves_${n}`) : '',
+    poly:    isECM ? get(`ecm_poly_${n}`)       : '',
+    I:       get(`ecm_I_${n}`) || '',
+    tool:    get(`ecm_tool_${n}`),
+    note:    get(`ecm_note_${n}`),
+    date:    new Date().toISOString().slice(0,10),
+  };
+
+  if (isECM && !attempt.b1)     { alert('B1 is required for ECM.'); return; }
+  if (isECM && !attempt.b2)     { alert('B2 is required for ECM.'); return; }
+  if (isECM && !attempt.curves) { alert('Curves is required for ECM.'); return; }
+  if (isPM1  && !attempt.b1)    { alert('B1 is required for ' + method + '.'); return; }
+
+  const ecmData = loadECM();
+  const key = String(n);
+  if (!ecmData[key]) ecmData[key] = [];
+  ecmData[key].push(attempt);
+  saveECM(ecmData);
+
+  let logMsg = `E(${n}) ${method} logged`;
+  if (attempt.b1)     logMsg += ` B1=${attempt.b1}`;
+  if (attempt.curves) logMsg += ` × ${attempt.curves} curves`;
+  if (attempt.poly)   logMsg += ` poly=${attempt.poly}`;
+  addLog(logMsg, '');
+  syncAttemptedStatus(n);
+
+  const sec = document.getElementById(`ecmSection_${n}`);
+  const e   = allEntries.find(x => x.n === n);
+  if (sec && e) sec.innerHTML = buildECMSection(n, e);
+}
+
+function deleteECMAttempt(n, i) {
+  const key     = String(n);
+  const idx     = parseInt(i);
+  const ecmData = loadECM();
+  const attempts = ecmData[key] || ecmData[n] || [];
+  if (!attempts.length || idx < 0 || idx >= attempts.length) return;
+
+  // Show inline confirm row instead of browser confirm() which is blocked on GitHub Pages
+  const rowId   = 'ecmDelConfirm_' + n + '_' + idx;
+  const existing = document.getElementById(rowId);
+  if (existing) { existing.remove(); return; } // toggle off if already showing
+
+  const tbody = document.querySelector('#ecmSection_' + n + ' tbody');
+  if (!tbody) return;
+  const rows  = tbody.querySelectorAll('tr');
+  const targetRow = rows[idx];
+  if (!targetRow) return;
+
+  const a        = attempts[idx];
+  const confirmRow = document.createElement('tr');
+  confirmRow.id  = rowId;
+  confirmRow.style.cssText = 'background:var(--red-dim)';
+  const yesBtn = document.createElement('button');
+  yesBtn.textContent = 'Yes, delete';
+  yesBtn.style.cssText = 'background:var(--red);border:none;color:#fff;font-family:monospace;font-size:11px;padding:3px 10px;cursor:pointer;margin-left:8px';
+  yesBtn.onclick = () => confirmDeleteECM(n, idx);
+
+  const noBtn = document.createElement('button');
+  noBtn.textContent = 'Cancel';
+  noBtn.style.cssText = 'background:none;border:1px solid var(--border2);color:var(--text-dim);font-family:monospace;font-size:11px;padding:3px 10px;cursor:pointer;margin-left:6px';
+  noBtn.onclick = () => confirmRow.remove();
+
+  const td = document.createElement('td');
+  td.colSpan = 12;
+  td.style.cssText = 'padding:8px 10px;font-size:11px;color:var(--red)';
+  td.appendChild(document.createTextNode('⚠ Delete ' + a.method + ' (B1=' + (a.b1||'?') + ', curves=' + (a.curves||'?') + ')? '));
+  td.appendChild(yesBtn);
+  td.appendChild(noBtn);
+  confirmRow.appendChild(td);
+  targetRow.insertAdjacentElement('afterend', confirmRow);
+}
+
+function confirmDeleteECM(n, idx) {
+  const key     = String(n);
+  const ecmData = loadECM();
+  const attempts = ecmData[key] || ecmData[n] || [];
+  if (idx < 0 || idx >= attempts.length) return;
+
+  if (ecmData[key]) {
+    ecmData[key].splice(idx, 1);
+    if (ecmData[key].length === 0) delete ecmData[key];
+  } else if (ecmData[n]) {
+    ecmData[n].splice(idx, 1);
+    if (ecmData[n].length === 0) delete ecmData[n];
+  }
+  saveECM(ecmData);
+  syncAttemptedStatus(n);
+  const sec = document.getElementById('ecmSection_' + n);
+  const e   = allEntries.find(x => x.n === n);
+  if (sec && e) sec.innerHTML = buildECMSection(n, e);
+}
+
+function clearEntryCache(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e) return;
+
+  // Remove FDB cache entries for this entry's value and cofactor
+  if (e.val && fdbCache[e.val])      { delete fdbCache[e.val];      }
+  if (e.cofactor && fdbCache[e.cofactor]) { delete fdbCache[e.cofactor]; }
+  saveFDBCache(fdbCache);
+
+  // Reset entry back to unknown
+  // Reset to unknown — factoData is empty, all data comes from FDB
+  e.status   = 'unknown';
+  e.factors  = [];
+  e.cofactor = null;
+  delete e._fdbVerified;
+  delete e._resolvedViaCofactor;
+  // Also clear ECM log attempts for this entry
+  const ecmAll = loadECM();
+  delete ecmAll[String(n)];
+  saveECM(ecmAll);
+
+  addLog(`E(${n}) cache cleared`, 'warn');
+  renderGrid();
+  openModal(n); // refresh modal
+}
+
+function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
+
+function downloadEntry(n) {
+  const e = allEntries.find(x => x.n === n);
+  if (!e) return;
+  const sign = e.sign === -1 ? '-' : '+';
+  const fdbEntry = e.cofactor && fdbCache[e.cofactor]
+    ? `FactorDB (cofactor): ${fdbStatusLabel(fdbCache[e.cofactor].status)} [${new Date(fdbCache[e.cofactor].timestamp).toISOString()}]`
+    : '';
+  const lines = [
+    `Euler Number E(${n})`, '='.repeat(40),
+    `Sign: ${sign}1`, `Status: ${e.status}`, '',
+    e.val ? `|E(${n})| = ${e.val}` : `|E(${n})| = (large, not stored)`, '',
+    `Known Factors: ${e.factors&&e.factors.length ? e.factors.join(' * ') : 'none'}`,
+    e.cofactor ? `Cofactor: ${e.cofactor}` : '',
+    fdbEntry, e.note ? `Note: ${e.note}` : '', '',
+    `Generated by Euler Factorization Database`,
+  ].filter(l => l !== undefined);
+  const blob = new Blob([lines.join('\n')], { type:'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=`euler_E${n}.txt`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENT LISTENERS
+// ─────────────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeFilter = btn.dataset.filter;
+    applyFilters();
+  });
+});
+document.getElementById('searchInput').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  applyFilters();
+});
+document.getElementById('modalBackdrop').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalBackdrop')) closeModal();
+});
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+// Init order: load settings → fetch euler values → pull from GitHub → replay cache → render
+
+async function fetchEulerValues() {
+  const s      = loadGHSettings();
+  const user   = s.user   || 'hilbertfrank1285';
+  const repo   = s.repo   || 'euler-factordb';
+  const branch = s.branch || 'main';
+
+  // Chunked files — all under 10MB so GitHub API can handle them
+  const chunks = [
+    'euler_values_0_2498.json',
+    'euler_values_2500_4000.json',
+    'euler_values_4002_5000.json',
+    'euler_values_5002_6000.json',
+    'euler_values_6002_7000.json',
+    'euler_values_7002_7500.json',
+    'euler_values_7502_8000.json',
+    'euler_values_8002_8500.json',
+    'euler_values_8502_9000.json',
+    'euler_values_9002_9500.json',
+    'euler_values_9502_10000.json',
+    'euler_values_10002_10500.json',
+    'euler_values_10502_11000.json',
+  ];
+
+  setStatus('Loading Euler values…');
+
+  async function fetchChunk(fname, idx) {
+    const urls = [
+      fname,
+      'https://raw.githubusercontent.com/' + user + '/' + repo + '/' + branch + '/' + fname + '?v=1',
+    ];
+    for (const url of urls) {
+      try {
+        const r = await fetchWithTimeout(url, 30000);
+        if (!r.ok) continue;
+        const data = await r.json();
+        for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
+        console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url);
+        return true;
+      } catch(e) {
+        console.warn('Chunk fetch failed (' + url + '):', e.message);
+      }
+    }
+    return false;
+  }
+
+  // Load all chunks in parallel
+  const results = await Promise.all(chunks.map((f, i) => fetchChunk(f, i)));
+  const loaded  = results.filter(Boolean).length;
+  console.log('Loaded ' + Object.keys(eulerValues).length + ' Euler values total (' + loaded + '/' + chunks.length + ' chunks)');
+
+  if (loaded === 0) {
+    setStatus('⚠ Could not load Euler values — continuing without them', 'warn');
+  }
+}
+
+// Init order: load settings → pull from GitHub → replay cache → render
+// ── INIT ─────────────────────────────────────────────────────────────────────
+// Step 1: render synchronously with whatever is available right now
+try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
+try { fetchLastUpdateTime(); } catch(e) {}
+try { fetchIndexVersion(); } catch(e) {}
+try { renderLog(); } catch(e) {}
+try { renderChangelog(); } catch(e) {}
+try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
+// Don't replay FDB cache here — eulerValues not loaded yet, no vals to match against
+try { applyFilters(); } catch(e) { console.error('applyFilters', e); }
+setStatus('Ready — loading values in background…');
+
+// Step 2: load euler values + github data in background
+// IMPORTANT: render order matters — must be buildEntries → replayFDBCache → applyFilters
+// Otherwise the cache gets wiped by the next buildEntries
+setTimeout(async () => {
+  // Phase 1: load static Euler values JSON
+  try {
+    await fetchEulerValues();
+  } catch(e) {
+    console.warn('fetchEulerValues failed:', e);
+  }
+
+  // Now eulerValues is loaded — initialise fdbCache so number-string keys can be rebuilt
+  fdbCache = loadFDBCache();
+
+  // Phase 2: pull from GitHub (merges remote into localStorage)
+  // githubPull internally re-renders — that's fine, we'll re-render again below
+  try {
+    await maybeAutoPull();
+  } catch(e) {
+    console.warn('maybeAutoPull failed:', e);
+  }
+
+  // Phase 3: FINAL consistent state — re-read all data from localStorage
+  // (because mergeSyncPayload may have updated it) and render in correct order
+  try {
+    fdbCache    = loadFDBCache();
+    allEntries  = buildEntries();     // build fresh entries with vals
+    replayFDBCache();                  // promote entries based on merged cache
+    applyFilters();                    // render grid with promoted entries
+    renderChangelog();                 // refresh changelog with merged data
+    renderStats();                     // refresh stats counts
+
+    console.log('localStorage breakdown:', getStorageBreakdown());
+    console.log('Init complete:',
+      'entries=' + allEntries.length,
+      'fdbCache=' + Object.keys(fdbCache).length,
+      'ecm=' + Object.keys(loadECM()).length);
+  } catch(e) {
+    console.error('Final render failed:', e);
+  }
+
+  setStatus('');
+  // One-time cleanup: re-save changelog without large strings (trims old stored data)
+  try { saveChangelog(loadChangelog()); } catch(e) {}
+}, 0);
+</script>
+</body>
+</html>
