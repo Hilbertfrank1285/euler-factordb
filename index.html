@@ -1074,7 +1074,7 @@ function allTargets() {
 function fetchWithTimeout(url, ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
-  return fetch(url, { signal: controller.signal })
+  return fetch(url, { signal: controller.signal, keepalive: true })
     .finally(() => clearTimeout(timer));
 }
 
@@ -1974,17 +1974,14 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Sleeps but resolves early if cancelRequested is set
 function cancellableSleep(ms) {
+  // Skip delay entirely when tab is hidden — browser throttles timers in background
+  // The network request itself provides natural pacing
+  if (document.hidden || cancelRequested) return Promise.resolve();
   return new Promise(resolve => {
-    if (cancelRequested) { resolve(); return; }
-    const interval = 200;
-    let elapsed    = 0;
-    const tick     = setInterval(() => {
-      elapsed += interval;
-      if (cancelRequested || elapsed >= ms) {
-        clearInterval(tick);
-        resolve();
-      }
-    }, interval);
+    const timer = setTimeout(resolve, ms);
+    // Also resolve early if tab becomes hidden during wait
+    const onHide = () => { clearTimeout(timer); resolve(); };
+    document.addEventListener('visibilitychange', onHide, { once: true });
   });
 }
 
@@ -2015,7 +2012,13 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   const queue = targets.filter(t => isManual || needsDailyCheck(t.number, forceU));
   const total = Math.min(queue.length, MAX_PER_SESSION);
 
-  setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB…`);
+  setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB — safe to switch tabs`);
+  // Update title to show progress when tab is in background
+  const origTitle = document.title;
+  const titleInterval = setInterval(() => {
+    if (!polling) { clearInterval(titleInterval); document.title = origTitle; return; }
+    document.title = `[${done}/${total}] Polling FDB…`;
+  }, 2000);
   document.getElementById('queueInfo').style.display = 'flex';
   document.getElementById('queueCount').textContent  = total;
   document.getElementById('cancelBtn').style.display = 'flex';
@@ -2162,6 +2165,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (compositeBtn) compositeBtn.disabled = false;
   polling = false;
   cancelRequested = false;
+  clearInterval(titleInterval);
+  document.title = origTitle;
 
   localStorage.setItem(COOLDOWN_KEY, Date.now());
   renderGrid();
