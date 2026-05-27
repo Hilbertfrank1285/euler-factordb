@@ -1247,18 +1247,24 @@ function addLog(msg, type = '') {
 }
 
 function renderLog() {
-  document.getElementById('logCount').textContent = activityLog.length;
+  const lc = document.getElementById('logCount');
+  if (lc) lc.textContent = activityLog.length;
   const el = document.getElementById('logEntries');
-  el.innerHTML = activityLog.slice(0, 500).map(l =>
-    `<div class="log-entry log-${l.type}"><span class="log-time">${l.t}</span><span class="log-msg">${l.msg}</span></div>`
-  ).join('');
+  el.innerHTML = activityLog.slice(0, 500).map(l => {
+    // Truncate any large numbers (10+ digit strings) to 30 digits + …
+    const msg = l.msg.replace(/\b(\d{10,})\b/g, m =>
+      m.length > 30 ? m.slice(0, 30) + '…(' + m.length + 'd)' : m
+    );
+    return `<div class="log-entry log-${l.type}"><span class="log-time">${l.t}</span><span class="log-msg">${msg}</span></div>`;
+  }).join('');
 }
 
 let changelogOpen = false;
 
 function renderChangelog() {
   const log = loadChangelog();
-  document.getElementById('changelogCount').textContent = log.length;
+  const cc = document.getElementById('changelogCount');
+  if (cc) cc.textContent = log.length;
   const el = document.getElementById('changelogEntries');
   if (!log.length) {
     el.innerHTML = '<div class="changelog-empty">No changes recorded yet — run a FactorDB check to discover factors.</div>';
@@ -1994,7 +2000,8 @@ function cancelPoll() {
   cancelRequested = true;
   addLog('Cancel requested — will stop after current request', 'warn');
   document.getElementById('cancelBtn').disabled = true;
-  document.getElementById('cancelBtn').textContent = '⊘ Cancelling…';
+  const cbEl = document.getElementById('cancelBtn');
+  if (cbEl) cbEl.textContent = '⊘ Cancelling…';
 }
 
 async function runPollQueue(targets, isManual = false, activeBtn = null, forceU = false) {
@@ -2024,7 +2031,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     document.title = `[${done}/${total}] Polling FDB…`;
   }, 2000);
   document.getElementById('queueInfo').style.display = 'flex';
-  document.getElementById('queueCount').textContent  = total;
+  const qcEl = document.getElementById('queueCount');
+  if (qcEl) qcEl.textContent = total;
   document.getElementById('cancelBtn').style.display = 'flex';
 
   addLog(`Poll started — ${total} targets`, '');
