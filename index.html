@@ -616,6 +616,7 @@
     <button class="sort-btn active" id="sortNBtn" onclick="toggleSortN()">E(n) ↑</button>
     <button class="sort-btn" id="sortDiffBtn" onclick="toggleSortDiff()">Difficulty ↑</button>
     <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()">CPU ↓</button>
+    <button class="sort-btn" id="sortFdbBtn" onclick="toggleSortFdb()">FDB date ↓</button>
   </div>
 </div>
 
@@ -1723,6 +1724,18 @@ function toggleSortN() {
   applyFilters();
 }
 
+function toggleSortFdb() {
+  if (sortMode !== 'fdb-asc' && sortMode !== 'fdb-desc') {
+    sortMode = 'fdb-desc'; // most recently checked first
+  } else {
+    sortMode = sortMode === 'fdb-desc' ? 'fdb-asc' : 'fdb-desc';
+  }
+  const btn = document.getElementById('sortFdbBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'fdb-desc' ? 'FDB date ↓' : 'FDB date ↑'; btn.classList.add('active'); }
+  applyFilters();
+}
+
 function toggleSortCpu() {
   if (sortMode !== 'cpu-asc' && sortMode !== 'cpu-desc') {
     sortMode = 'cpu-desc'; // most CPU first by default
@@ -2349,11 +2362,21 @@ function applyFilters() {
     filtered.sort((a, b) => {
       const ca = getTotalCpuForEntry(a) || 0;
       const cb = getTotalCpuForEntry(b) || 0;
-      // Entries with no CPU time go to the end
       if (!ca && !cb) return a.n - b.n;
       if (!ca) return 1;
       if (!cb) return -1;
       return sortMode === 'cpu-desc' ? cb - ca : ca - cb;
+    });
+  } else if (sortMode === 'fdb-asc' || sortMode === 'fdb-desc') {
+    filtered.sort((a, b) => {
+      const ia = getFdbCheckInfo(a);
+      const ib = getFdbCheckInfo(b);
+      const ta = ia ? ia.timestamp : 0;
+      const tb = ib ? ib.timestamp : 0;
+      if (!ta && !tb) return a.n - b.n;
+      if (!ta) return 1;
+      if (!tb) return -1;
+      return sortMode === 'fdb-desc' ? tb - ta : ta - tb;
     });
   } else {
     filtered.sort((a, b) => a.n - b.n);
@@ -2394,26 +2417,32 @@ function getDifficultyForEntry(e) {
   }
 }
 
-function fdbTagForEntry(e) {
+// Get last FDB check info for an entry (used in modal and sorting)
+function getFdbCheckInfo(e) {
   const targets = [
     e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
-    (e.status === 'unknown' || e.status === 'composite') && e.val ? e.val : null,
+    (e.status === 'unknown' || e.status === 'composite' || e.status === 'attempted') && e.val ? e.val : null,
+    e.val || null,
   ].filter(Boolean);
-
-  if (!targets.length) return '';
-  // If eulerValues not yet loaded, don't show misleading 'not yet checked'
-  if (Object.keys(eulerValues).length === 0) return '<div class="card-fdb stale">⬡ values loading…</div>';
-
   for (const num of targets) {
-    const c = fdbCache[num];
-    if (!c) return '<div class="card-fdb stale">⬡ not yet checked</div>';
-    const age   = Date.now() - c.timestamp;
-    const fresh = age < AUTO_INTERVAL;
-    const when  = fresh ? 'today' : new Date(c.timestamp).toLocaleDateString();
-    const time  = new Date(c.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-    const label = fresh ? `today ${time}` : when;
-    return `<div class="card-fdb ${fresh?'fresh':'stale'}">⬡ FDB: ${fdbStatusLabel(c.status)} · ${label}</div>`;
+    const cached = fdbCache[num];
+    if (cached && cached.timestamp) return cached;
   }
+  return null;
+}
+
+function fmtFdbDate(timestamp) {
+  if (!timestamp) return null;
+  const d     = new Date(timestamp);
+  const age   = Date.now() - timestamp;
+  const fresh = age < AUTO_INTERVAL;
+  const date  = fresh ? 'Today' : d.toLocaleDateString();
+  const time  = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  return `${date} ${time}`;
+}
+
+function fdbTagForEntry(e) {
+  // No tag on card anymore — date shown in card subtitle instead
   return '';
 }
 
@@ -2447,7 +2476,13 @@ function renderGrid() {
       ${e.status === 'full' ? '' : (() => { try { const diff = getDifficultyForEntry(e); if (!diff || diff.score === undefined || diff.score === null) return ''; const dl = difficultyLabel(diff.score); return `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`; } catch(err) { return ''; } })()}
       ${preview}
       ${(() => { try { const cpu = getTotalCpuForEntry(e); if (!cpu) return ''; return '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ' + fmtCpuTime(cpu) + ' CPU</div>'; } catch(err) { return ''; } })()}
-      ${fdbTagForEntry(e)}
+      ${(() => {
+        const info = getFdbCheckInfo(e);
+        if (!info) return '';
+        const dt = fmtFdbDate(info.timestamp);
+        if (!dt) return '';
+        return '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⬡ FDB: ' + dt + '</div>';
+      })()}
     </div>`;
   }).join('');
 }
