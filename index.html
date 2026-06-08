@@ -567,7 +567,7 @@
       onchange="MIN_N = Math.max(0, parseInt(this.value)||0); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
-    <input type="number" id="maxNInput" value="13000" min="2" step="2"
+    <input type="number" id="maxNInput" value="15000" min="2" step="2"
       onchange="MAX_N = Math.max(MIN_N+2, parseInt(this.value)||300); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
@@ -803,7 +803,7 @@ function labelFactor(f) {
 const factoData = {};
 
 let MIN_N      = 0;    // user-adjustable start
-let MAX_N      = 13000; // user-adjustable end
+let MAX_N      = 15000; // user-adjustable end
 const PAGE_SIZE = 100;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3865,6 +3865,13 @@ async function fetchEulerValues() {
     'euler_values_11802_12200.json',
     'euler_values_12202_12600.json',
     'euler_values_12602_13000.json',
+    'euler_values_13002_13300.json',
+    'euler_values_13302_13600.json',
+    'euler_values_13602_13900.json',
+    'euler_values_13902_14200.json',
+    'euler_values_14202_14500.json',
+    'euler_values_14502_14800.json',
+    'euler_values_14802_15000.json',
   ];
 
   setStatus('Loading Euler values…');
