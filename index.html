@@ -232,9 +232,7 @@
   .card-preview { margin-top: 8px; font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── Factordb tag on card ── */
-  .card-fdb { margin-top: 6px; font-size: 9px; color: var(--text-muted); letter-spacing: 0.3px; display: flex; align-items: center; gap: 4px; }
-  .card-fdb.fresh { color: var(--cyan); }
-  .card-fdb.stale { color: var(--text-muted); }
+  .card-fdb { margin-top: 6px; font-size: 9px; color: var(--text-muted); letter-spacing: 0.3px; display: flex; align-items: center; gap: 4px; }  .card-fdb.stale { color: var(--text-muted); }
 
   /* ── Modal ── */
   .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(5,7,10,0.88); z-index: 200; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
@@ -568,7 +566,7 @@
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
     <input type="number" id="maxNInput" value="15000" min="2" step="2"
-      onchange="MAX_N = Math.max(MIN_N+2, parseInt(this.value)||300); rebuildAndRender();"
+      onchange="MAX_N = Math.max(MIN_N+2, Math.min(parseInt(this.value)||15000, _maxLoadedN())); this.value=MAX_N; applyFilters();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
   </div>
@@ -588,6 +586,15 @@
     <span class="spinner">◌</span>
     Check no known factors
   </button>
+  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
+    <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
+      <span class="poll-icon">↻</span>
+      <span class="spinner">◌</span>
+      Check stale (&gt;
+    </button><input type="number" id="staleDaysInput" value="7" min="1" max="365"
+      style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
+    days)
+  </span>
   <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
     <span class="poll-icon">↻</span>
     <span class="spinner">◌</span>
@@ -1724,6 +1731,22 @@ function toggleSortN() {
   applyFilters();
 }
 
+function _maxLoadedN() {
+  const keys = Object.keys(eulerValues).map(Number);
+  return keys.length ? Math.max(...keys) : MAX_N;
+}
+
+// After euler values load, update the maxN input to reflect actual max
+function updateMaxNInput() {
+  const el = document.getElementById('maxNInput');
+  if (el) {
+    const mx = _maxLoadedN();
+    el.max   = mx;
+    el.value = mx;
+    MAX_N    = mx;
+  }
+}
+
 function toggleSortFdb() {
   if (sortMode !== 'fdb-asc' && sortMode !== 'fdb-desc') {
     sortMode = 'fdb-desc'; // most recently checked first
@@ -2025,8 +2048,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   const mainBtn  = document.getElementById('pollBtn');
   const unknownBtn   = document.getElementById('pollUnknownBtn');
   const compositeBtn = document.getElementById('pollCompositeBtn');
+  const staleBtn     = document.getElementById('pollStaleBtn');
   const btn = activeBtn || mainBtn;
-  [mainBtn, unknownBtn, compositeBtn].forEach(b => { if (b) b.disabled = true; });
+  [mainBtn, unknownBtn, compositeBtn, staleBtn].forEach(b => { if (b) b.disabled = true; });
   btn.classList.add('polling');
 
   const progress   = document.getElementById('pollProgress');
@@ -2188,6 +2212,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (mainBtn) mainBtn.disabled = false;
   if (unknownBtn) unknownBtn.disabled = false;
   if (compositeBtn) compositeBtn.disabled = false;
+  const _sb = document.getElementById('pollStaleBtn'); if (_sb) _sb.disabled = false;
   polling = false;
   cancelRequested = false;
   clearInterval(titleInterval);
@@ -2240,6 +2265,33 @@ function setStatus(msg, cls = '') {
   const el = document.getElementById('fdbStatusText');
   el.innerHTML = msg;
   el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
+}
+
+function startStalePoll() {
+  if (polling) return;
+  const days    = Math.max(1, parseInt(document.getElementById('staleDaysInput')?.value) || 7);
+  const cutoff  = Date.now() - days * 86400000;
+  const targets = allEntries
+    .filter(e => {
+      if (e.status === 'full') return false; // skip fully factored
+      if (!e.val || e.n <= 2) return false;
+      const info = getFdbCheckInfo(e);
+      // Include if never checked OR checked before cutoff
+      return !info || info.timestamp < cutoff;
+    })
+    .map(e => {
+      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
+        ? e.cofactor : e.val;
+      return { n: e.n, number: queryNum };
+    })
+    .filter(t => t.number);
+
+  if (!targets.length) {
+    setStatus(`No entries with FDB check older than ${days} days`, 'warn');
+    return;
+  }
+  addLog(`Checking ${targets.length} stale entries (>${days}d old)`, '');
+  runPollQueue(targets, true, document.getElementById('pollStaleBtn'), true);
 }
 
 function startCompositePoll() {
@@ -2477,6 +2529,7 @@ function renderGrid() {
       ${preview}
       ${(() => { try { const cpu = getTotalCpuForEntry(e); if (!cpu) return ''; return '<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ' + fmtCpuTime(cpu) + ' CPU</div>'; } catch(err) { return ''; } })()}
       ${(() => {
+        if (e.status === 'full') return ''; // no FDB date on fully factored
         const info = getFdbCheckInfo(e);
         if (!info) return '';
         const dt = fmtFdbDate(info.timestamp);
@@ -3923,6 +3976,7 @@ async function fetchEulerValues() {
         const data = await r.json();
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
         console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url);
+        updateMaxNInput();
         return true;
       } catch(e) {
         console.warn('Chunk fetch failed (' + url + '):', e.message);
