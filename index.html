@@ -1061,12 +1061,11 @@ function allTargets() {
   return allEntries
     .filter(e => e.status !== 'full' && e.val && e.n > 2)
     .map(e => {
-      // Partial entries: query the cofactor if we have it, otherwise the full value
       const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
         ? e.cofactor : e.val;
       return { n: e.n, number: queryNum };
     })
-    .filter(t => t.number); // skip if no value loaded yet
+    .filter(t => t.number);
 }
 
 
