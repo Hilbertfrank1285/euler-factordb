@@ -586,6 +586,10 @@
     <span class="spinner">◌</span>
     Check no known factors
   </button>
+  <button class="poll-btn" onclick="openAllUnknownInFDB()" title="Opens each Unknown entry in a FDB tab so you can click 'Test if probable prime'">
+    <span class="poll-icon">↗</span>
+    Open unknowns in FDB
+  </button>
   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
     <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
       <span class="poll-icon">↻</span>
@@ -2274,6 +2278,35 @@ function setStatus(msg, cls = '') {
   el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
 }
 
+function openAllUnknownInFDB() {
+  // Find all entries where FDB returned U (Unknown) — open each in a FDB tab
+  const unknowns = allEntries.filter(e => {
+    if (e.status === 'full') return false;
+    const info = getFdbCheckInfo(e);
+    return info && info.status === 'U' && e.val;
+  });
+
+  if (!unknowns.length) {
+    setStatus('No Unknown entries found — run a poll first', 'warn');
+    return;
+  }
+
+  const confirmed = unknowns.length <= 10 ||
+    confirm(`Open ${unknowns.length} FDB tabs? (one per Unknown entry)`);
+  if (!confirmed) return;
+
+  let opened = 0;
+  for (const e of unknowns) {
+    const num = e.val;
+    if (!num) continue;
+    window.open('https://factordb.com/index.php?query=' + encodeURIComponent(num),
+      '_blank', 'noopener,noreferrer');
+    opened++;
+  }
+  addLog(`Opened ${opened} FDB tabs for Unknown entries`, '');
+  setStatus(`Opened ${opened} FDB tabs — click "Test if probable prime" in each`, 'ok');
+}
+
 function startStalePoll() {
   if (polling) return;
   const days    = Math.max(1, parseInt(document.getElementById('staleDaysInput')?.value) || 7);
@@ -2732,7 +2765,7 @@ function openModal(n) {
     const c = fdbCache[e.val];
     if (c) {
       const isProbablyUnknown = c.status === 'U';
-      const fdbPageUrl = e.val ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.val.slice(0,200)) + (e.val.length > 200 ? '...' : '') : '';
+      const fdbPageUrl = e.val ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.val) : '';
       const openFdbBtn = isProbablyUnknown && fdbPageUrl
         ? `<a href="${fdbPageUrl}" target="_blank" rel="noopener"
              style="display:inline-block;margin-top:8px;padding:5px 12px;background:var(--surface2);border:1px solid var(--border2);color:var(--accent);font-size:11px;text-decoration:none;cursor:pointer"
