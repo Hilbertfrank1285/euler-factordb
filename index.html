@@ -565,7 +565,7 @@
       onchange="MIN_N = Math.max(0, parseInt(this.value)||0); rebuildAndRender();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
-    <input type="number" id="maxNInput" value="15000" min="2" step="2"
+    <input type="number" id="maxNInput" value="20000" min="2" step="2"
       onchange="MAX_N = Math.max(MIN_N+2, Math.min(parseInt(this.value)||15000, _maxLoadedN())); this.value=MAX_N; applyFilters();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
@@ -811,7 +811,7 @@ function labelFactor(f) {
 const factoData = {};
 
 let MIN_N      = 0;    // user-adjustable start
-let MAX_N      = 15000; // user-adjustable end
+let MAX_N      = 20000; // user-adjustable end
 const PAGE_SIZE = 100;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3967,6 +3967,26 @@ async function fetchEulerValues() {
     'euler_values_14202_14500.json',
     'euler_values_14502_14800.json',
     'euler_values_14802_15000.json',
+    'euler_values_15000_15258.json',
+    'euler_values_15260_15518.json',
+    'euler_values_15520_15778.json',
+    'euler_values_15780_16038.json',
+    'euler_values_16040_16298.json',
+    'euler_values_16300_16558.json',
+    'euler_values_16560_16818.json',
+    'euler_values_16820_17078.json',
+    'euler_values_17080_17338.json',
+    'euler_values_17340_17598.json',
+    'euler_values_17600_17858.json',
+    'euler_values_17860_18118.json',
+    'euler_values_18120_18378.json',
+    'euler_values_18380_18638.json',
+    'euler_values_18640_18898.json',
+    'euler_values_18900_19158.json',
+    'euler_values_19160_19418.json',
+    'euler_values_19420_19678.json',
+    'euler_values_19680_19938.json',
+    'euler_values_19940_20000.json',
   ];
 
   setStatus('Loading Euler values…');
