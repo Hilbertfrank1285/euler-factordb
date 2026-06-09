@@ -73841,9 +73841,17 @@
       "n": 14206,
       "factors": [
         "149"
+      ]
+    },
+    "14208": {
+      "status": "CF",
+      "timestamp": 1781012319317,
+      "n": 14208,
+      "factors": [
+        "5"
       ],
-      "cofactorLen": 50035,
-      "cofactorPreview": "56912395116139614394646359063435718"
+      "cofactorLen": 50045,
+      "cofactorPreview": "13874543467646478217781387257062145"
     },
     "14210": {
       "status": "CF",
@@ -73852,9 +73860,7 @@
       "factors": [
         "751",
         "8111"
-      ],
-      "cofactorLen": 50046,
-      "cofactorPreview": "93194912716456476142705883116119617"
+      ]
     },
     "14212": {
       "status": "CF",
@@ -73897,6 +73903,12 @@
     }
   },
   "changelog": [
+    {
+      "n": 14208,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50045d",
+      "ts": 1781012319338
+    },
     {
       "n": 14210,
       "type": "updated",
@@ -74490,14 +74502,8 @@
       "type": "updated",
       "detail": "FDB CF: 6 factor(s) known, cofactor 36772d",
       "ts": 1780989709556
-    },
-    {
-      "n": 10806,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36773d",
-      "ts": 1780989708829
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-09T12:29:27.324Z"
+  "updatedAt": "2026-06-09T13:49:41.574Z"
 }
