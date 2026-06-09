@@ -875,7 +875,7 @@ const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
 const MANUAL_COOLDOWN = 0; // 10 seconds
 
 // Request spacing — be polite to FactorDB
-const REQUEST_DELAY_MS = 500;  // 1 s between requests
+const REQUEST_DELAY_MS = 250;  // 250ms between requests
 let MAX_PER_SESSION    = 500;   // cap requests per manual session (user-adjustable)
 
 function loadFDBCache() {
@@ -1092,10 +1092,11 @@ function fetchWithTimeout(url, ms) {
 // Timeout scales with number size: bigger numbers take longer for FDB to process
 function timeoutForNumber(numStr) {
   const digits = numStr.length;
-  if (digits < 50)  return 15000;   // 15s
-  if (digits < 100) return 30000;   // 30s
-  if (digits < 200) return 60000;   // 60s
-  return 120000;                    // 120s for very large
+  if (digits < 50)  return 8000;    // 8s
+  if (digits < 100) return 15000;   // 15s
+  if (digits < 500) return 30000;   // 30s
+  if (digits < 2000) return 60000;  // 60s
+  return 90000;                     // 90s for very large
 }
 
 async function queryFactorDB(numberStr) {
@@ -2106,6 +2107,12 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       if (factors && factors.length) fdbFactors[target.number] = { factors };
       saveFDBCache(fdbCache);
 
+      // If FDB returns Unknown, open its page so user can click "Test if probable prime"
+      // Only when tab is visible (don't spam tabs in background)
+      if (status === 'U' && !document.hidden && target.number && target.number.length <= 7000) {
+        window.open('https://factordb.com/index.php?query=' + encodeURIComponent(target.number), '_blank', 'noopener,noreferrer');
+      }
+
       const resolved = ['FF', 'P', 'PRP'].includes(status);
       const entry = allEntries.find(x => x.n === target.n);
 
@@ -2724,7 +2731,16 @@ function openModal(n) {
   if (e.status === 'unknown' && e.val) {
     const c = fdbCache[e.val];
     if (c) {
-      unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
+      const isProbablyUnknown = c.status === 'U';
+      const fdbPageUrl = e.val ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.val.slice(0,200)) + (e.val.length > 200 ? '...' : '') : '';
+      const openFdbBtn = isProbablyUnknown && fdbPageUrl
+        ? `<a href="${fdbPageUrl}" target="_blank" rel="noopener"
+             style="display:inline-block;margin-top:8px;padding:5px 12px;background:var(--surface2);border:1px solid var(--border2);color:var(--accent);font-size:11px;text-decoration:none;cursor:pointer"
+             title="Opens FDB page — click 'Test if probable prime' there">
+             ↗ Open in FactorDB — test if probable prime
+           </a>`
+        : '';
+      unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>${openFdbBtn}`;
     }
     const qTimeout = e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120;
     unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})| <span style="font-size:9px;opacity:0.7">(${e.val ? e.val.length+'d · up to '+qTimeout+'s' : ''})</span></button>
