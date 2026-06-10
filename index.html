@@ -1143,7 +1143,7 @@ async function queryFactorDBviaPost(numberStr, timeout) {
     || html.match(/factordb\.com\/(?:index\.php\?id=|api\?id=)(\d+)/);
   if (!idMatch) {
     // Log first 300 chars of HTML for debugging
-    console.warn('FDB HTML (first 300 chars):', html.slice(0, 300));
+    console.warn('FDB HTML (first 1000 chars):', html.slice(0, 1000));
     throw new Error('Could not extract FDB ID from HTML response');
   }
   const fdbId = idMatch[1];
