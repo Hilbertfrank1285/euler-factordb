@@ -190,6 +190,7 @@
   .card.full::before    { background: var(--green); }
   .card.partial::before { background: var(--yellow); }
   .card.unknown::before { background: var(--red); }
+  .card.fdb-unknown::before { background: #9999cc; }
   .card:hover { background: var(--surface2); }
   .card:hover::before { opacity: 1; }
 
@@ -614,6 +615,7 @@
     <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
+    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown">FDB UNKNOWN</button>
     <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
   </div>
@@ -2105,6 +2107,10 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       fdbCache[target.number] = fullEntry;
       if (factors && factors.length) fdbFactors[target.number] = { factors };
       saveFDBCache(fdbCache);
+      if (status === 'U') {
+        const uEntry = allEntries.find(e => e.n === target.n);
+        if (uEntry && (uEntry.status === 'unknown' || uEntry.status === 'fdb-unknown')) uEntry.status = 'fdb-unknown';
+      }
 
       // If FDB returns Unknown, open its page so user can click "Test if probable prime"
       // Only when tab is visible (don't spam tabs in background)
@@ -2517,7 +2523,13 @@ function renderGrid() {
   grid.innerHTML = page.map(e => {
     const sign    = e.sign === -1 ? '−' : '+';
     const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
-    const badge   = { full:'<span class="card-badge badge-full">● FULLY FACTORED</span>', partial:'<span class="card-badge badge-partial">◐ PARTIAL</span>', unknown:'<span class="card-badge badge-unknown">○ UNKNOWN</span>', composite:'<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>' }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
+    const badge   = {
+      full:           '<span class="card-badge badge-full">● FULLY FACTORED</span>',
+      partial:        '<span class="card-badge badge-partial">◐ PARTIAL</span>',
+      composite:      '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>',
+      attempted:      '<span class="card-badge badge-attempted">⟳ ECM</span>',
+      'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNKNOWN</span>',
+    }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
     const ecmDataG   = loadECM();
     const hasAttempt = (ecmDataG[String(e.n)]||[]).length > 0;
     const attemptBadge = hasAttempt ? ' <span class="card-badge badge-attempted">⟳ ATTEMPTED</span>' : '';
@@ -2580,7 +2592,8 @@ function renderPagination() {
 function renderStats() {
   const full    = allEntries.filter(e => e.status==='full').length;
   const partial = allEntries.filter(e => e.status==='partial').length;
-  const unknown = allEntries.filter(e => e.status==='unknown').length;
+  const unknown   = allEntries.filter(e => e.status==='unknown').length;
+  const fdbUnknown = allEntries.filter(e => e.status==='fdb-unknown').length;
   const composite = allEntries.filter(e => e.status==='composite').length;
   const ecmD = loadECM();
   const attempted = allEntries.filter(e => (ecmD[String(e.n)]||[]).length > 0).length;
@@ -2613,7 +2626,8 @@ function openModal(n) {
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
-    unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
+    'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Unknown', desc:'FactorDB has seen this number but its factorization is unknown.' },
+       unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
     composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
     attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
