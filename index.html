@@ -555,10 +555,14 @@
 </head>
 <body>
 
-<header>
+<header style="position:relative">
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
     <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span> · index.html: <span id="indexVersion" style="color:var(--text-dim)">loading…</span></p>
+  </div>
+  <div style="position:absolute;top:12px;right:20px">
+    <button onclick="toggleTheme()" id="themeBtn" title="Toggle light/dark theme"
+      style="background:none;border:1px solid var(--border2);color:var(--text-muted);padding:3px 10px;font-size:13px;cursor:pointer;border-radius:3px">🌙</button>
   </div>
 </header>
 
@@ -1880,7 +1884,9 @@ function rebuildAndRender() {
   replayFDBCache();
   filtered   = [...allEntries];
   currentPage = 1;
-  applyFilters();
+  renderGrid();
+  renderPagination();
+  renderStats();
 }
 
 function csvEsc(v) {
@@ -2793,7 +2799,7 @@ function renderStats() {
 
 function goPage(p) {
   currentPage = p;
-  applyFilters();
+  renderGrid();
   renderPagination();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
