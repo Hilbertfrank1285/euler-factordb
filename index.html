@@ -1137,9 +1137,15 @@ async function queryFactorDBviaPost(numberStr, timeout) {
   if (!r.ok) throw new Error('POST to FDB failed: HTTP ' + r.status);
   const html = await r.text();
 
-  // Extract FDB ID from HTML — links like ?id=1234567
-  const idMatch = html.match(/[?&]id=(\d+)/);
-  if (!idMatch) throw new Error('Could not extract FDB ID from HTML response');
+  // Extract FDB ID from HTML — FDB uses several patterns
+  const idMatch = html.match(/[?&](?:id|showid)=(\d+)/)
+    || html.match(/"id"\s*:\s*"(\d+)"/)
+    || html.match(/factordb\.com\/(?:index\.php\?id=|api\?id=)(\d+)/);
+  if (!idMatch) {
+    // Log first 300 chars of HTML for debugging
+    console.warn('FDB HTML (first 300 chars):', html.slice(0, 300));
+    throw new Error('Could not extract FDB ID from HTML response');
+  }
   const fdbId = idMatch[1];
 
   // Query by ID — tiny URL, always works
