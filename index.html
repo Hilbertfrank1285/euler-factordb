@@ -2279,6 +2279,41 @@ function setStatus(msg, cls = '') {
   el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
 }
 
+async function quickCheckFDB(n, btn) {
+  if (polling) return;
+  const e = allEntries.find(x => x.n === n);
+  if (!e || !e.val) return;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const data    = await queryFactorDB(e.val);
+    const rawSt   = data.status || 'U';
+    const status  = rawSt === 'UN' ? 'FF' : rawSt;
+    const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
+    fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
+    if (factors.length) fdbFactors[e.val] = { factors };
+    saveFDBCache(fdbCache);
+    // Promote status
+    if (['FF','P','PRP'].includes(status)) { e.factors = factors.filter(f=>f&&f!=='1'); e.cofactor = null; e.status = 'full'; }
+    else if (status === 'CF' && factors.length) { e.status = 'partial'; }
+    else if (status === 'C') { if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'composite'; }
+    else if (status === 'U') { if (e.status === 'unknown') e.status = 'fdb-unknown'; }
+    addLog('E(' + n + ') ↻ ' + fdbStatusLabel(status), 'ok');
+    applyFilters();
+    renderStats();
+    scheduleECMPush();
+  } catch(err) {
+    if (e.val && e.val.length > 49999) {
+      fdbCache[e.val] = { status: 'U', timestamp: Date.now(), n };
+      saveFDBCache(fdbCache);
+      if (e.status === 'unknown') e.status = 'fdb-unknown';
+      applyFilters(); renderStats();
+    }
+    addLog('E(' + n + ') query failed: ' + err.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻'; }
+  }
+}
+
 function markAsFdbUnknown(n) {
   const entry = allEntries.find(e => e.n === n);
   if (!entry || !entry.val) return;
@@ -2558,7 +2593,11 @@ function renderGrid() {
     else if (e.status === 'partial' && e.factors.length)
       preview = `<div class="card-preview">${e.factors.join(' × ')} × …</div>`;
 
-    return `<div class="card ${e.status}" onclick="openModal(${e.n})">
+    return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative">
+      <button onclick="event.stopPropagation();quickCheckFDB(${e.n},this)"
+        title="Query FactorDB"
+        style="position:absolute;top:5px;right:5px;padding:2px 6px;font-size:9px;background:var(--surface2);border:1px solid var(--border2);color:var(--text-muted);cursor:pointer;border-radius:2px;z-index:1"
+        ${polling?'disabled':''}>↻</button>
       <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
       <div class="card-label">E(${e.n})</div>
       ${badge}${attemptBadge}
