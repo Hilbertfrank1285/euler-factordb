@@ -1108,40 +1108,15 @@ async function queryFactorDB(numberStr) {
   const proxyUrl  = `https://corsproxy.io/?url=${encodeURIComponent(fdbApiUrl)}`;
 
   // Always use proxy — factordb.com blocks direct browser requests (no CORS headers)
-  // For large numbers, also try fetching the HTML page and parsing status from it
-  const htmlProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent('https://factordb.com/index.php?query=' + numberStr)}`;
-  const urlsToTry = numberStr.length > 49999
-    ? [htmlProxyUrl]       // large numbers: try HTML page (shorter URL via ID redirect)
-    : [proxyUrl, fdbApiUrl];
-
-  for (const url of urlsToTry) {
+  for (const url of [proxyUrl, fdbApiUrl]) {
     try {
       const r = await fetchWithTimeout(url, timeout);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const text = await r.text();
-      // Try JSON parse first (API response)
-      try {
-        const data = JSON.parse(text);
-        const result = data.contents ? JSON.parse(data.contents) : data;
-        if (result.status) return result;
-      } catch(_) {}
-      // Try parsing HTML page for status
-      if (text.includes('factordb')) {
-        const statusMap = {
-          'FF': /fully factored/i,
-          'CF': /composite.*partial|partially factored/i,
-          'C':  /composite.*no.*factor|composite/i,
-          'U':  /unknown|not in database/i,
-          'P':  /prime/i,
-        };
-        for (const [status, rx] of Object.entries(statusMap)) {
-          if (rx.test(text)) {
-            addLog('E: parsed status ' + status + ' from FDB HTML page', '');
-            return { status, factors: [] };
-          }
-        }
-      }
-      throw new Error('No status in response');
+      const data = JSON.parse(text);
+      const result = data.contents ? JSON.parse(data.contents) : data;
+      if (!result.status) throw new Error('No status in response');
+      return result;
     } catch(e) {
       if (e.name === 'AbortError') throw new Error(`Timeout after ${timeout/1000}s`);
       // CORS error → try next
