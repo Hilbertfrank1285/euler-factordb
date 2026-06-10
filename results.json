@@ -73898,610 +73898,2114 @@
       "factors": [
         "5^2"
       ]
+    },
+    "14222": {
+      "status": "C",
+      "timestamp": 1781073629522,
+      "n": 14222
+    },
+    "14224": {
+      "status": "CF",
+      "timestamp": 1781073630038,
+      "n": 14224,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50108,
+      "cofactorPreview": "28117929268440710497469583574523750"
+    },
+    "14228": {
+      "status": "CF",
+      "timestamp": 1781073631047,
+      "n": 14228,
+      "factors": [
+        "5",
+        "47"
+      ],
+      "cofactorLen": 50122,
+      "cofactorPreview": "40252998353774553130527194182421090"
+    },
+    "14230": {
+      "status": "CF",
+      "timestamp": 1781073631538,
+      "n": 14230,
+      "factors": [
+        "19",
+        "4397"
+      ],
+      "cofactorLen": 50127,
+      "cofactorPreview": "92917080715657440754137173526919442"
+    },
+    "14234": {
+      "status": "C",
+      "timestamp": 1781073632596,
+      "n": 14234
+    },
+    "14236": {
+      "status": "CF",
+      "timestamp": 1781073633108,
+      "n": 14236,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50155,
+      "cofactorPreview": "85938263129468687077504819801827982"
+    },
+    "14238": {
+      "status": "CF",
+      "timestamp": 1781073633574,
+      "n": 14238,
+      "factors": [
+        "71"
+      ],
+      "cofactorLen": 50162,
+      "cofactorPreview": "49719407806708351314809670555071904"
+    },
+    "14240": {
+      "status": "CF",
+      "timestamp": 1781073634106,
+      "n": 14240,
+      "factors": [
+        "5^2",
+        "17",
+        "41",
+        "7121"
+      ],
+      "cofactorLen": 50164,
+      "cofactorPreview": "23378694113210175412066431888922646"
+    },
+    "14242": {
+      "status": "CF",
+      "timestamp": 1781073634731,
+      "n": 14242,
+      "factors": [
+        "31",
+        "1531",
+        "6229"
+      ],
+      "cofactorLen": 50171,
+      "cofactorPreview": "80658570282708012338230854352675894"
+    },
+    "14244": {
+      "status": "CF",
+      "timestamp": 1781073635296,
+      "n": 14244,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50187,
+      "cofactorPreview": "39212940999973033300439598745077854"
+    },
+    "14246": {
+      "status": "C",
+      "timestamp": 1781073635871,
+      "n": 14246
+    },
+    "14248": {
+      "status": "CF",
+      "timestamp": 1781073636621,
+      "n": 14248,
+      "factors": [
+        "5",
+        "19",
+        "53",
+        "1097",
+        "2971"
+      ],
+      "cofactorLen": 50193,
+      "cofactorPreview": "80843271936657963343796176178828209"
+    },
+    "14250": {
+      "status": "CF",
+      "timestamp": 1781073637133,
+      "n": 14250,
+      "factors": [
+        "43",
+        "577"
+      ],
+      "cofactorLen": 50207,
+      "cofactorPreview": "44001538782269800122207725064892573"
+    },
+    "14252": {
+      "status": "CF",
+      "timestamp": 1781073637683,
+      "n": 14252,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50219,
+      "cofactorPreview": "17973122262111440568244142299149766"
+    },
+    "14254": {
+      "status": "C",
+      "timestamp": 1781073638222,
+      "n": 14254
+    },
+    "14256": {
+      "status": "CF",
+      "timestamp": 1781073638965,
+      "n": 14256,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "37",
+        "73",
+        "89",
+        "109",
+        "397",
+        "433",
+        "1297",
+        "2377",
+        "7129"
+      ],
+      "cofactorLen": 50209,
+      "cofactorPreview": "55711189379894121107924960007868554"
+    },
+    "14258": {
+      "status": "C",
+      "timestamp": 1781073639460,
+      "n": 14258
+    },
+    "14260": {
+      "status": "CF",
+      "timestamp": 1781073639972,
+      "n": 14260,
+      "factors": [
+        "5^2"
+      ],
+      "cofactorLen": 50250,
+      "cofactorPreview": "16549992849706827921980598306047691"
+    },
+    "14262": {
+      "status": "CF",
+      "timestamp": 1781073640456,
+      "n": 14262,
+      "factors": [
+        "101"
+      ],
+      "cofactorLen": 50257,
+      "cofactorPreview": "33768137169799029035506169517429462"
+    },
+    "14264": {
+      "status": "CF",
+      "timestamp": 1781073640988,
+      "n": 14264,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50266,
+      "cofactorPreview": "56243317697797003749626020087874887"
+    },
+    "14266": {
+      "status": "CF",
+      "timestamp": 1781073641523,
+      "n": 14266,
+      "factors": [
+        "19"
+      ],
+      "cofactorLen": 50274,
+      "cofactorPreview": "12207355046714862905571215514144458"
+    },
+    "14270": {
+      "status": "C",
+      "timestamp": 1781073642492,
+      "n": 14270
+    },
+    "14276": {
+      "status": "CF",
+      "timestamp": 1781073644039,
+      "n": 14276,
+      "factors": [
+        "5",
+        "173"
+      ],
+      "cofactorLen": 50312,
+      "cofactorPreview": "10276765100264248556250380509749940"
+    },
+    "14278": {
+      "status": "C",
+      "timestamp": 1781073644542,
+      "n": 14278
+    },
+    "14280": {
+      "status": "CF",
+      "timestamp": 1781073645126,
+      "n": 14280,
+      "factors": [
+        "5^2",
+        "13",
+        "29",
+        "41",
+        "61",
+        "137",
+        "281",
+        "409",
+        "421",
+        "953",
+        "1021",
+        "1429",
+        "2381",
+        "2857",
+        "6577"
+      ],
+      "cofactorLen": 50293,
+      "cofactorPreview": "62437812133436915742295850498557257"
+    },
+    "14284": {
+      "status": "CF",
+      "timestamp": 1781073646121,
+      "n": 14284,
+      "factors": [
+        "5",
+        "19"
+      ],
+      "cofactorLen": 50344,
+      "cofactorPreview": "43665373520634796854962662805272740"
+    },
+    "14286": {
+      "status": "CF",
+      "timestamp": 1781073646616,
+      "n": 14286,
+      "factors": [
+        "61",
+        "349",
+        "5867"
+      ],
+      "cofactorLen": 50346,
+      "cofactorPreview": "27468855900189123520139239167963227"
+    },
+    "14288": {
+      "status": "CF",
+      "timestamp": 1781073647170,
+      "n": 14288,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "cofactorLen": 50360,
+      "cofactorPreview": "33393791232899253327909627554347559"
+    },
+    "14290": {
+      "status": "C",
+      "timestamp": 1781073647665,
+      "n": 14290
+    },
+    "14292": {
+      "status": "CF",
+      "timestamp": 1781073648194,
+      "n": 14292,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "43",
+        "79"
+      ],
+      "cofactorLen": 50371,
+      "cofactorPreview": "23800397451663171860043800285823230"
+    },
+    "14294": {
+      "status": "CF",
+      "timestamp": 1781073648703,
+      "n": 14294,
+      "factors": [
+        "3793"
+      ],
+      "cofactorLen": 50382,
+      "cofactorPreview": "42447235602428239911836190298119239"
+    },
+    "14296": {
+      "status": "CF",
+      "timestamp": 1781073649214,
+      "n": 14296,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50393,
+      "cofactorPreview": "26669888213409808811491402995571518"
+    },
+    "14298": {
+      "status": "CF",
+      "timestamp": 1781073649732,
+      "n": 14298,
+      "factors": [
+        "373"
+      ],
+      "cofactorLen": 50399,
+      "cofactorPreview": "29618483864323819151333034614991160"
+    },
+    "14300": {
+      "status": "CF",
+      "timestamp": 1781073650272,
+      "n": 14300,
+      "factors": [
+        "5^3",
+        "53",
+        "101",
+        "1301",
+        "2861"
+      ],
+      "cofactorLen": 50397,
+      "cofactorPreview": "36759635328017397111629898544702695"
+    },
+    "14302": {
+      "status": "CF",
+      "timestamp": 1781073650801,
+      "n": 14302,
+      "factors": [
+        "19",
+        "31",
+        "379",
+        "877"
+      ],
+      "cofactorLen": 50409,
+      "cofactorPreview": "38765280719529519231673855778890629"
+    },
+    "14304": {
+      "status": "CF",
+      "timestamp": 1781073651334,
+      "n": 14304,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "97",
+        "983",
+        "1193",
+        "1789"
+      ],
+      "cofactorLen": 50411,
+      "cofactorPreview": "27983601206735460618720875572467885"
+    },
+    "14306": {
+      "status": "C",
+      "timestamp": 1781073651815,
+      "n": 14306
+    },
+    "14308": {
+      "status": "CF",
+      "timestamp": 1781073652332,
+      "n": 14308,
+      "factors": [
+        "5",
+        "29",
+        "71",
+        "197",
+        "293"
+      ],
+      "cofactorLen": 50432,
+      "cofactorPreview": "72867824439582046096844211209250072"
+    },
+    "14310": {
+      "status": "CF",
+      "timestamp": 1781073652853,
+      "n": 14310,
+      "factors": [
+        "563",
+        "4289"
+      ],
+      "cofactorLen": 50443,
+      "cofactorPreview": "14881294898630491315249080049031591"
+    },
+    "14312": {
+      "status": "CF",
+      "timestamp": 1781073653353,
+      "n": 14312,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50456,
+      "cofactorPreview": "59657591366203801180274055947115175"
+    },
+    "14314": {
+      "status": "C",
+      "timestamp": 1781073653853,
+      "n": 14314
+    },
+    "14316": {
+      "status": "CF",
+      "timestamp": 1781073654397,
+      "n": 14316,
+      "factors": [
+        "5",
+        "13",
+        "2129"
+      ],
+      "cofactorLen": 50468,
+      "cofactorPreview": "14865239798256681837095639745879374"
+    },
+    "14318": {
+      "status": "C",
+      "timestamp": 1781073654869,
+      "n": 14318
+    },
+    "14320": {
+      "status": "CF",
+      "timestamp": 1781073655434,
+      "n": 14320,
+      "factors": [
+        "5^2",
+        "17",
+        "19",
+        "41",
+        "47",
+        "1433",
+        "3581"
+      ],
+      "cofactorLen": 50475,
+      "cofactorPreview": "17786756613409450984077736833323346"
+    },
+    "14322": {
+      "status": "CF",
+      "timestamp": 1781073655999,
+      "n": 14322,
+      "factors": [
+        "137",
+        "5279"
+      ],
+      "cofactorLen": 50491,
+      "cofactorPreview": "16324374535635072093993460319428302"
+    },
+    "14324": {
+      "status": "CF",
+      "timestamp": 1781073656502,
+      "n": 14324,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50504,
+      "cofactorPreview": "19633481855530279307156008258201865"
+    },
+    "14326": {
+      "status": "C",
+      "timestamp": 1781073657003,
+      "n": 14326
+    },
+    "14328": {
+      "status": "CF",
+      "timestamp": 1781073657516,
+      "n": 14328,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50520,
+      "cofactorPreview": "13585581385354713428970276098722640"
+    },
+    "14330": {
+      "status": "C",
+      "timestamp": 1781073657990,
+      "n": 14330
+    },
+    "14332": {
+      "status": "CF",
+      "timestamp": 1781073658483,
+      "n": 14332,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50535,
+      "cofactorPreview": "94111801957407326129087048585600645"
+    },
+    "14334": {
+      "status": "CF",
+      "timestamp": 1781073658988,
+      "n": 14334,
+      "factors": [
+        "43",
+        "2039"
+      ],
+      "cofactorLen": 50539,
+      "cofactorPreview": "44688230542671411114767909316621379"
+    },
+    "14336": {
+      "status": "CF",
+      "timestamp": 1781073659558,
+      "n": 14336,
+      "factors": [
+        "5",
+        "17",
+        "29",
+        "113",
+        "257",
+        "449"
+      ],
+      "cofactorLen": 50542,
+      "cofactorPreview": "10152896157901978369252673058963142"
+    },
+    "14338": {
+      "status": "CF",
+      "timestamp": 1781073660099,
+      "n": 14338,
+      "factors": [
+        "19^2",
+        "1733"
+      ],
+      "cofactorLen": 50554,
+      "cofactorPreview": "43457638041115350640034405922122062"
+    },
+    "14340": {
+      "status": "CF",
+      "timestamp": 1781073660594,
+      "n": 14340,
+      "factors": [
+        "5^2"
+      ],
+      "cofactorLen": 50566,
+      "cofactorPreview": "90627528458051157865124255046404071"
+    },
+    "14342": {
+      "status": "CF",
+      "timestamp": 1781073661094,
+      "n": 14342,
+      "factors": [
+        "139",
+        "2819"
+      ],
+      "cofactorLen": 50570,
+      "cofactorPreview": "48199182110581123081349953230533312"
+    },
+    "14344": {
+      "status": "CF",
+      "timestamp": 1781073661620,
+      "n": 14344,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50583,
+      "cofactorPreview": "31495612711797886268036635983809279"
+    },
+    "14346": {
+      "status": "CF",
+      "timestamp": 1781073662135,
+      "n": 14346,
+      "factors": [
+        "61",
+        "311",
+        "6619"
+      ],
+      "cofactorLen": 50584,
+      "cofactorPreview": "10459937407500935275979995347321554"
+    },
+    "14348": {
+      "status": "CF",
+      "timestamp": 1781073662656,
+      "n": 14348,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50599,
+      "cofactorPreview": "21915652157586350482324465893708553"
+    },
+    "14350": {
+      "status": "C",
+      "timestamp": 1781073663133,
+      "n": 14350
+    },
+    "14352": {
+      "status": "CF",
+      "timestamp": 1781073663729,
+      "n": 14352,
+      "factors": [
+        "5",
+        "13^2",
+        "17",
+        "53",
+        "157",
+        "277",
+        "313",
+        "2393",
+        "7177"
+      ],
+      "cofactorLen": 50595,
+      "cofactorPreview": "42886649447430189948128061001493785"
+    },
+    "14354": {
+      "status": "CF",
+      "timestamp": 1781073664245,
+      "n": 14354,
+      "factors": [
+        "149",
+        "3167"
+      ],
+      "cofactorLen": 50618,
+      "cofactorPreview": "13506865109581069763737400481936838"
+    },
+    "14356": {
+      "status": "CF",
+      "timestamp": 1781073664767,
+      "n": 14356,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50631,
+      "cofactorPreview": "10646718772396027981147663551237501"
+    },
+    "14358": {
+      "status": "C",
+      "timestamp": 1781073665279,
+      "n": 14358
+    },
+    "14360": {
+      "status": "CF",
+      "timestamp": 1781073665832,
+      "n": 14360,
+      "factors": [
+        "5^2",
+        "41"
+      ],
+      "cofactorLen": 50644,
+      "cofactorPreview": "36259240100271876947741670252214513"
+    },
+    "14362": {
+      "status": "CF",
+      "timestamp": 1781073666383,
+      "n": 14362,
+      "factors": [
+        "31",
+        "101"
+      ],
+      "cofactorLen": 50651,
+      "cofactorPreview": "99224597634296526966487489322545108"
+    },
+    "14364": {
+      "status": "CF",
+      "timestamp": 1781073666889,
+      "n": 14364,
+      "factors": [
+        "5",
+        "29"
+      ],
+      "cofactorLen": 50661,
+      "cofactorPreview": "17914934090555257728722719566375784"
+    },
+    "14366": {
+      "status": "CF",
+      "timestamp": 1781073667420,
+      "n": 14366,
+      "factors": [
+        "47",
+        "1319"
+      ],
+      "cofactorLen": 50666,
+      "cofactorPreview": "35046310296807436640912442799127663"
+    },
+    "14368": {
+      "status": "CF",
+      "timestamp": 1781073667965,
+      "n": 14368,
+      "factors": [
+        "5",
+        "17",
+        "1723",
+        "3593"
+      ],
+      "cofactorLen": 50670,
+      "cofactorPreview": "34541897569475056603915330078637924"
+    },
+    "14370": {
+      "status": "CF",
+      "timestamp": 1781073668509,
+      "n": 14370,
+      "factors": [
+        "79",
+        "241",
+        "419"
+      ],
+      "cofactorLen": 50680,
+      "cofactorPreview": "19067467480506647494837461573524484"
+    },
+    "14372": {
+      "status": "CF",
+      "timestamp": 1781073669005,
+      "n": 14372,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50694,
+      "cofactorPreview": "25465113179005062489869879790573442"
+    },
+    "14374": {
+      "status": "CF",
+      "timestamp": 1781073669525,
+      "n": 14374,
+      "factors": [
+        "19"
+      ],
+      "cofactorLen": 50701,
+      "cofactorPreview": "56110911815472970351497260984348753"
+    },
+    "14376": {
+      "status": "CF",
+      "timestamp": 1781073670040,
+      "n": 14376,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50710,
+      "cofactorPreview": "17858175480183365432704800838600049"
+    },
+    "14378": {
+      "status": "CF",
+      "timestamp": 1781073670539,
+      "n": 14378,
+      "factors": [
+        "71"
+      ],
+      "cofactorLen": 50717,
+      "cofactorPreview": "10535999461044956909203282438022081"
+    },
+    "14380": {
+      "status": "CF",
+      "timestamp": 1781073671065,
+      "n": 14380,
+      "factors": [
+        "5^2"
+      ],
+      "cofactorLen": 50725,
+      "cofactorPreview": "25075055069372510636165419299105871"
+    },
+    "14382": {
+      "status": "C",
+      "timestamp": 1781073671603,
+      "n": 14382
+    },
+    "14384": {
+      "status": "CF",
+      "timestamp": 1781073672111,
+      "n": 14384,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50741,
+      "cofactorPreview": "88119072483144667926666031596009965"
+    },
+    "14386": {
+      "status": "CF",
+      "timestamp": 1781073672632,
+      "n": 14386,
+      "factors": [
+        "7517"
+      ],
+      "cofactorLen": 50746,
+      "cofactorPreview": "49159282942239750471492821343356748"
+    },
+    "14388": {
+      "status": "CF",
+      "timestamp": 1781073673144,
+      "n": 14388,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50757,
+      "cofactorPreview": "62002757413692901652443817253425205"
+    },
+    "14390": {
+      "status": "C",
+      "timestamp": 1781073673636,
+      "n": 14390
+    },
+    "14392": {
+      "status": "CF",
+      "timestamp": 1781073674206,
+      "n": 14392,
+      "factors": [
+        "5",
+        "19",
+        "29",
+        "31^2"
+      ],
+      "cofactorLen": 50767,
+      "cofactorPreview": "82482162652774564418868909816810450"
+    },
+    "14394": {
+      "status": "CF",
+      "timestamp": 1781073674687,
+      "n": 14394,
+      "factors": [
+        "773",
+        "3761"
+      ],
+      "cofactorLen": 50775,
+      "cofactorPreview": "63068902359300060107172038614083038"
+    },
+    "14396": {
+      "status": "CF",
+      "timestamp": 1781073675185,
+      "n": 14396,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50789,
+      "cofactorPreview": "30799371113136971329999552160734382"
+    },
+    "14400": {
+      "status": "CF",
+      "timestamp": 1781073676384,
+      "n": 14400,
+      "factors": [
+        "5^3",
+        "13",
+        "17",
+        "37",
+        "41",
+        "61",
+        "73",
+        "97",
+        "101",
+        "181",
+        "193",
+        "241",
+        "401",
+        "577",
+        "601",
+        "1201",
+        "1601",
+        "1801",
+        "4801"
+      ],
+      "cofactorLen": 50762,
+      "cofactorPreview": "30552048142563460476167037396280877"
+    },
+    "14402": {
+      "status": "C",
+      "timestamp": 1781073676916,
+      "n": 14402
+    },
+    "14404": {
+      "status": "CF",
+      "timestamp": 1781073677398,
+      "n": 14404,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50821,
+      "cofactorPreview": "15367504912134178125718720341467899"
+    },
+    "14406": {
+      "status": "CF",
+      "timestamp": 1781073677875,
+      "n": 14406,
+      "factors": [
+        "61"
+      ],
+      "cofactorLen": 50828,
+      "cofactorPreview": "10594011717102523399167920537397949"
+    },
+    "14408": {
+      "status": "CF",
+      "timestamp": 1781073678419,
+      "n": 14408,
+      "factors": [
+        "5",
+        "907",
+        "1381"
+      ],
+      "cofactorLen": 50830,
+      "cofactorPreview": "86807413430077078279429829523808725"
+    },
+    "14410": {
+      "status": "CF",
+      "timestamp": 1781073678895,
+      "n": 14410,
+      "factors": [
+        "19"
+      ],
+      "cofactorLen": 50844,
+      "cofactorPreview": "24078656599399885275454455727595521"
+    },
+    "14412": {
+      "status": "CF",
+      "timestamp": 1781073679395,
+      "n": 14412,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50852,
+      "cofactorPreview": "77018395562530564868244798270864491"
+    },
+    "14414": {
+      "status": "CF",
+      "timestamp": 1781073679885,
+      "n": 14414,
+      "factors": [
+        "67"
+      ],
+      "cofactorLen": 50859,
+      "cofactorPreview": "48393699024508697483356637646686346"
+    },
+    "14416": {
+      "status": "CF",
+      "timestamp": 1781073680431,
+      "n": 14416,
+      "factors": [
+        "5",
+        "17^2",
+        "137"
+      ],
+      "cofactorLen": 50864,
+      "cofactorPreview": "13794147764635231333239324129899751"
+    },
+    "14418": {
+      "status": "CF",
+      "timestamp": 1781073680943,
+      "n": 14418,
+      "factors": [
+        "43",
+        "4481"
+      ],
+      "cofactorLen": 50872,
+      "cofactorPreview": "11939332696431393679432262161842392"
+    },
+    "14420": {
+      "status": "CF",
+      "timestamp": 1781073681636,
+      "n": 14420,
+      "factors": [
+        "5^2"
+      ],
+      "cofactorLen": 50883,
+      "cofactorPreview": "77543266777253854037452967450436691"
+    },
+    "14424": {
+      "status": "CF",
+      "timestamp": 1781073682637,
+      "n": 14424,
+      "factors": [
+        "5",
+        "13",
+        "7213"
+      ],
+      "cofactorLen": 50895,
+      "cofactorPreview": "29385798089766062972753858367184154"
+    },
+    "14426": {
+      "status": "C",
+      "timestamp": 1781073683150,
+      "n": 14426
+    },
+    "14428": {
+      "status": "CF",
+      "timestamp": 1781073683707,
+      "n": 14428,
+      "factors": [
+        "5",
+        "19",
+        "1069"
+      ],
+      "cofactorLen": 50911,
+      "cofactorPreview": "96522791961171909328612098889281603"
+    },
+    "14430": {
+      "status": "C",
+      "timestamp": 1781073684204,
+      "n": 14430
+    },
+    "14432": {
+      "status": "CF",
+      "timestamp": 1781073684715,
+      "n": 14432,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "cofactorLen": 50930,
+      "cofactorPreview": "82140674285866908530075100128411783"
+    },
+    "14434": {
+      "status": "C",
+      "timestamp": 1781073685204,
+      "n": 14434
+    },
+    "14436": {
+      "status": "CF",
+      "timestamp": 1781073685718,
+      "n": 14436,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 50947,
+      "cofactorPreview": "99571408620469218405653424090706278"
+    },
+    "14438": {
+      "status": "CF",
+      "timestamp": 1781073686227,
+      "n": 14438,
+      "factors": [
+        "1229"
+      ],
+      "cofactorLen": 50953,
+      "cofactorPreview": "34221340099460635462369382126420105"
+    },
+    "14440": {
+      "status": "CF",
+      "timestamp": 1781073686740,
+      "n": 14440,
+      "factors": [
+        "5^2",
+        "41",
+        "761",
+        "2417"
+      ],
+      "cofactorLen": 50955,
+      "cofactorPreview": "18850734568200934599440887096864477"
+    },
+    "14442": {
+      "status": "CF",
+      "timestamp": 1781073687220,
+      "n": 14442,
+      "factors": [
+        "1409"
+      ],
+      "cofactorLen": 50969,
+      "cofactorPreview": "21320005497438757293125008528905209"
+    },
+    "14444": {
+      "status": "CF",
+      "timestamp": 1781073687733,
+      "n": 14444,
+      "factors": [
+        "5",
+        "359"
+      ],
+      "cofactorLen": 50977,
+      "cofactorPreview": "14149431450350417829160756046871161"
+    },
+    "14446": {
+      "status": "CF",
+      "timestamp": 1781073688312,
+      "n": 14446,
+      "factors": [
+        "19",
+        "5227"
+      ],
+      "cofactorLen": 50983,
+      "cofactorPreview": "21628317881725056507061258687740626"
+    },
+    "14448": {
+      "status": "CF",
+      "timestamp": 1781073688870,
+      "n": 14448,
+      "factors": [
+        "5",
+        "173"
+      ],
+      "cofactorLen": 50993,
+      "cofactorPreview": "21006726894104850442615083965125513"
+    },
+    "14452": {
+      "status": "CF",
+      "timestamp": 1781073689909,
+      "n": 14452,
+      "factors": [
+        "5",
+        "31",
+        "311",
+        "1601"
+      ],
+      "cofactorLen": 51004,
+      "cofactorPreview": "16863319234389439218394043744558683"
+    },
+    "14454": {
+      "status": "C",
+      "timestamp": 1781073690439,
+      "n": 14454
+    },
+    "14456": {
+      "status": "CF",
+      "timestamp": 1781073690960,
+      "n": 14456,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51027,
+      "cofactorPreview": "18663335228150769512927560965042013"
+    },
+    "14460": {
+      "status": "CF",
+      "timestamp": 1781073692091,
+      "n": 14460,
+      "factors": [
+        "5^2",
+        "13",
+        "43",
+        "61"
+      ],
+      "cofactorLen": 51037,
+      "cofactorPreview": "78576205686368787095007945391998987"
+    },
+    "14462": {
+      "status": "CF",
+      "timestamp": 1781073692649,
+      "n": 14462,
+      "factors": [
+        "101"
+      ],
+      "cofactorLen": 51049,
+      "cofactorPreview": "56213193782803013568639084818246294"
+    },
+    "14466": {
+      "status": "CF",
+      "timestamp": 1781073693667,
+      "n": 14466,
+      "factors": [
+        "61"
+      ],
+      "cofactorLen": 51065,
+      "cofactorPreview": "66921241523213487139095956801427886"
+    },
+    "14470": {
+      "status": "CF",
+      "timestamp": 1781073694683,
+      "n": 14470,
+      "factors": [
+        "433"
+      ],
+      "cofactorLen": 51080,
+      "cofactorPreview": "67861030333410447861220436898838023"
+    },
+    "14472": {
+      "status": "CF",
+      "timestamp": 1781073695236,
+      "n": 14472,
+      "factors": [
+        "5",
+        "13"
+      ],
+      "cofactorLen": 51089,
+      "cofactorPreview": "38369163604435432416796007443489226"
+    },
+    "14474": {
+      "status": "CF",
+      "timestamp": 1781073695786,
+      "n": 14474,
+      "factors": [
+        "193"
+      ],
+      "cofactorLen": 51097,
+      "cofactorPreview": "10970988409635770276120219006758333"
+    },
+    "14476": {
+      "status": "CF",
+      "timestamp": 1781073696299,
+      "n": 14476,
+      "factors": [
+        "5",
+        "29",
+        "2069"
+      ],
+      "cofactorLen": 51101,
+      "cofactorPreview": "59937961043718536228969754482853054"
+    },
+    "14478": {
+      "status": "CF",
+      "timestamp": 1781073696790,
+      "n": 14478,
+      "factors": [
+        "3541"
+      ],
+      "cofactorLen": 51111,
+      "cofactorPreview": "43137197210602287774152580194577183"
+    },
+    "14482": {
+      "status": "CF",
+      "timestamp": 1781073697784,
+      "n": 14482,
+      "factors": [
+        "19",
+        "31"
+      ],
+      "cofactorLen": 51128,
+      "cofactorPreview": "18729115780884016296368113173023303"
+    },
+    "14484": {
+      "status": "CF",
+      "timestamp": 1781073698324,
+      "n": 14484,
+      "factors": [
+        "5",
+        "13",
+        "853"
+      ],
+      "cofactorLen": 51134,
+      "cofactorPreview": "16915213127088661761285457063395725"
+    },
+    "14486": {
+      "status": "C",
+      "timestamp": 1781073698816,
+      "n": 14486
+    },
+    "14490": {
+      "status": "C",
+      "timestamp": 1781073699817,
+      "n": 14490
+    },
+    "14494": {
+      "status": "C",
+      "timestamp": 1781073700760,
+      "n": 14494
+    },
+    "14496": {
+      "status": "CF",
+      "timestamp": 1781073701301,
+      "n": 14496,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "cofactorLen": 51184,
+      "cofactorPreview": "41906628166632500909517783971809380"
+    },
+    "14500": {
+      "status": "CF",
+      "timestamp": 1781073702308,
+      "n": 14500,
+      "factors": [
+        "5^4"
+      ],
+      "cofactorLen": 51199,
+      "cofactorPreview": "41365131120168821829334149784605370"
+    },
+    "14502": {
+      "status": "CF",
+      "timestamp": 1781073702792,
+      "n": 14502,
+      "factors": [
+        "43",
+        "149",
+        "353",
+        "967"
+      ],
+      "cofactorLen": 51201,
+      "cofactorPreview": "10074989877262117743266159645300620"
+    },
+    "14504": {
+      "status": "CF",
+      "timestamp": 1781073703290,
+      "n": 14504,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51217,
+      "cofactorPreview": "37569585327580782702901606776710003"
+    },
+    "14506": {
+      "status": "C",
+      "timestamp": 1781073703766,
+      "n": 14506
+    },
+    "14508": {
+      "status": "CF",
+      "timestamp": 1781073704352,
+      "n": 14508,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51233,
+      "cofactorPreview": "27327975376079710784842026984914997"
+    },
+    "14510": {
+      "status": "C",
+      "timestamp": 1781073704856,
+      "n": 14510
+    },
+    "14512": {
+      "status": "CF",
+      "timestamp": 1781073705431,
+      "n": 14512,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51249,
+      "cofactorPreview": "19900200612945781247994876226731215"
+    },
+    "14514": {
+      "status": "C",
+      "timestamp": 1781073705917,
+      "n": 14514
+    },
+    "14516": {
+      "status": "CF",
+      "timestamp": 1781073706392,
+      "n": 14516,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51265,
+      "cofactorPreview": "14507288912871947189542128282905696"
+    },
+    "14518": {
+      "status": "CF",
+      "timestamp": 1781073706954,
+      "n": 14518,
+      "factors": [
+        "19",
+        "71",
+        "307"
+      ],
+      "cofactorLen": 51268,
+      "cofactorPreview": "14960629030476214157759264751280761"
+    },
+    "14520": {
+      "status": "CF",
+      "timestamp": 1781073707552,
+      "n": 14520,
+      "factors": [
+        "5^2",
+        "13",
+        "41",
+        "61",
+        "89",
+        "661",
+        "1321",
+        "1453",
+        "2083"
+      ],
+      "cofactorLen": 51261,
+      "cofactorPreview": "27689653817998519129948816121958622"
+    },
+    "14522": {
+      "status": "C",
+      "timestamp": 1781073708023,
+      "n": 14522
+    },
+    "14524": {
+      "status": "CF",
+      "timestamp": 1781073708502,
+      "n": 14524,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51296,
+      "cofactorPreview": "77353464537776463345895041165629377"
+    },
+    "14526": {
+      "status": "CF",
+      "timestamp": 1781073709006,
+      "n": 14526,
+      "factors": [
+        "61",
+        "79"
+      ],
+      "cofactorLen": 51301,
+      "cofactorPreview": "68630201609889452654936256892337648"
+    },
+    "14528": {
+      "status": "CF",
+      "timestamp": 1781073709544,
+      "n": 14528,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "cofactorLen": 51311,
+      "cofactorPreview": "33280917373940661009075927864263641"
+    },
+    "14532": {
+      "status": "CF",
+      "timestamp": 1781073710616,
+      "n": 14532,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51328,
+      "cofactorPreview": "41427328891152512884776457605329721"
+    },
+    "14534": {
+      "status": "C",
+      "timestamp": 1781073711112,
+      "n": 14534
+    },
+    "14536": {
+      "status": "CF",
+      "timestamp": 1781073711632,
+      "n": 14536,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51344,
+      "cofactorPreview": "30367413556295112302310779893730809"
+    },
+    "14538": {
+      "status": "C",
+      "timestamp": 1781073712128,
+      "n": 14538
+    },
+    "14540": {
+      "status": "CF",
+      "timestamp": 1781073712771,
+      "n": 14540,
+      "factors": [
+        "5^2"
+      ],
+      "cofactorLen": 51359,
+      "cofactorPreview": "44569389931390743356841996125681264"
+    },
+    "14542": {
+      "status": "CF",
+      "timestamp": 1781073713289,
+      "n": 14542,
+      "factors": [
+        "31"
+      ],
+      "cofactorLen": 51367,
+      "cofactorPreview": "30803046042232949174086397753597963"
+    },
+    "14544": {
+      "status": "CF",
+      "timestamp": 1781073713828,
+      "n": 14544,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51376,
+      "cofactorPreview": "16371311441806366206715935562850457"
+    },
+    "14546": {
+      "status": "CF",
+      "timestamp": 1781073714375,
+      "n": 14546,
+      "factors": [
+        "67",
+        "751"
+      ],
+      "cofactorLen": 51380,
+      "cofactorPreview": "13949424473731609671204333128601664"
+    },
+    "14548": {
+      "status": "CF",
+      "timestamp": 1781073714942,
+      "n": 14548,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51392,
+      "cofactorPreview": "12040319248037395881756148553125312"
+    },
+    "14550": {
+      "status": "CF",
+      "timestamp": 1781073715557,
+      "n": 14550,
+      "factors": [
+        "47",
+        "463"
+      ],
+      "cofactorLen": 51396,
+      "cofactorPreview": "23734798052592534372249807379634446"
+    },
+    "14552": {
+      "status": "CF",
+      "timestamp": 1781073716077,
+      "n": 14552,
+      "factors": [
+        "5"
+      ],
+      "cofactorLen": 51407,
+      "cofactorPreview": "88648248278361586960827846354094046"
     }
   },
   "changelog": [
     {
-      "n": 14208,
+      "n": 14552,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 50045d",
-      "ts": 1781012319338
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51407d",
+      "ts": 1781073716115
     },
     {
-      "n": 14210,
+      "n": 14550,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 50046d",
-      "ts": 1781004674792
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51396d",
+      "ts": 1781073715589
     },
     {
-      "n": 14206,
+      "n": 14548,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 50035d",
-      "ts": 1781004673738
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51392d",
+      "ts": 1781073714974
     },
     {
-      "n": 10320,
+      "n": 14546,
       "type": "updated",
-      "detail": "FDB CF: 10 factor(s) known, cofactor 34896d",
-      "ts": 1780990999509
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51380d",
+      "ts": 1781073714409
     },
     {
-      "n": 10028,
+      "n": 14544,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 33798d",
-      "ts": 1780990998789
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51376d",
+      "ts": 1781073713859
     },
     {
-      "n": 9962,
+      "n": 14542,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 33547d",
-      "ts": 1780990998064
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51367d",
+      "ts": 1781073713321
     },
     {
-      "n": 7814,
+      "n": 14540,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 25480d",
-      "ts": 1780990997372
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51359d",
+      "ts": 1781073712803
     },
     {
-      "n": 5854,
+      "n": 14536,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 18355d",
-      "ts": 1780990996517
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51344d",
+      "ts": 1781073711665
     },
     {
-      "n": 5664,
+      "n": 14532,
       "type": "updated",
-      "detail": "FDB CF: 10 factor(s) known, cofactor 17656d",
-      "ts": 1780990995773
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51328d",
+      "ts": 1781073710647
     },
     {
-      "n": 3210,
+      "n": 14528,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 9220d",
-      "ts": 1780990995107
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51311d",
+      "ts": 1781073709575
     },
     {
-      "n": 2856,
+      "n": 14526,
       "type": "updated",
-      "detail": "FDB CF: 9 factor(s) known, cofactor 8044d",
-      "ts": 1780990994420
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51301d",
+      "ts": 1781073709026
     },
     {
-      "n": 2472,
+      "n": 14524,
       "type": "updated",
-      "detail": "FDB CF: 7 factor(s) known, cofactor 6803d",
-      "ts": 1780990993724
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51296d",
+      "ts": 1781073708532
     },
     {
-      "n": 11000,
+      "n": 14520,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37512d",
-      "ts": 1780989782361
+      "detail": "FDB CF: 9 factor(s) known, cofactor 51261d",
+      "ts": 1781073707568
     },
     {
-      "n": 10998,
+      "n": 14518,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37513d",
-      "ts": 1780989781631
+      "detail": "FDB CF: 3 factor(s) known, cofactor 51268d",
+      "ts": 1781073706971
     },
     {
-      "n": 10996,
+      "n": 14516,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37497d",
-      "ts": 1780989780911
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51265d",
+      "ts": 1781073706408
     },
     {
-      "n": 10994,
+      "n": 14512,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37493d",
-      "ts": 1780989780191
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51249d",
+      "ts": 1781073705448
     },
     {
-      "n": 10992,
+      "n": 14508,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37483d",
-      "ts": 1780989779455
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51233d",
+      "ts": 1781073704382
     },
     {
-      "n": 10990,
+      "n": 14504,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37481d",
-      "ts": 1780989778714
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51217d",
+      "ts": 1781073703304
     },
     {
-      "n": 10988,
+      "n": 14502,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37469d",
-      "ts": 1780989777997
+      "detail": "FDB CF: 4 factor(s) known, cofactor 51201d",
+      "ts": 1781073702807
     },
     {
-      "n": 10986,
+      "n": 14500,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37458d",
-      "ts": 1780989777222
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51199d",
+      "ts": 1781073702322
     },
     {
-      "n": 10984,
+      "n": 14496,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37462d",
-      "ts": 1780989776462
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51184d",
+      "ts": 1781073701329
     },
     {
-      "n": 10982,
+      "n": 14484,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 37440d",
-      "ts": 1780989775668
+      "detail": "FDB CF: 3 factor(s) known, cofactor 51134d",
+      "ts": 1781073698339
     },
     {
-      "n": 10980,
+      "n": 14482,
       "type": "updated",
-      "detail": "FDB CF: 7 factor(s) known, cofactor 37430d",
-      "ts": 1780989774923
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51128d",
+      "ts": 1781073697798
     },
     {
-      "n": 10978,
+      "n": 14478,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37432d",
-      "ts": 1780989774146
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51111d",
+      "ts": 1781073696808
     },
     {
-      "n": 10976,
+      "n": 14476,
       "type": "updated",
-      "detail": "FDB CF: 8 factor(s) known, cofactor 37412d",
-      "ts": 1780989773401
+      "detail": "FDB CF: 3 factor(s) known, cofactor 51101d",
+      "ts": 1781073696326
     },
     {
-      "n": 10974,
+      "n": 14474,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37415d",
-      "ts": 1780989772665
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51097d",
+      "ts": 1781073695813
     },
     {
-      "n": 10972,
+      "n": 14472,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 37402d",
-      "ts": 1780989771914
+      "detail": "FDB CF: 2 factor(s) known, cofactor 51089d",
+      "ts": 1781073695262
     },
     {
-      "n": 10968,
+      "n": 14470,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37399d",
-      "ts": 1780989770393
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51080d",
+      "ts": 1781073694709
     },
     {
-      "n": 10966,
+      "n": 14466,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37383d",
-      "ts": 1780989769681
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51065d",
+      "ts": 1781073693693
     },
     {
-      "n": 10964,
+      "n": 14462,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37375d",
-      "ts": 1780989768899
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51049d",
+      "ts": 1781073692675
     },
     {
-      "n": 10962,
+      "n": 14460,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37369d",
-      "ts": 1780989768175
+      "detail": "FDB CF: 4 factor(s) known, cofactor 51037d",
+      "ts": 1781073692116
     },
     {
-      "n": 10960,
+      "n": 14456,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37359d",
-      "ts": 1780989767291
+      "detail": "FDB CF: 1 factor(s) known, cofactor 51027d",
+      "ts": 1781073690985
     },
     {
-      "n": 10958,
+      "n": 14452,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37359d",
-      "ts": 1780989766517
+      "detail": "FDB CF: 4 factor(s) known, cofactor 51004d",
+      "ts": 1781073689934
     },
     {
-      "n": 10956,
+      "n": 14448,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 37346d",
-      "ts": 1780989765638
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50993d",
+      "ts": 1781073688884
     },
     {
-      "n": 10954,
+      "n": 14446,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37343d",
-      "ts": 1780989764887
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50983d",
+      "ts": 1781073688340
     },
     {
-      "n": 10952,
+      "n": 14444,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 37329d",
-      "ts": 1780989764164
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50977d",
+      "ts": 1781073687762
     },
     {
-      "n": 10950,
+      "n": 14442,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37323d",
-      "ts": 1780989763409
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50969d",
+      "ts": 1781073687234
     },
     {
-      "n": 10948,
+      "n": 14440,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37312d",
-      "ts": 1780989762646
+      "detail": "FDB CF: 4 factor(s) known, cofactor 50955d",
+      "ts": 1781073686754
     },
     {
-      "n": 10946,
+      "n": 14438,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37312d",
-      "ts": 1780989761856
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50953d",
+      "ts": 1781073686241
     },
     {
-      "n": 10944,
+      "n": 14436,
       "type": "updated",
-      "detail": "FDB CF: 11 factor(s) known, cofactor 37287d",
-      "ts": 1780989761122
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50947d",
+      "ts": 1781073685742
     },
     {
-      "n": 10942,
+      "n": 14432,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37291d",
-      "ts": 1780989760350
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50930d",
+      "ts": 1781073684737
     },
     {
-      "n": 10940,
+      "n": 14428,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37292d",
-      "ts": 1780989759597
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50911d",
+      "ts": 1781073683724
     },
     {
-      "n": 10938,
+      "n": 14424,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37268d",
-      "ts": 1780989758836
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50895d",
+      "ts": 1781073682650
     },
     {
-      "n": 10936,
+      "n": 14420,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 37269d",
-      "ts": 1780989758102
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50883d",
+      "ts": 1781073681649
     },
     {
-      "n": 10934,
+      "n": 14418,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37266d",
-      "ts": 1780989757359
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50872d",
+      "ts": 1781073680956
     },
     {
-      "n": 10932,
+      "n": 14416,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37259d",
-      "ts": 1780989756613
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50864d",
+      "ts": 1781073680444
     },
     {
-      "n": 10930,
+      "n": 14414,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37247d",
-      "ts": 1780989755887
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50859d",
+      "ts": 1781073679902
     },
     {
-      "n": 10928,
+      "n": 14412,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37245d",
-      "ts": 1780989755132
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50852d",
+      "ts": 1781073679407
     },
     {
-      "n": 10926,
+      "n": 14410,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37238d",
-      "ts": 1780989754416
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50844d",
+      "ts": 1781073678907
     },
     {
-      "n": 10924,
+      "n": 14408,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37224d",
-      "ts": 1780989753660
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50830d",
+      "ts": 1781073678430
     },
     {
-      "n": 10922,
+      "n": 14406,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37217d",
-      "ts": 1780989752912
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50828d",
+      "ts": 1781073677886
     },
     {
-      "n": 10920,
+      "n": 14404,
       "type": "updated",
-      "detail": "FDB CF: 12 factor(s) known, cofactor 37191d",
-      "ts": 1780989751938
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50821d",
+      "ts": 1781073677409
     },
     {
-      "n": 10918,
+      "n": 14400,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 37195d",
-      "ts": 1780989751198
+      "detail": "FDB CF: 19 factor(s) known, cofactor 50762d",
+      "ts": 1781073676396
     },
     {
-      "n": 10916,
+      "n": 14396,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37197d",
-      "ts": 1780989750428
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50789d",
+      "ts": 1781073675207
     },
     {
-      "n": 10914,
+      "n": 14394,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37188d",
-      "ts": 1780989749704
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50775d",
+      "ts": 1781073674706
     },
     {
-      "n": 10912,
+      "n": 14392,
       "type": "updated",
-      "detail": "FDB CF: 7 factor(s) known, cofactor 37168d",
-      "ts": 1780989748927
+      "detail": "FDB CF: 4 factor(s) known, cofactor 50767d",
+      "ts": 1781073674217
     },
     {
-      "n": 10908,
+      "n": 14388,
       "type": "updated",
-      "detail": "FDB CF: 8 factor(s) known, cofactor 37149d",
-      "ts": 1780989747437
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50757d",
+      "ts": 1781073673164
     },
     {
-      "n": 10904,
+      "n": 14386,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 37142d",
-      "ts": 1780989745983
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50746d",
+      "ts": 1781073672654
     },
     {
-      "n": 10902,
+      "n": 14384,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37142d",
-      "ts": 1780989745263
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50741d",
+      "ts": 1781073672129
     },
     {
-      "n": 10900,
+      "n": 14380,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 37123d",
-      "ts": 1780989744502
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50725d",
+      "ts": 1781073671085
     },
     {
-      "n": 10898,
+      "n": 14378,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37129d",
-      "ts": 1780989743780
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50717d",
+      "ts": 1781073670558
     },
     {
-      "n": 10896,
+      "n": 14376,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37112d",
-      "ts": 1780989743024
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50710d",
+      "ts": 1781073670060
     },
     {
-      "n": 10894,
+      "n": 14374,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37113d",
-      "ts": 1780989742253
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50701d",
+      "ts": 1781073669544
     },
     {
-      "n": 10892,
+      "n": 14372,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37104d",
-      "ts": 1780989741526
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50694d",
+      "ts": 1781073669016
     },
     {
-      "n": 10890,
+      "n": 14370,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37090d",
-      "ts": 1780989740792
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50680d",
+      "ts": 1781073668520
     },
     {
-      "n": 10888,
+      "n": 14368,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37089d",
-      "ts": 1780989740033
+      "detail": "FDB CF: 4 factor(s) known, cofactor 50670d",
+      "ts": 1781073667977
     },
     {
-      "n": 10884,
+      "n": 14366,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37076d",
-      "ts": 1780989738540
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50666d",
+      "ts": 1781073667430
     },
     {
-      "n": 10882,
+      "n": 14364,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 37064d",
-      "ts": 1780989737786
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50661d",
+      "ts": 1781073666900
     },
     {
-      "n": 10880,
+      "n": 14362,
       "type": "updated",
-      "detail": "FDB CF: 7 factor(s) known, cofactor 37045d",
-      "ts": 1780989737027
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50651d",
+      "ts": 1781073666401
     },
     {
-      "n": 10878,
+      "n": 14360,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37050d",
-      "ts": 1780989736236
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50644d",
+      "ts": 1781073665850
     },
     {
-      "n": 10876,
+      "n": 14356,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37031d",
-      "ts": 1780989735465
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50631d",
+      "ts": 1781073664787
     },
     {
-      "n": 10874,
+      "n": 14354,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37036d",
-      "ts": 1780989734705
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50618d",
+      "ts": 1781073664264
     },
     {
-      "n": 10872,
+      "n": 14352,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 37023d",
-      "ts": 1780989733927
+      "detail": "FDB CF: 9 factor(s) known, cofactor 50595d",
+      "ts": 1781073663745
     },
     {
-      "n": 10870,
+      "n": 14348,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 37023d",
-      "ts": 1780989733150
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50599d",
+      "ts": 1781073662670
     },
     {
-      "n": 10868,
+      "n": 14346,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37014d",
-      "ts": 1780989732407
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50584d",
+      "ts": 1781073662144
     },
     {
-      "n": 10866,
+      "n": 14344,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 37003d",
-      "ts": 1780989731666
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50583d",
+      "ts": 1781073661631
     },
     {
-      "n": 10864,
+      "n": 14342,
       "type": "updated",
-      "detail": "FDB CF: 8 factor(s) known, cofactor 36986d",
-      "ts": 1780989730928
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50570d",
+      "ts": 1781073661112
     },
     {
-      "n": 10862,
+      "n": 14340,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 36988d",
-      "ts": 1780989730202
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50566d",
+      "ts": 1781073660608
     },
     {
-      "n": 10860,
+      "n": 14338,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 36973d",
-      "ts": 1780989729445
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50554d",
+      "ts": 1781073660108
     },
     {
-      "n": 10858,
+      "n": 14336,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 36974d",
-      "ts": 1780989728675
+      "detail": "FDB CF: 6 factor(s) known, cofactor 50542d",
+      "ts": 1781073659575
     },
     {
-      "n": 10856,
+      "n": 14334,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36960d",
-      "ts": 1780989727930
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50539d",
+      "ts": 1781073659002
     },
     {
-      "n": 10854,
+      "n": 14332,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 36955d",
-      "ts": 1780989727182
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50535d",
+      "ts": 1781073658497
     },
     {
-      "n": 10852,
+      "n": 14328,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 36935d",
-      "ts": 1780989726364
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50520d",
+      "ts": 1781073657531
     },
     {
-      "n": 10850,
+      "n": 14324,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 36946d",
-      "ts": 1780989725550
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50504d",
+      "ts": 1781073656516
     },
     {
-      "n": 10848,
+      "n": 14322,
       "type": "updated",
-      "detail": "FDB CF: 8 factor(s) known, cofactor 36921d",
-      "ts": 1780989724788
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50491d",
+      "ts": 1781073656013
     },
     {
-      "n": 10846,
+      "n": 14320,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36925d",
-      "ts": 1780989724039
+      "detail": "FDB CF: 7 factor(s) known, cofactor 50475d",
+      "ts": 1781073655450
     },
     {
-      "n": 10844,
+      "n": 14316,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 36920d",
-      "ts": 1780989723274
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50468d",
+      "ts": 1781073654406
     },
     {
-      "n": 10840,
+      "n": 14312,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 36897d",
-      "ts": 1780989721780
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50456d",
+      "ts": 1781073653362
     },
     {
-      "n": 10836,
+      "n": 14310,
       "type": "updated",
-      "detail": "FDB CF: 8 factor(s) known, cofactor 36876d",
-      "ts": 1780989720278
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50443d",
+      "ts": 1781073652862
     },
     {
-      "n": 10832,
+      "n": 14308,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36873d",
-      "ts": 1780989718801
+      "detail": "FDB CF: 5 factor(s) known, cofactor 50432d",
+      "ts": 1781073652345
     },
     {
-      "n": 10830,
+      "n": 14304,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 36861d",
-      "ts": 1780989718037
+      "detail": "FDB CF: 7 factor(s) known, cofactor 50411d",
+      "ts": 1781073651342
     },
     {
-      "n": 10828,
+      "n": 14302,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36856d",
-      "ts": 1780989717296
+      "detail": "FDB CF: 4 factor(s) known, cofactor 50409d",
+      "ts": 1781073650810
     },
     {
-      "n": 10826,
+      "n": 14300,
       "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 36850d",
-      "ts": 1780989716533
+      "detail": "FDB CF: 5 factor(s) known, cofactor 50397d",
+      "ts": 1781073650287
     },
     {
-      "n": 10824,
+      "n": 14298,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 36835d",
-      "ts": 1780989715740
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50399d",
+      "ts": 1781073649741
     },
     {
-      "n": 10822,
+      "n": 14296,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36832d",
-      "ts": 1780989714976
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50393d",
+      "ts": 1781073649222
     },
     {
-      "n": 10820,
+      "n": 14294,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 36831d",
-      "ts": 1780989714225
+      "detail": "FDB CF: 1 factor(s) known, cofactor 50382d",
+      "ts": 1781073648711
     },
     {
-      "n": 10816,
+      "n": 14292,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 36801d",
-      "ts": 1780989712733
+      "detail": "FDB CF: 5 factor(s) known, cofactor 50371d",
+      "ts": 1781073648204
     },
     {
-      "n": 10812,
+      "n": 14288,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 36790d",
-      "ts": 1780989711036
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50360d",
+      "ts": 1781073647177
     },
     {
-      "n": 10810,
+      "n": 14286,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 36782d",
-      "ts": 1780989710288
+      "detail": "FDB CF: 3 factor(s) known, cofactor 50346d",
+      "ts": 1781073646626
     },
     {
-      "n": 10808,
+      "n": 14284,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s) known, cofactor 36772d",
-      "ts": 1780989709556
+      "detail": "FDB CF: 2 factor(s) known, cofactor 50344d",
+      "ts": 1781073646133
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-10T06:32:44.223Z"
+  "updatedAt": "2026-06-10T07:07:31.332Z"
 }
