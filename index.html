@@ -2870,8 +2870,18 @@ async function modalCheckFull(n) {
       e._fdbVerified = true;
     }
 
+    // U (FDB Unknown) → mark as fdb-unknown
+    if (status === 'U') {
+      if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'fdb-unknown';
+    }
+    // C (Composite, no factors) → composite
+    if (status === 'C') {
+      if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'composite';
+    }
+
     addLog(`E(${n}) queried → ${fdbStatusLabel(status)}`, 'ok');
     renderGrid();
+    renderStats();
     const backdrop = document.getElementById('modalBackdrop');
     if (backdrop && backdrop.classList.contains('open')) openModal(n);
   } catch(err) {
@@ -2880,10 +2890,21 @@ async function modalCheckFull(n) {
       btn.disabled = false;
       btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
     }
+    // If both direct and proxy failed for a large number → auto-mark as fdb-unknown
+    if (err.message && err.message.includes('Both') && e.val && e.val.length > 49999) {
+      fdbCache[e.val] = { status: 'U', timestamp: Date.now(), n };
+      saveFDBCache(fdbCache);
+      if (e.status === 'unknown') e.status = 'fdb-unknown';
+      addLog('E(' + n + ') auto-marked as FDB Unknown (query failed, large number)', 'warn');
+      renderGrid();
+      renderStats();
+      const bd = document.getElementById('modalBackdrop');
+      if (bd && bd.classList.contains('open')) openModal(n);
+    }
     // Make error persistent — store in a data attribute so it survives re-renders
     const errEl = document.getElementById('fdbQueryStatus_' + n);
     if (errEl) {
-      const isLarge = e && e.val && e.val.length > 10000;
+      const isLarge = e && e.val && e.val.length > 49999;
       errEl.innerHTML = '<span style="color:var(--red)">⚠ ' + err.message + '</span>'
         + (isLarge
           ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB Unknown</button>'
