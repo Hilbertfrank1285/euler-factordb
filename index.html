@@ -2583,7 +2583,7 @@ function applyFilters() {
     filtered.sort((a, b) => a.n - b.n);
   }
   currentPage = 1;
-  applyFilters();
+  renderGrid();
   renderPagination();
   renderStats();
 }
@@ -3903,18 +3903,15 @@ function applyBulkECM() {
 }
 
 function syncAttemptedStatus(n) {
-  // Update just the affected entry's status, then re-render once
-  const ecmD    = loadECM();
-  const has     = (ecmD[String(n)] || []).length > 0;
-  const entry   = allEntries.find(e => e.n === n);
+  const ecmD  = loadECM();
+  const has   = (ecmD[String(n)] || []).length > 0;
+  const entry = allEntries.find(e => e.n === n);
   if (entry) {
-    if (has && (entry.status === 'unknown' || entry.status === 'composite')) {
-      entry.status = 'attempted';
-    } else if (!has && entry.status === 'attempted') {
-      entry.status = 'composite';
-    }
+    if (has && (entry.status === 'unknown' || entry.status === 'composite')) entry.status = 'attempted';
+    else if (!has && entry.status === 'attempted') entry.status = 'composite';
   }
-  applyFilters();
+  // Use renderGrid directly — syncAttemptedStatus can be called during renders
+  renderGrid();
   renderStats();
 }
 
