@@ -2081,7 +2081,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   cancelRequested = false;
   for (const target of queue.slice(0, MAX_PER_SESSION)) {
     if (cancelRequested) {
-      addLog(`Poll cancelled after ${done} of ${total} requests`, 'warn');
+      const notChecked = total - done;
+      addLog(`Poll cancelled — ${updated} updated · ${errors} errors · ${done} checked · ${notChecked} not checked`, 'warn');
       break;
     }
     const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
@@ -2210,7 +2211,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
   const leftover = queue.length - total;
   let msg = cancelRequested
-    ? `Cancelled — ${updated} updated, ${errors} errors, ${total - done} not checked`
+    ? `Cancelled — ${updated} updated · ${errors} errors · ${done} checked · ${total - done} not checked`
     : `Done — ${updated} updated, ${errors} errors`;
   if (!cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (session cap)`;
 
@@ -2799,7 +2800,7 @@ function openModal(n) {
 
   // Unknown + FactorDB check
   let unknownFdbHtml = '';
-  if (e.status === 'unknown' && e.val) {
+  if (e.status !== 'full' && e.val) {
     const c = fdbCache[e.val];
     if (c) {
       unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
