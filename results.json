@@ -1042,7 +1042,7 @@
     },
     "174": {
       "status": "CF",
-      "timestamp": 1780903999958,
+      "timestamp": 1781092960893,
       "n": 174,
       "factors": [
         "79",
@@ -1053,7 +1053,7 @@
     },
     "176": {
       "status": "CF",
-      "timestamp": 1780904000585,
+      "timestamp": 1781092961293,
       "n": 176,
       "factors": [
         "5",
@@ -1094,7 +1094,7 @@
     },
     "182": {
       "status": "CF",
-      "timestamp": 1780904001225,
+      "timestamp": 1781092961693,
       "n": 182,
       "factors": [
         "2141",
@@ -1105,7 +1105,7 @@
     },
     "184": {
       "status": "CF",
-      "timestamp": 1780904001875,
+      "timestamp": 1781092962099,
       "n": 184,
       "factors": [
         "5",
@@ -1115,7 +1115,7 @@
     },
     "186": {
       "status": "CF",
-      "timestamp": 1780904002517,
+      "timestamp": 1781092962481,
       "n": 186,
       "factors": [
         "61",
@@ -75170,6 +75170,36 @@
   },
   "changelog": [
     {
+      "n": 186,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s) known, cofactor 229d",
+      "ts": 1781092962493
+    },
+    {
+      "n": 184,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s) known, cofactor 284d",
+      "ts": 1781092962108
+    },
+    {
+      "n": 182,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s) known, cofactor 287d",
+      "ts": 1781092961702
+    },
+    {
+      "n": 176,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s) known, cofactor 273d",
+      "ts": 1781092961303
+    },
+    {
+      "n": 174,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s) known, cofactor 269d",
+      "ts": 1781092960911
+    },
+    {
       "n": 14268,
       "type": "promoted",
       "detail": "Full value resolved via FactorDB (Prime)",
@@ -75738,44 +75768,8 @@
       "type": "updated",
       "detail": "FDB CF: 1 factor(s) known, cofactor 50399d",
       "ts": 1781073649741
-    },
-    {
-      "n": 14296,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 50393d",
-      "ts": 1781073649222
-    },
-    {
-      "n": 14294,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s) known, cofactor 50382d",
-      "ts": 1781073648711
-    },
-    {
-      "n": 14292,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 50371d",
-      "ts": 1781073648204
-    },
-    {
-      "n": 14288,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 50360d",
-      "ts": 1781073647177
-    },
-    {
-      "n": 14286,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s) known, cofactor 50346d",
-      "ts": 1781073646626
-    },
-    {
-      "n": 14284,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 50344d",
-      "ts": 1781073646133
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-10T11:56:57.711Z"
+  "updatedAt": "2026-06-10T12:05:38.777Z"
 }
