@@ -1055,7 +1055,7 @@ function getUnknownTargets() {
   // Pure unknowns only — entries never queried on FactorDB
   return allEntries
     .filter(e => e.status === 'unknown' && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }));
+    .map(e => ({ n: e.n, number: e.val, eulerN: e.n }));
 }
 
 function allTargets() {
@@ -1065,7 +1065,10 @@ function allTargets() {
     .map(e => {
       const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
         ? e.cofactor : e.val;
-      return { n: e.n, number: queryNum };
+      // Attach euler index so large numbers can use expression-based FDB query
+      const numStr = Object.assign(Object.create(String.prototype), { length: queryNum.length });
+      // Simpler: just return the n along with number
+      return { n: e.n, number: queryNum, eulerN: queryNum === e.val ? e.n : null };
     })
     .filter(t => t.number);
 }
@@ -1106,6 +1109,11 @@ async function queryFactorDB(numberStr) {
   const timeout = timeoutForNumber(numberStr);
   const isLarge = numberStr.length > 7000;
 
+  // For large Euler numbers: query FDB by expression (e.g. eulerfrac(14226))
+  // instead of sending 50,000+ digit number in URL
+  if (isLarge && numberStr._eulerN != null) {
+    return await queryFactorDBbyExpression(numberStr._eulerN, timeout);
+  }
   if (isLarge) return await queryFactorDBviaPost(numberStr, timeout);
 
   const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
@@ -1127,6 +1135,19 @@ async function queryFactorDB(numberStr) {
   throw new Error('Both direct and proxy failed');
 }
 
+async function queryFactorDBbyExpression(eulerN, timeout) {
+  // Query FDB using the expression "eulerfrac(N)" instead of full digits
+  // FDB evaluates PARI/GP expressions — keeps the URL tiny
+  const expr    = 'eulerfrac(' + eulerN + ')';
+  const apiUrl  = 'https://factordb.com/api?query=' + encodeURIComponent(expr);
+  const proxyUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(apiUrl);
+  const r = await fetchWithTimeout(proxyUrl, timeout);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const data = await r.json();
+  if (!data.status) throw new Error('No status in expression response');
+  return data;
+}
+
 async function queryFactorDBviaPost(numberStr, timeout) {
   const proxyPost = 'https://corsproxy.io/?url=' + encodeURIComponent('https://factordb.com/index.php');
   const r = await fetchWithTimeout(proxyPost, timeout, {
@@ -1143,7 +1164,6 @@ async function queryFactorDBviaPost(numberStr, timeout) {
     || html.match(/factordb\.com\/(?:index\.php\?id=|api\?id=)(\d+)/);
   if (!idMatch) {
     // Log first 300 chars of HTML for debugging
-    console.warn('FDB HTML (first 1000 chars):', html.slice(0, 1000));
     throw new Error('Could not extract FDB ID from HTML response');
   }
   const fdbId = idMatch[1];
@@ -2128,7 +2148,10 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     }
 
     try {
-      const data = await queryFactorDB(target.number);
+      // Attach euler index to the number string for expression-based queries
+      const numStr = target.number;
+      if (target.eulerN != null) numStr._eulerN = target.eulerN;
+      const data = await queryFactorDB(numStr);
       const rawStatus = data.status || 'U';
       // FactorDB returns 'UN' (unit) for |E(n)|=1; treat as fully factored
       const status = rawStatus === 'UN' ? 'FF' : rawStatus;
@@ -2317,7 +2340,9 @@ async function quickCheckFDB(n, btn) {
   if (!e || !e.val) return;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    const data    = await queryFactorDB(e.val);
+    const numStr = e.val;
+    if (numStr.length > 7000) numStr._eulerN = e.n;
+    const data    = await queryFactorDB(numStr);
     const rawSt   = data.status || 'U';
     const status  = rawSt === 'UN' ? 'FF' : rawSt;
     const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
@@ -2398,7 +2423,7 @@ function startCompositePoll() {
   // Composite = confirmed by FDB as no known factors (C status)
   const targets = allEntries
     .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }));
+    .map(e => ({ n: e.n, number: e.val, eulerN: e.n }));
   if (targets.length === 0) {
     setStatus('No "no known factors" entries to check', 'warn');
     return;
@@ -2910,7 +2935,9 @@ async function modalCheckFull(n) {
   if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
 
   try {
-    const data    = await queryFactorDB(e.val);
+    const numStr2 = e.val;
+    if (numStr2.length > 7000) numStr2._eulerN = e.n;
+    const data    = await queryFactorDB(numStr2);
     const rawSt   = data.status || 'U';
     const status  = (rawSt === 'UN') ? 'FF' : rawSt;
     const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
