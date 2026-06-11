@@ -348,7 +348,6 @@
   .fdb-check-btn:hover:not(:disabled) { background: var(--cyan); color: #000; }
   .fdb-check-btn:disabled { opacity: 0.4; cursor: default; }
 
-
   .sort-btn {
     background: var(--bg); border: 1px solid var(--border2); color: var(--text-dim);
     font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 5px 10px;
@@ -1064,7 +1063,7 @@ function replayFDBCache() {
     }
 
     // If this was a full-value lookup for an unknown entry and it resolved
-    if (entry.status === 'unknown' && entry.val === number && ['FF','P','PRP'].includes(effectiveStatus)) {
+    if (['unknown','attempted','fdb-unknown'].includes(entry.status) && entry.val === number && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = fdbFactors;
       entry.cofactor = null;
@@ -1089,7 +1088,7 @@ function replayFDBCache() {
       if (knownFactors.length > 0 || cofactorLen) {
         entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
         entry.cofactor = cofactorNum; // may be a placeholder string like "(~1247d cofactor)"
-        entry.status   = 'partial';
+        if (entry.status !== 'full') entry.status = 'partial';
         entry._fdbVerified = true;
         restored++;
       }
@@ -1135,9 +1134,6 @@ function allTargets() {
     })
     .filter(t => t.number);
 }
-
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTORDB API  (via a CORS proxy or same-origin; FactorDB supports CORS)
@@ -1194,7 +1190,6 @@ async function queryFactorDB(numberStr) {
   }
   throw new Error('Both direct and proxy failed');
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ECM PROBABILITY  (Lenstra heuristic)
@@ -1411,28 +1406,6 @@ function updateGHStatus() {
   } else {
     el.className = 'github-status ok';
     el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — push enabled`;
-  }
-}
-
-async function fetchIndexVersion() {
-  const el = document.getElementById('indexVersion');
-  if (!el) return;
-  try {
-    const s      = loadGHSettings();
-    const user   = s.user   || 'hilbertfrank1285';
-    const repo   = s.repo   || 'euler-factordb';
-    const branch = s.branch || 'main';
-    const url = 'https://api.github.com/repos/' + user + '/' + repo + '/commits?path=index.html&sha=' + branch + '&per_page=1';
-    const r   = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const commits = await r.json();
-    if (!commits.length) { el.textContent = 'no data'; return; }
-    const date = new Date(commits[0].commit.committer.date);
-    el.textContent = date.toLocaleString();
-    el.title = commits[0].commit.message + ' · sha: ' + commits[0].sha.slice(0,7);
-  } catch(e) {
-    const el2 = document.getElementById('indexVersion');
-    if (el2) el2.textContent = 'unavailable';
   }
 }
 
@@ -2015,112 +1988,6 @@ function clearChangelog(evt) {
 
 let timelineOpen = false;
 
-function toggleTimeline() {
-  timelineOpen = !timelineOpen;
-  const body = document.getElementById('timelineBody');
-  const toggle = document.querySelector('.timeline-toggle');
-  body.classList.toggle('open', timelineOpen);
-  toggle.childNodes[0].textContent = (timelineOpen ? '▾' : '▸') + ' Timeline — factorization discoveries over time';
-  if (timelineOpen) drawTimeline();
-}
-
-function drawTimeline() {
-  const canvas = document.getElementById('timelineCanvas');
-  if (!canvas) return;
-  const wrap  = canvas.parentElement;
-  canvas.width  = wrap.clientWidth || 800;
-  canvas.height = 200;
-  const ctx   = canvas.getContext('2d');
-  const log   = loadChangelog();
-
-  if (!log.length) {
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
-    ctx.font = '12px IBM Plex Mono, monospace';
-    ctx.fillText('No changelog entries yet — run FDB checks to populate', 20, 100);
-    return;
-  }
-
-  // Group by date
-  const byDate = {};
-  for (const entry of log) {
-    const d = new Date(entry.ts).toISOString().slice(0,10);
-    if (!byDate[d]) byDate[d] = { promoted: 0, updated: 0 };
-    byDate[d][entry.type === 'promoted' ? 'promoted' : 'updated']++;
-  }
-
-  const dates   = Object.keys(byDate).sort();
-  const W = canvas.width, H = canvas.height;
-  const pad = { top: 20, right: 20, bottom: 40, left: 40 };
-  const cW  = W - pad.left - pad.right;
-  const cH  = H - pad.top  - pad.bottom;
-
-  const maxVal = Math.max(...Object.values(byDate).map(d => d.promoted + d.updated), 1);
-  const barW   = Math.max(4, Math.min(40, cW / dates.length - 2));
-
-  ctx.clearRect(0, 0, W, H);
-
-  // Grid lines
-  ctx.strokeStyle = '#1e2530';
-  ctx.lineWidth   = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.top + cH * (1 - i/4);
-    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
-    ctx.fillStyle = '#3a4a5a';
-    ctx.font = '9px monospace';
-    ctx.fillText(Math.round(maxVal * i/4), 4, y + 3);
-  }
-
-  // Bars
-  dates.forEach((date, i) => {
-    const x    = pad.left + (i / Math.max(dates.length - 1, 1)) * cW;
-    const d    = byDate[date];
-    const total = d.promoted + d.updated;
-    const barH  = (total / maxVal) * cH;
-    const promH = (d.promoted / maxVal) * cH;
-
-    // Updated bar (yellow)
-    if (d.updated) {
-      ctx.fillStyle = '#f5c542';
-      ctx.fillRect(x - barW/2, pad.top + cH - barH, barW, barH - promH);
-    }
-    // Promoted bar (green, stacked on top)
-    if (d.promoted) {
-      ctx.fillStyle = '#3dd68c';
-      ctx.fillRect(x - barW/2, pad.top + cH - promH, barW, promH);
-    }
-
-    // Date label
-    if (dates.length <= 20 || i % Math.ceil(dates.length/10) === 0) {
-      ctx.fillStyle = '#3a4a5a';
-      ctx.font = '9px monospace';
-      ctx.save();
-      ctx.translate(x, H - pad.bottom + 8);
-      ctx.rotate(-Math.PI/4);
-      ctx.fillText(date.slice(5), 0, 0); // MM-DD
-      ctx.restore();
-    }
-  });
-
-  // Cumulative line (total discovered)
-  let cumulative = 0;
-  const cumulPoints = [];
-  for (const date of dates) {
-    cumulative += byDate[date].promoted + byDate[date].updated;
-    cumulPoints.push(cumulative);
-  }
-  const maxCumul = cumulPoints[cumulPoints.length - 1] || 1;
-
-  ctx.strokeStyle = '#4a9eff';
-  ctx.lineWidth   = 2;
-  ctx.beginPath();
-  dates.forEach((date, i) => {
-    const x = pad.left + (i / Math.max(dates.length - 1, 1)) * cW;
-    const y = pad.top + cH * (1 - cumulPoints[i] / maxCumul);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-}
-
 function toggleLog() {
   logOpen = !logOpen;
   const entries = document.getElementById('logEntries');
@@ -2555,7 +2422,6 @@ async function verifyAndAddFactor(n) {
   }
 }
 
-
 function markAsFdbUnknown(n) {
   const entry = allEntries.find(e => e.n === n);
   if (!entry || !entry.val) return;
@@ -2900,7 +2766,6 @@ function renderGrid() {
 
   (window.requestIdleCallback || (cb => setTimeout(cb, 50)))(fillLazy);
 }
-
 
 function renderPagination() {
   const total = Math.ceil(filtered.length / PAGE_SIZE);
@@ -3695,7 +3560,6 @@ function buildECMSection(n, e) {
         </div>`;
       }
 
-
       // ── P(fully factored) matrix ────────────────────────────────────────
       // Shows per digit size: P(factor exists) × P(runs find it | exists) = P(resolved)
       if (attempts.length && digits) {
@@ -4018,6 +3882,7 @@ function getBulkTargets() {
     if (e.n < fromN || e.n > toN) return false;
     if (filter === 'all')        return true;
     if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
+    if (filter === 'attempted') return e.status === 'attempted';
     return e.status === filter;
   });
 }
@@ -4120,44 +3985,6 @@ function syncAttemptedStatus(n) {
 }
 
 // Default B2 for GMP-ECM ≈ B1 * 100 (rough approximation; actual default varies)
-function defaultB2(b1) {
-  // GMP-ECM computes default B2 as roughly: exp(sqrt(2 * ln(B1) * ln(ln(B1)))) / 2
-  // But in practice it's close to B1 * 100 for typical B1 values
-  // Better approximation from GMP-ECM source: default B2 ≈ B1^1.5 / 3
-  if (!b1 || b1 <= 0) return 0;
-  return Math.round(Math.pow(b1, 1.5) / 3);
-}
-
-function updateB2FromScale(n) {
-  const b1El    = document.getElementById('ecm_b1_' + n);
-  const b2El    = document.getElementById('ecm_b2_' + n);
-  const scaleEl = document.getElementById('ecm_b2scale_' + n);
-  if (!b1El || !b2El || !scaleEl) return;
-  const scale = parseFloat(scaleEl.value);
-  const b1    = parseFloat(String(b1El.value).replace(/,/g, '').replace(/[eE]/,'e'));
-  if (scale > 0 && b1 > 0) {
-    const defB2    = defaultB2(b1);
-    const computed = Math.round(defB2 * scale);
-    b2El.value     = computed;
-    b2El.style.color = 'var(--accent)';
-    b2El.title = 'Auto-computed: default B2 (' + defB2.toExponential(2) + ') × ' + scale;
-  } else {
-    b2El.style.color = '';
-    b2El.title = '';
-  }
-}
-
-function updateKCpuHint(n) {
-  // Just a visual hint — k doesn't affect probability
-  const kEl = document.getElementById('ecm_k_' + n);
-  const b2El = document.getElementById('ecm_b2_' + n);
-  if (!kEl) return;
-  const k  = parseInt(kEl.value) || 4;
-  const b2 = b2El ? parseFloat(String(b2El.value).replace(/[eE]/,'e')) || 0 : 0;
-  // Rough memory estimate: memory ∝ sqrt(B2/B1) / k
-  // At k=4, B2=1e10, 155d: ~55MB — scale from there
-  kEl.title = 'k=' + k + ': ' + (k <= 4 ? 'more memory, faster' : k <= 16 ? 'balanced' : 'low memory, slower') + ' · no effect on probability';
-}
 
 function toggleECMFields(n) {
   const method    = document.getElementById('ecm_method_' + n)?.value || 'ECM';
@@ -4439,7 +4266,7 @@ async function fetchEulerValues() {
 // Step 1: render synchronously with whatever is available right now
 try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
 try { fetchLastUpdateTime(); } catch(e) {}
-try { fetchIndexVersion(); } catch(e) {}
+
 try { renderLog(); } catch(e) {}
 try { renderChangelog(); } catch(e) {}
 try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
@@ -4475,7 +4302,14 @@ setTimeout(async () => {
     fdbCache    = loadFDBCache();
     allEntries  = buildEntries();
     applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
-    replayFDBCache();                  // promote entries based on merged cache
+    replayFDBCache();
+    // Ensure no fully-factored entry is stuck as 'attempted'
+    for (const e of allEntries) {
+      if (e.status === 'attempted') {
+        const cached = Object.values(fdbCache).find(c => c.n === e.n);
+        if (cached && ['FF','P','PRP'].includes(cached.status)) e.status = 'full';
+      }
+    }
     applyFilters();                    // render grid with promoted entries
     renderChangelog();                 // refresh changelog with merged data
     renderStats();                     // refresh stats counts
