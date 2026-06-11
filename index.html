@@ -586,6 +586,9 @@
   <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
     ↓ Export CSV
   </button>
+  <button class="poll-btn" id="ecmImportBtn" onclick="importECMSeed()" style="background:var(--surface2)" title="One-time import of ecm_seed.json from GitHub">
+    ↑ Import ECM seed
+  </button>
   <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
   <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
@@ -1897,6 +1900,49 @@ function csvEsc(v) {
   // This prevents scientific notation on long numbers
   if (/^\d{10,}$/.test(s)) return '="' + s + '"';
   return '"' + s.replace(/"/g, '""') + '"';
+}
+
+async function importECMSeed() {
+  const btn = document.getElementById('ecmImportBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  try {
+    // Fetch from same GitHub Pages origin
+    const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
+    const r = await fetch(baseUrl + 'ecm_seed.json?t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' — make sure ecm_seed.json is in your repo root');
+    const seed = await r.json();
+    const existing = loadECM();
+    let added = 0, skipped = 0;
+    for (const [nStr, attempts] of Object.entries(seed)) {
+      const cur = existing[nStr] || [];
+      // Skip if already has attempts with same b1
+      const existingB1s = new Set(cur.map(a => a.b1));
+      for (const attempt of attempts) {
+        if (existingB1s.has(attempt.b1)) { skipped++; continue; }
+        cur.push(attempt);
+        added++;
+      }
+      if (cur.length) existing[nStr] = cur;
+    }
+    _ecmCache = null; // invalidate cache
+    saveECM(existing);
+    // Update attempted status for all affected entries
+    for (const nStr of Object.keys(seed)) {
+      const entry = allEntries.find(e => e.n === parseInt(nStr));
+      if (entry && entry.status !== 'full' && (existing[nStr]||[]).length > 0) {
+        if (entry.status === 'unknown' || entry.status === 'composite') entry.status = 'attempted';
+      }
+    }
+    addLog('ECM seed imported: ' + added + ' attempts added, ' + skipped + ' duplicates skipped', 'ok');
+    setStatus('ECM import done — ' + added + ' added, ' + skipped + ' skipped', 'ok');
+    applyFilters(); renderStats();
+    scheduleECMPush();
+    if (btn) { btn.textContent = '✓ Imported'; }
+  } catch(err) {
+    addLog('ECM import failed: ' + err.message, 'err');
+    setStatus('ECM import failed: ' + err.message, 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '↑ Import ECM seed'; }
+  }
 }
 
 function exportCSV() {
