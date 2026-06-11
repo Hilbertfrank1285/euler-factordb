@@ -2451,6 +2451,67 @@ async function quickCheckFDB(n, btn) {
   }
 }
 
+async function verifyAndAddFactor(n) {
+  const input = document.getElementById('manualFactorInput_' + n);
+  const msg   = document.getElementById('factorVerifyMsg_' + n);
+  if (!input || !msg) return;
+
+  const factorStr = input.value.trim().replace(/[,\s]/g, '');
+  if (!/^\d+$/.test(factorStr)) {
+    msg.innerHTML = '<span style="color:var(--red)">⚠ Enter digits only</span>';
+    return;
+  }
+
+  const e = allEntries.find(x => x.n === n);
+  if (!e || !e.val) {
+    msg.innerHTML = '<span style="color:var(--red)">⚠ Euler value not loaded</span>';
+    return;
+  }
+
+  msg.innerHTML = '<span style="color:var(--text-muted)">Verifying divisibility…</span>';
+
+  // Use BigInt for exact divisibility — yields to event loop first so UI updates
+  await new Promise(r => setTimeout(r, 10));
+  try {
+    const eulerBig  = BigInt(e.val);
+    const factorBig = BigInt(factorStr);
+    if (factorBig < 2n) { msg.innerHTML = '<span style="color:var(--red)">⚠ Factor must be ≥ 2</span>'; return; }
+    if (eulerBig % factorBig !== 0n) {
+      msg.innerHTML = '<span style="color:var(--red)">✗ ' + factorStr.length + '-digit number does NOT divide E(' + n + ')</span>';
+      return;
+    }
+    // Valid factor! Add it
+    const cofactor = String(eulerBig / factorBig);
+    e.factors  = [...new Set([...(e.factors || []), factorStr])];
+    e.cofactor = cofactor.length > 30 ? cofactor : cofactor;
+    e.cofactorLen = cofactor.length;
+    e.cofactorPreview = cofactor.slice(0, 35);
+    e.status   = 'partial';
+
+    // Store in fdbCache as CF
+    fdbCache[e.val] = { status: 'CF', factors: e.factors, timestamp: Date.now(), n };
+    fdbFactors[e.val] = { factors: e.factors, cofactor };
+    saveFDBCache(fdbCache);
+
+    // Remove from fdb-unknown set
+    const s = loadFdbUnknownSet(); s.delete(n); saveFdbUnknownSet(s);
+
+    addLog('E(' + n + ') factor verified: ' + factorStr.length + 'd divides → partial', 'ok');
+    addChangelogEntry(n, 'promoted', 'Manual factor verified (' + factorStr.length + 'd) → partial');
+    applyFilters();
+    renderStats();
+    scheduleECMPush();
+
+    // Refresh modal
+    const bd = document.getElementById('modalBackdrop');
+    if (bd && bd.classList.contains('open')) openModal(n);
+
+    msg.innerHTML = '<span style="color:var(--green)">✓ Verified — E(' + n + ') is now partially factored</span>';
+  } catch(err) {
+    msg.innerHTML = '<span style="color:var(--red)">⚠ Error: ' + err.message + '</span>';
+  }
+}
+
 function markAsFdbUnknown(n) {
   const entry = allEntries.find(e => e.n === n);
   if (!entry || !entry.val) return;
@@ -3005,7 +3066,22 @@ function openModal(n) {
     ${noteHtml}
     ${factorsHtml}
     ${cofactorHtml}
-    ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}</div>` : ''}
+    ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}
+      ${e.status === 'fdb-unknown' ? `
+      <div style="margin-top:12px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border2)">
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Add known factor</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="manualFactorInput_${n}" placeholder="Enter factor (digits only)"
+            style="flex:1;min-width:180px;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:5px 8px;font-family:monospace;font-size:11px"
+            onkeydown="if(event.key==='Enter')verifyAndAddFactor(${n})">
+          <button onclick="verifyAndAddFactor(${n})"
+            style="padding:5px 14px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);font-size:11px;cursor:pointer">
+            Verify &amp; add
+          </button>
+        </div>
+        <div id="factorVerifyMsg_${n}" style="font-size:10px;margin-top:6px;min-height:14px"></div>
+      </div>` : ''}
+    </div>` : ''}
     ${valueHtml}
     <div class="modal-section">
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
