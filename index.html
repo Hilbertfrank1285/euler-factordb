@@ -2451,59 +2451,100 @@ async function quickCheckFDB(n, btn) {
   }
 }
 
+// Evaluate simple expressions: digits, d^e, d*e etc.
+function parseFactorExpr(s) {
+  s = s.trim().replace(/[,\s]/g, '');
+  // Pure digits
+  if (/^\d+$/.test(s)) return BigInt(s);
+  // base^exp
+  const pw = s.match(/^(\d+)\^(\d+)$/);
+  if (pw) return BigInt(pw[1]) ** BigInt(pw[2]);
+  // base*exp (e.g. 2*3)
+  const mul = s.match(/^(\d+)\*(\d+)$/);
+  if (mul) return BigInt(mul[1]) * BigInt(mul[2]);
+  throw new Error('Unsupported expression — use digits, base^exp, or base*mult');
+}
+
 async function verifyAndAddFactor(n) {
   const input = document.getElementById('manualFactorInput_' + n);
   const msg   = document.getElementById('factorVerifyMsg_' + n);
   if (!input || !msg) return;
 
-  const factorStr = input.value.trim().replace(/[,\s]/g, '');
-  if (!/^\d+$/.test(factorStr)) {
-    msg.innerHTML = '<span style="color:var(--red)">⚠ Digits only</span>'; return;
-  }
+  const raw = input.value.trim();
+  if (!raw) { msg.innerHTML = '<span style="color:var(--red)">⚠ Enter a factor</span>'; return; }
 
   const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) {
     msg.innerHTML = '<span style="color:var(--red)">⚠ Euler value not loaded</span>'; return;
   }
 
-  // Check if already in factors list
-  if ((e.factors || []).includes(factorStr)) {
-    msg.innerHTML = '<span style="color:var(--yellow)">Factor already listed</span>'; return;
-  }
-
   msg.innerHTML = '<span style="color:var(--text-muted)">Verifying…</span>';
   await new Promise(r => setTimeout(r, 10));
 
   try {
-    const eulerBig  = BigInt(e.val);
-    const factorBig = BigInt(factorStr);
+    const factorBig = parseFactorExpr(raw);
+    const factorStr = String(factorBig); // canonical digit form
+
     if (factorBig < 2n) { msg.innerHTML = '<span style="color:var(--red)">⚠ Must be ≥ 2</span>'; return; }
-    if (eulerBig % factorBig !== 0n) {
-      msg.innerHTML = '<span style="color:var(--red)">✗ Does not divide E(' + n + ')</span>'; return;
+
+    // Check if already known
+    if ((e.factors || []).includes(factorStr)) {
+      msg.innerHTML = '<span style="color:var(--yellow)">Factor already listed</span>'; return;
     }
 
-    // Valid — add factor, no cofactor stored
-    e.factors = [...new Set([...(e.factors || []), factorStr])];
+    const eulerBig = BigInt(e.val);
+
+    // Compute remaining cofactor = E(n) / (product of all known factors)
+    let remaining = eulerBig;
+    for (const f of (e.factors || [])) {
+      remaining = remaining / BigInt(f);
+    }
+
+    // Verify new factor divides the remaining cofactor (not full E(n))
+    if (remaining % factorBig !== 0n) {
+      // Check if it divides E(n) at all (might already be accounted for)
+      if (eulerBig % factorBig !== 0n) {
+        msg.innerHTML = '<span style="color:var(--red)">✗ ' + factorStr.length + 'd does not divide E(' + n + ')</span>'; return;
+      } else {
+        msg.innerHTML = '<span style="color:var(--red)">✗ Factor divides E(' + n + ') but not the remaining cofactor (already accounted for?)</span>'; return;
+      }
+    }
+
+    // Valid — expand by multiplicity (e.g. 5^3 → divide 3 times)
+    // For expressions like 5^3, we already computed the value. Store canonical string.
+    e.factors = [...(e.factors || []), factorStr];
     e.cofactor = null;
     e.cofactorLen = null;
     e.cofactorPreview = null;
     e.status = 'partial';
 
-    // Store in fdbCache as CF with known factors only — no cofactor
-    fdbCache[e.val] = { status: 'CF', factors: e.factors, timestamp: Date.now(), n };
+    // Compute new remaining cofactor for display
+    const newRemaining = remaining / factorBig;
+    const remStr = String(newRemaining);
+    if (newRemaining > 1n) {
+      e.cofactorLen     = remStr.length;
+      e.cofactorPreview = remStr.slice(0, 35);
+    } else {
+      // Fully factored!
+      e.status = 'full';
+    }
+
+    fdbCache[e.val] = { status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors, timestamp: Date.now(), n };
     fdbFactors[e.val] = { factors: e.factors };
     saveFDBCache(fdbCache);
 
-    // Remove from fdb-unknown set if present
     const s = loadFdbUnknownSet(); s.delete(n); saveFdbUnknownSet(s);
 
-    addLog('E(' + n + ') factor added: ' + factorStr.length + 'd (' + e.factors.length + ' total)', 'ok');
-    addChangelogEntry(n, 'promoted', 'Manual factor (' + factorStr.length + 'd) verified → partial');
+    const newRemMsg = newRemaining > 1n
+      ? ' — remaining cofactor: ' + remStr.length + ' digits'
+      : ' — FULLY FACTORED!';
+    addLog('E(' + n + ') factor added: ' + factorStr.length + 'd' + newRemMsg, 'ok');
+    addChangelogEntry(n, e.status === 'full' ? 'resolved' : 'promoted',
+      'Manual factor (' + factorStr.length + 'd) → ' + e.status);
     input.value = '';
     scheduleECMPush();
     applyFilters(); renderStats();
 
-    // Refresh modal
     const bd = document.getElementById('modalBackdrop');
     if (bd && bd.classList.contains('open')) openModal(n);
 
@@ -3074,7 +3115,7 @@ function openModal(n) {
       <div class="modal-section-label" style="color:var(--accent)">Add Known Factor</div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Enter a factor you know divides E(${n}). The app will verify it using exact arithmetic.</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="manualFactorInput_${n}" placeholder="Enter factor digits…"
+        <input type="text" id="manualFactorInput_${n}" placeholder="e.g. 12345 or 2^31-1 style: 7^3"
           style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:6px 10px;font-family:monospace;font-size:12px"
           onkeydown="if(event.key==='Enter')verifyAndAddFactor(${n})">
         <button onclick="verifyAndAddFactor(${n})"
