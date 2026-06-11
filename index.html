@@ -861,6 +861,27 @@ function loadECM() {
   return _ecmCache;
 }
 let _ecmCache = null; // in-memory cache, invalidated on write
+
+// Dedicated storage for fdb-unknown n values — persists independently of eulerValues loading
+function loadFdbUnknownSet() {
+  try { return new Set(JSON.parse(localStorage.getItem('eulerFDB_fdbUnknown_v1') || '[]')); }
+  catch { return new Set(); }
+}
+function saveFdbUnknownSet(s) {
+  try { localStorage.setItem('eulerFDB_fdbUnknown_v1', JSON.stringify([...s])); } catch(e) {}
+}
+function addFdbUnknown(n) {
+  const s = loadFdbUnknownSet(); s.add(n); saveFdbUnknownSet(s);
+}
+function applyFdbUnknownSet() {
+  const s = loadFdbUnknownSet();
+  if (!s.size) return;
+  for (const e of allEntries) {
+    if (s.has(e.n) && (e.status === 'unknown' || e.status === 'fdb-unknown')) {
+      e.status = 'fdb-unknown';
+    }
+  }
+}
 function saveECM(d) {
   _ecmCache = d; // update cache immediately
   try {
@@ -1486,8 +1507,8 @@ function buildSyncPayload() {
     const num    = eulerValues[n] || '';
     const status = v.status;
 
-    // Skip U (unknown) — not useful to sync
-    if (status === 'U') continue;
+    // U (fdb-unknown) — include with status only, no factors needed
+    if (status === 'U') { full[nStr] = { status: 'U', timestamp: v.timestamp, n }; continue; }
 
     const entry = { status, timestamp: v.timestamp, n };
 
@@ -2203,7 +2224,10 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       saveFDBCache(fdbCache);
       if (status === 'U') {
         const uEntry = allEntries.find(e => e.n === target.n);
-        if (uEntry && (uEntry.status === 'unknown' || uEntry.status === 'fdb-unknown')) uEntry.status = 'fdb-unknown';
+        if (uEntry && (uEntry.status === 'unknown' || uEntry.status === 'fdb-unknown')) {
+          uEntry.status = 'fdb-unknown';
+          addFdbUnknown(target.n);
+        }
       }
 
       // If FDB returns Unknown, open its page so user can click "Test if probable prime"
@@ -2413,6 +2437,7 @@ function markAsFdbUnknown(n) {
   }
   saveFDBCache(fdbCache);
   entry.status = 'fdb-unknown';
+  addFdbUnknown(n); // persist in dedicated set — survives chunk load failures
   addLog('E(' + n + ') manually marked as FDB Unknown', 'warn');
   applyFilters();
   renderStats();
@@ -3043,7 +3068,10 @@ async function modalCheckFull(n) {
 
     // U (FDB Unknown) → mark as fdb-unknown
     if (status === 'U') {
-      if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'fdb-unknown';
+      if (e.status === 'unknown' || e.status === 'fdb-unknown') {
+        e.status = 'fdb-unknown';
+        addFdbUnknown(n);
+      }
     }
     // C (Composite, no factors) → composite
     if (status === 'C') {
@@ -4275,7 +4303,8 @@ setTimeout(async () => {
   // (because mergeSyncPayload may have updated it) and render in correct order
   try {
     fdbCache    = loadFDBCache();
-    allEntries  = buildEntries();     // build fresh entries with vals
+    allEntries  = buildEntries();
+    applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
     replayFDBCache();                  // promote entries based on merged cache
     applyFilters();                    // render grid with promoted entries
     renderChangelog();                 // refresh changelog with merged data
