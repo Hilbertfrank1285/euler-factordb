@@ -2451,17 +2451,15 @@ async function quickCheckFDB(n, btn) {
   }
 }
 
-// Evaluate simple expressions: digits, d^e, d*e etc.
+// Evaluate expressions: digits, base^exp, base*mult
+// Returns { value: BigInt, display: string }
 function parseFactorExpr(s) {
   s = s.trim().replace(/[,\s]/g, '');
-  // Pure digits
-  if (/^\d+$/.test(s)) return BigInt(s);
-  // base^exp
+  if (/^\d+$/.test(s)) return { value: BigInt(s), display: s };
   const pw = s.match(/^(\d+)\^(\d+)$/);
-  if (pw) return BigInt(pw[1]) ** BigInt(pw[2]);
-  // base*exp (e.g. 2*3)
+  if (pw) return { value: BigInt(pw[1]) ** BigInt(pw[2]), display: s }; // keep e.g. "5^5"
   const mul = s.match(/^(\d+)\*(\d+)$/);
-  if (mul) return BigInt(mul[1]) * BigInt(mul[2]);
+  if (mul) return { value: BigInt(mul[1]) * BigInt(mul[2]), display: String(BigInt(mul[1]) * BigInt(mul[2])) };
   throw new Error('Unsupported expression — use digits, base^exp, or base*mult');
 }
 
@@ -2482,13 +2480,17 @@ async function verifyAndAddFactor(n) {
   await new Promise(r => setTimeout(r, 10));
 
   try {
-    const factorBig = parseFactorExpr(raw);
-    const factorStr = String(factorBig); // canonical digit form
+    const parsed    = parseFactorExpr(raw);
+    const factorBig = parsed.value;
+    const factorStr = parsed.display; // keep original form e.g. "5^5" 
 
     if (factorBig < 2n) { msg.innerHTML = '<span style="color:var(--red)">⚠ Must be ≥ 2</span>'; return; }
 
-    // Check if already known
-    if ((e.factors || []).includes(factorStr)) {
+    // Check if already known (compare by value, not display string)
+    const existingBigs = (e.factors || []).map(f => {
+      try { return parseFactorExpr(f).value; } catch { return BigInt(f); }
+    });
+    if (existingBigs.some(b => b === factorBig)) {
       msg.innerHTML = '<span style="color:var(--yellow)">Factor already listed</span>'; return;
     }
 
@@ -2497,7 +2499,7 @@ async function verifyAndAddFactor(n) {
     // Compute remaining cofactor = E(n) / (product of all known factors)
     let remaining = eulerBig;
     for (const f of (e.factors || [])) {
-      remaining = remaining / BigInt(f);
+      try { remaining = remaining / parseFactorExpr(f).value; } catch { remaining = remaining / BigInt(f); }
     }
 
     // Verify new factor divides the remaining cofactor (not full E(n))
