@@ -73940,7 +73940,7 @@
     },
     "14232": {
       "status": "U",
-      "timestamp": 1781159276174,
+      "timestamp": 1781187388102,
       "n": 14232
     },
     "14234": {
@@ -74090,7 +74090,7 @@
     },
     "14268": {
       "status": "U",
-      "timestamp": 1781164924128,
+      "timestamp": 1781187391547,
       "n": 14268
     },
     "14270": {
@@ -74100,7 +74100,7 @@
     },
     "14272": {
       "status": "U",
-      "timestamp": 1781164924393,
+      "timestamp": 1781187393156,
       "n": 14272
     },
     "14274": {
@@ -88880,6 +88880,36 @@
     }
   },
   "changelog": [
+    {
+      "n": 14272,
+      "type": "promoted",
+      "detail": "Manual factor (2d) → partial",
+      "ts": 1781187313300
+    },
+    {
+      "n": 14272,
+      "type": "promoted",
+      "detail": "Manual factor (2d) → partial",
+      "ts": 1781187311114
+    },
+    {
+      "n": 14272,
+      "type": "promoted",
+      "detail": "Manual factor (1d) → partial",
+      "ts": 1781187307338
+    },
+    {
+      "n": 14268,
+      "type": "promoted",
+      "detail": "Manual factor (1d) → partial",
+      "ts": 1781187298842
+    },
+    {
+      "n": 14232,
+      "type": "promoted",
+      "detail": "Manual factor (1d) → partial",
+      "ts": 1781187286626
+    },
     {
       "n": 20000,
       "type": "promoted",
@@ -250069,5 +250099,5 @@
       }
     ]
   },
-  "updatedAt": "2026-06-11T14:14:41.527Z"
+  "updatedAt": "2026-06-11T14:16:39.971Z"
 }
