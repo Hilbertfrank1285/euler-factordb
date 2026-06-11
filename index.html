@@ -566,7 +566,7 @@
 <header style="position:relative">
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
-    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span> · index.html: <span id="indexVersion" style="color:var(--text-dim)">loading…</span></p>
+    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
   </div>
   <div style="position:absolute;top:12px;right:20px">
     <button onclick="toggleTheme()" id="themeBtn" title="Toggle light/dark theme"
@@ -1063,7 +1063,7 @@ function replayFDBCache() {
     }
 
     // If this was a full-value lookup for an unknown entry and it resolved
-    if (['unknown','attempted','fdb-unknown'].includes(entry.status) && entry.val === number && ['FF','P','PRP'].includes(effectiveStatus)) {
+    if (['unknown','attempted','fdb-unknown','composite'].includes(entry.status) && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = fdbFactors;
       entry.cofactor = null;
@@ -3883,8 +3883,9 @@ function getBulkTargets() {
     if (filter === 'all')        return true;
     if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
     if (filter === 'attempted') {
-      if (e.status === 'full') return false; // never show full in ECM logged
-      return e.status === 'attempted';
+      if (e.status === 'full') return false;
+      // Show any non-full entry with ECM logs
+      return (loadECM()[String(e.n)] || []).length > 0;
     }
     return e.status === filter;
   });
