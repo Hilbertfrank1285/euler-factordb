@@ -88872,14 +88872,21 @@
     },
     "20000": {
       "status": "CF",
-      "timestamp": 1781167465051,
+      "timestamp": 1781168365468,
       "n": 20000,
       "factors": [
-        "5"
+        "5",
+        "25"
       ]
     }
   },
   "changelog": [
+    {
+      "n": 20000,
+      "type": "promoted",
+      "detail": "Manual factor (2d) verified → partial",
+      "ts": 1781168365476
+    },
     {
       "n": 20000,
       "type": "promoted",
@@ -89473,14 +89480,8 @@
       "type": "updated",
       "detail": "FDB CF: 7 factor(s) known, cofactor 50411d",
       "ts": 1781073651342
-    },
-    {
-      "n": 14302,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s) known, cofactor 50409d",
-      "ts": 1781073650810
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-11T08:44:33.500Z"
+  "updatedAt": "2026-06-11T08:59:33.882Z"
 }
