@@ -1063,7 +1063,8 @@ function replayFDBCache() {
     }
 
     // If this was a full-value lookup for an unknown entry and it resolved
-    if (['unknown','attempted','fdb-unknown','composite'].includes(entry.status) && ['FF','P','PRP'].includes(effectiveStatus)) {
+    // FF: always override to full — even if entry is 'attempted' due to ECM logs
+    if (['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = fdbFactors;
       entry.cofactor = null;
@@ -2537,15 +2538,19 @@ function maybeAutoPoll() {
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
 function applyFilters() {
+  // Build fast n→fdbCache lookup for filter checks
+  window._fdbCacheByN = {};
+  for (const v of Object.values(fdbCache)) {
+    if (v.n != null) window._fdbCacheByN[v.n] = v;
+  }
   const ecmData = loadECM();
   filtered = allEntries.filter(e => {
     let matchFilter;
     if (activeFilter === 'all') {
       matchFilter = true;
     } else if (activeFilter === 'attempted') {
-      // Show any entry that has ECM/P-1/P+1 log attempts, regardless of status
-      const attempts = ecmData[String(e.n)] || [];
-      matchFilter = attempts.length > 0;
+      // Show entries with ECM logs — but never fully factored ones
+      matchFilter = e.status !== 'full' && (ecmData[String(e.n)] || []).length > 0;
     } else {
       matchFilter = e.status === activeFilter;
     }
@@ -3883,9 +3888,13 @@ function getBulkTargets() {
     if (filter === 'all')        return true;
     if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
     if (filter === 'attempted') {
+      if ((ecmData[String(e.n)] || []).length === 0) return false; // no ECM logs
+      // Check if fully factored — look at both e.status AND fdbCache
       if (e.status === 'full') return false;
-      // Show any non-full entry with ECM logs
-      return (loadECM()[String(e.n)] || []).length > 0;
+      // Also check fdbCache directly by n (in case e.status wasn't updated yet)
+      const fdbEntry = _fdbCacheByN[e.n];
+      if (fdbEntry && ['FF','P','PRP','UN'].includes(fdbEntry.status)) return false;
+      return true;
     }
     return e.status === filter;
   });
