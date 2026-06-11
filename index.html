@@ -8,21 +8,30 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root[data-theme="light"] {
-    --bg:         #f5f5f0;
-    --surface:    #ffffff;
-    --surface2:   #ebebeb;
-    --border:     #d0d0cc;
-    --border2:    #c0c0bc;
-    --text:       #1a1a1a;
-    --text-dim:   #444444;
-    --text-muted: #777777;
-    --accent:     #0066cc;
-    --cyan:       #0077aa;
-    --cyan-dim:   rgba(0,119,170,0.12);
-    --green:      #228822;
-    --yellow:     #886600;
-    --orange:     #cc5500;
-    --red:        #cc2222;
+    --bg:          #0d1b2a;
+    --surface:     #1b2838;
+    --surface2:    #243447;
+    --border:      #2a3f55;
+    --border2:     #344f68;
+    --text:        #c7d5e0;
+    --text-dim:    #7a9ab5;
+    --text-muted:  #4a6a82;
+    --accent:      #66c0f4;
+    --accent-dim:  #1a3a52;
+    --green:       #a6d860;
+    --green-dim:   #1a2e0a;
+    --yellow:      #f8c84b;
+    --yellow-dim:  #2a2000;
+    --red:         #ff4444;
+    --red-dim:     #2a0a0a;
+    --purple:      #c39bd3;
+    --purple-dim:  #1e0e30;
+    --orange:      #f0883e;
+    --orange-dim:  #2a1200;
+    --teal:        #1abc9c;
+    --teal-dim:    #0a2018;
+    --cyan:        #56d7e0;
+    --cyan-dim:    #0a2028;
   }
   :root {
     --bg: #0a0c0f;
@@ -2308,8 +2317,15 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       }
     } catch(err) {
       errors++;
-      addLog(`E(${target.n}) error: ${err.message || err}`, 'err');
-      console.error(`FactorDB E(${target.n}):`, err);
+      addLog(`E(${target.n}) query failed → fdb-unknown: ${err.message || err}`, 'warn');
+      // Any failure → mark as fdb-unknown (tried and failed = unknown via FDB)
+      const failEntry = allEntries.find(e => e.n === target.n);
+      if (failEntry && (failEntry.status === 'unknown')) {
+        failEntry.status = 'fdb-unknown';
+        fdbCache[target.number] = { status: 'U', timestamp: Date.now(), n: target.n };
+        saveFDBCache(fdbCache);
+        addFdbUnknown(target.n);
+      }
     }
 
     // Remove fetching highlight
@@ -2421,7 +2437,15 @@ async function quickCheckFDB(n, btn) {
     scheduleECMPush();
   } catch(err) {
 
-    addLog('E(' + n + ') query failed: ' + err.message, 'err');
+    const qfEntry = allEntries.find(x => x.n === n);
+    if (qfEntry && qfEntry.status === 'unknown') {
+      qfEntry.status = 'fdb-unknown';
+      fdbCache[qfEntry.val] = { status: 'U', timestamp: Date.now(), n };
+      saveFDBCache(fdbCache);
+      addFdbUnknown(n);
+      applyFilters(); renderStats();
+    }
+    addLog('E(' + n + ') query failed → fdb-unknown: ' + err.message, 'warn');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↻'; }
   }
@@ -3084,7 +3108,16 @@ async function modalCheckFull(n) {
     const backdrop = document.getElementById('modalBackdrop');
     if (backdrop && backdrop.classList.contains('open')) openModal(n);
   } catch(err) {
-    addLog(`E(${n}) query error: ${err.message}`, 'err');
+    // Any query failure → fdb-unknown
+    if (e && (e.status === 'unknown')) {
+      e.status = 'fdb-unknown';
+      if (e.val) { fdbCache[e.val] = { status: 'U', timestamp: Date.now(), n }; saveFDBCache(fdbCache); }
+      addFdbUnknown(n);
+      renderGrid(); renderStats();
+      const bd2 = document.getElementById('modalBackdrop');
+      if (bd2 && bd2.classList.contains('open')) openModal(n);
+    }
+    addLog(`E(${n}) query failed → fdb-unknown: ${err.message}`, 'warn');
     if (btn) {
       btn.disabled = false;
       btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
