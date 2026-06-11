@@ -88872,15 +88872,36 @@
     },
     "20000": {
       "status": "CF",
-      "timestamp": 1781168365468,
+      "timestamp": 1781168630373,
       "n": 20000,
       "factors": [
         "5",
-        "25"
+        "25",
+        "125",
+        "625",
+        "3125"
       ]
     }
   },
   "changelog": [
+    {
+      "n": 20000,
+      "type": "promoted",
+      "detail": "Manual factor (4d) verified → partial",
+      "ts": 1781168630384
+    },
+    {
+      "n": 20000,
+      "type": "promoted",
+      "detail": "Manual factor (3d) verified → partial",
+      "ts": 1781168377204
+    },
+    {
+      "n": 20000,
+      "type": "promoted",
+      "detail": "Manual factor (3d) verified → partial",
+      "ts": 1781168374297
+    },
     {
       "n": 20000,
       "type": "promoted",
@@ -89462,26 +89483,8 @@
       "type": "updated",
       "detail": "FDB CF: 1 factor(s) known, cofactor 50456d",
       "ts": 1781073653362
-    },
-    {
-      "n": 14310,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s) known, cofactor 50443d",
-      "ts": 1781073652862
-    },
-    {
-      "n": 14308,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s) known, cofactor 50432d",
-      "ts": 1781073652345
-    },
-    {
-      "n": 14304,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s) known, cofactor 50411d",
-      "ts": 1781073651342
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-11T08:59:33.882Z"
+  "updatedAt": "2026-06-11T09:03:59.508Z"
 }
