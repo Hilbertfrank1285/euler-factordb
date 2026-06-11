@@ -2695,7 +2695,7 @@ function renderGrid() {
       'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNKNOWN</span>',
     }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
 
-    const hasAttempt = (loadECM()[String(e.n)] || []).length > 0;
+    const hasAttempt = e.status !== 'full' && (loadECM()[String(e.n)] || []).length > 0;
     const attemptBadge = (hasAttempt && e.status !== 'attempted')
       ? '<span class="card-badge badge-attempted" style="opacity:0.6">⟳</span>' : '';
 
@@ -2825,7 +2825,7 @@ function renderStats() {
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
     <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
     <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> ECM logged</span>
-    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown</span>
+    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown · <strong>${fdbUnknown}</strong> fdb-unknown</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
     <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (5900X)</span>
   `;
@@ -3882,7 +3882,10 @@ function getBulkTargets() {
     if (e.n < fromN || e.n > toN) return false;
     if (filter === 'all')        return true;
     if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
-    if (filter === 'attempted') return e.status === 'attempted';
+    if (filter === 'attempted') {
+      if (e.status === 'full') return false; // never show full in ECM logged
+      return e.status === 'attempted';
+    }
     return e.status === filter;
   });
 }
