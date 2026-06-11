@@ -2940,14 +2940,29 @@ function renderStats() {
   const fdbUnknown = allEntries.filter(e => e.status==='fdb-unknown').length;
   const composite = allEntries.filter(e => e.status==='composite').length;
   const ecmD = loadECM();
-  const attempted = allEntries.filter(e => (ecmD[String(e.n)]||[]).length > 0).length;
+  const attempted = allEntries.filter(e => e.status !== 'full' && (ecmD[String(e.n)]||[]).length > 0).length;
+  // Sum total CPU time across all ECM attempts
+  let totalCpuSec = 0;
+  for (const [nStr, attempts] of Object.entries(ecmD)) {
+    const entry = allEntries.find(e => e.n === parseInt(nStr));
+    const digits = entry ? getCofactorDigits(entry) : null;
+    if (!digits) continue;
+    for (const a of attempts) {
+      const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
+      const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+      totalCpuSec += estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0;
+    }
+  }
+  const totalCpuStr = fmtCpuTime(totalCpuSec);
+
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
     <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
-    <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> attempted</span>
+    <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> ECM logged</span>
     <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
+    <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (5900X)</span>
   `;
 }
 
@@ -4095,6 +4110,7 @@ function syncAttemptedStatus(n) {
   const has   = (ecmD[String(n)] || []).length > 0;
   const entry = allEntries.find(e => e.n === n);
   if (entry) {
+    if (entry.status === 'full') return; // fully factored — never show as ECM logged
     if (has && (entry.status === 'unknown' || entry.status === 'composite')) entry.status = 'attempted';
     else if (!has && entry.status === 'attempted') entry.status = 'composite';
   }
