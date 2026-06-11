@@ -566,7 +566,7 @@
 <header style="position:relative">
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
-    <p>E(n) = 0 for odd n · Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
+    <p>Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
   </div>
   <div style="position:absolute;top:12px;right:20px">
     <button onclick="toggleTheme()" id="themeBtn" title="Toggle light/dark theme"
@@ -581,10 +581,8 @@
 
 <!-- FactorDB status bar -->
 <div class="factordb-bar">
-  <div class="factordb-label">FactorDB sync</div>
-  <button class="poll-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)" onclick="clearAllCache()">
-    ⊗ Clear cache
-  </button>
+
+
   <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
     ↓ Export CSV
   </button>
@@ -746,7 +744,7 @@
 <!-- GitHub Sync -->
 <div class="github-bar" id="githubBar">
   <div class="github-label">⬡ GitHub sync</div>
-  <div class="github-status" id="githubStatus">Not configured — click ⚙ to set up</div>
+
   <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
   <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
   <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push</button>
