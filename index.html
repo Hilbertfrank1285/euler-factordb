@@ -2901,11 +2901,14 @@ function renderGrid() {
           }
         } catch(_) {}
       }
-      // Value preview
+      // Cofactor preview — shown separately from prime factors
       try {
-        if (e.val && e.status !== 'full') {
-          const preview = e.val.length > 60 ? e.val.slice(0,30)+'…'+e.val.slice(-10) : e.val;
-          html += `<div class="card-value-preview" style="font-size:8px;color:var(--text-muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${preview}</div>`;
+        if (e.status === 'partial' && (e.cofactorLen || e.cofactorPreview)) {
+          const preview = e.cofactorPreview ? e.cofactorPreview.slice(0,30) + '…' : '';
+          const len = e.cofactorLen ? e.cofactorLen.toLocaleString() + 'd' : '';
+          html += `<div style="font-size:8px;color:var(--text-muted);margin-top:3px;border-top:1px solid var(--border);padding-top:3px">
+            <span style="opacity:0.6">cofactor:</span> <span style="font-family:monospace">${preview}</span><span style="opacity:0.5"> (${len})</span>
+          </div>`;
         }
       } catch(_) {}
       // CPU time
@@ -3047,8 +3050,10 @@ function openModal(n) {
       } else {
         // Also check if this specific factor was individually queried as prime by FDB
         const factorFDB = fdbCache[f];
-        if (factorFDB && ['P','PRP','FF'].includes(factorFDB.status)) {
-          lbl = factorFDB.status === 'PRP' ? 'prp' : 'prime';
+        if (factorFDB && ['P','PRP'].includes(factorFDB.status)) {
+          lbl = factorFDB.status === 'PRP' ? 'prp' : 'prime'; // P/PRP = confirmed prime
+        } else if (factorFDB && factorFDB.status === 'FF') {
+          lbl = 'composite'; // FF = fully factored composite, not itself prime
         } else {
           lbl = labelFactor(f);
         }
