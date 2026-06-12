@@ -586,6 +586,11 @@
   <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
     ↓ Export CSV
   </button>
+  <button class="poll-btn" onclick="clearAllLocalData()"
+    style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
+    title="Wipes all localStorage — ECM logs, FDB cache, factors. Cannot be undone.">
+    ⊗ Clear all local data
+  </button>
   <button class="poll-btn" id="ecmImportBtn" onclick="importECMSeed()" style="background:var(--surface2)" title="One-time import of ecm_seed.json from GitHub">
     ↑ Import ECM seed
   </button>
@@ -1974,7 +1979,7 @@ async function importFactorsSeed() {
       const msg = 'Verifying ' + toVerify.length + ' entries on FDB…';
       addLog(msg, '');
       setStatus(msg, '');
-      runPollQueue(toVerify, false, null, false);
+      runPollQueue(toVerify, true, null, false, true); // isManual+noCap — verify all from E(0)
     } else {
       addLog('Import done — all entries already FDB-verified', 'ok');
       setStatus('Import complete — all entries already FDB-verified', 'ok');
@@ -2027,6 +2032,37 @@ async function importECMSeed() {
     setStatus('ECM import failed: ' + err.message, 'err');
     if (btn) { btn.disabled = false; btn.textContent = '↑ Import ECM seed'; }
   }
+}
+
+function clearAllLocalData() {
+  const confirmed = confirm(
+    'This will permanently delete ALL local data:\n\n' +
+    '  • FDB cache (all query results)\n' +
+    '  • ECM logs\n' +
+    '  • Changelog\n' +
+    '  • Activity log\n' +
+    '  • FDB-unknown set\n\n' +
+    'You will need to re-import ECM seed and factors seed.\n\n' +
+    'Continue?'
+  );
+  if (!confirmed) return;
+
+  // Clear every key we own
+  const keysToRemove = [
+    STORAGE_KEY, ECM_KEY, CHANGELOG_KEY, LOG_KEY,
+    COOLDOWN_KEY, GH_SETTINGS_KEY,
+    'eulerFDB_fdbUnknown_v1', 'eulerFDB_theme'
+  ];
+  keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+
+  // Also wipe any other eulerFDB_ keys that might exist
+  Object.keys(localStorage)
+    .filter(k => k.startsWith('eulerFDB_'))
+    .forEach(k => localStorage.removeItem(k));
+
+  addLog('All local data cleared — reload to start fresh', 'warn');
+  alert('Done. Reloading now…');
+  location.reload();
 }
 
 function exportCSV() {
@@ -2161,7 +2197,7 @@ function cancelPoll() {
   if (cbEl) cbEl.textContent = '⊘ Cancelling…';
 }
 
-async function runPollQueue(targets, isManual = false, activeBtn = null, forceU = false) {
+async function runPollQueue(targets, isManual = false, activeBtn = null, forceU = false, noCap = false) {
   if (polling) return;
   polling = true;
 
@@ -2179,7 +2215,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   progress.classList.add('active');
 
   const queue = targets.filter(t => isManual || needsDailyCheck(t.number, forceU));
-  const total = Math.min(queue.length, MAX_PER_SESSION);
+  const total = noCap ? queue.length : Math.min(queue.length, MAX_PER_SESSION);
 
   setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB — safe to switch tabs`);
   // Update title to show progress when tab is in background
@@ -2199,7 +2235,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   let done = 0, updated = 0, errors = 0;
 
   cancelRequested = false;
-  for (const target of queue.slice(0, MAX_PER_SESSION)) {
+  for (const target of (noCap ? queue : queue.slice(0, MAX_PER_SESSION))) {
     if (cancelRequested) {
       const notChecked = total - done;
       addLog(`Poll cancelled — ${updated} updated · ${errors} errors · ${done} checked · ${notChecked} not checked`, 'warn');
