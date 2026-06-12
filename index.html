@@ -956,7 +956,7 @@ function loadFDBCache() {
       const n   = parseInt(nStr);
       const num = eulerValues[n] || v.numKey || '';
       if (!num) continue;
-      full[num] = { status: v.status, timestamp: v.timestamp, n,
+      full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null, n,
                     ...(fdbFactors[num] || {}) };
     }
     return full;
@@ -969,7 +969,7 @@ function saveFDBCache(c) {
   for (const [k, v] of Object.entries(c)) {
     if (v.n == null) continue; // skip entries without n index
     const key = String(v.n);  // key by n, not by number string
-    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20) };
+    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20), source: v.source || null };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
@@ -1515,9 +1515,10 @@ function buildSyncPayload() {
         cofactorPreview = last.slice(0, 35);
       }
     }
-    if (primeFactors.length) entry.factors      = primeFactors;
-    if (cofactorLen)         entry.cofactorLen   = cofactorLen;
+    if (primeFactors.length) entry.factors        = primeFactors;
+    if (cofactorLen)         entry.cofactorLen     = cofactorLen;
     if (cofactorPreview)     entry.cofactorPreview = cofactorPreview;
+    if (v.source)            entry.source          = v.source; // preserve fdb/seed flag
     full[nStr] = entry;
   }
   return {
@@ -1914,34 +1915,35 @@ async function importFactorsSeed() {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' — upload factors_seed.json to repo root');
     const seed = await r.json();
 
-    let added = 0, skipped = 0, toVerify = [];
+    let added = 0, skipped = 0;
+    const toVerify = []; // built BEFORE fdbCache is updated
 
     for (const [nStr, data] of Object.entries(seed)) {
       const n = parseInt(nStr);
       const entry = allEntries.find(e => e.n === n);
       if (!entry || !entry.val) { skipped++; continue; }
-
-      // Skip if already fully factored
       if (entry.status === 'full') { skipped++; continue; }
 
       const seedPrimes = (Array.isArray(data) ? data : []).filter(f => f && f !== '1');
       if (!seedPrimes.length) { skipped++; continue; }
 
-      // Priority: FDB-confirmed factors > existing local factors > seed factors
       const cached       = fdbCache[entry.val] || {};
+      // Only consider FDB-verified if confirmed by actual FDB query (not just seed import)
+      const wasFdbVerified = ['FF','CF','P','PRP','C'].includes(cached.status)
+                             && cached.source !== 'seed';
+
+      // Decide if this entry needs FDB verification BEFORE we touch fdbCache
+      if (!wasFdbVerified && entry.val.length <= 50000) {
+        toVerify.push({ n, number: entry.val });
+      }
+
+      // Merge: FDB-confirmed > local > seed
       const fdbConfirmed = (cached.factors || []).filter(f => f && f !== '1');
       const localFactors = (entry.factors || []).filter(f => f && f !== '1');
-
-      // Start with FDB-confirmed factors (highest trust)
-      // Then add local factors not already covered
-      // Then add seed factors not already covered
-      const fdbSet   = new Set(fdbConfirmed.map(f => String(f)));
-      const combined = [...fdbConfirmed];
-
+      const fdbSet       = new Set(fdbConfirmed.map(String));
+      const combined     = [...fdbConfirmed];
       for (const f of [...localFactors, ...seedPrimes]) {
-        if (!fdbSet.has(String(f)) && !combined.includes(String(f))) {
-          combined.push(String(f));
-        }
+        if (!fdbSet.has(String(f)) && !combined.includes(String(f))) combined.push(String(f));
       }
 
       entry.factors         = combined;
@@ -1949,36 +1951,24 @@ async function importFactorsSeed() {
       entry.cofactorPreview = null;
       entry.cofactor        = null;
 
-      // Respect existing FDB status — only downgrade if entry was unknown/fdb-unknown
-      if (['unknown', 'fdb-unknown'].includes(entry.status)) {
-        entry.status = 'partial';
-      }
-      // If FDB already confirmed full, keep it full
-      if (['FF','P','PRP','UN'].includes(cached.status)) {
-        entry.status = 'full';
-      }
+      if (['unknown', 'fdb-unknown'].includes(entry.status)) entry.status = 'partial';
+      if (['FF','P','PRP','UN'].includes(cached.status))     entry.status = 'full';
 
-      // Update fdbCache — preserve FDB status if confirmed, else CF
       const cacheStatus = ['FF','P','PRP','UN'].includes(cached.status) ? cached.status : 'CF';
       fdbCache[entry.val] = {
         ...cached,
         status:    cacheStatus,
         factors:   combined,
         timestamp: cached.timestamp || Date.now(),
+        // Preserve 'fdb' source if already confirmed — never downgrade back to 'seed'
+        source:    cached.source === 'fdb' ? 'fdb' : 'seed',
         n
       };
       fdbFactors[entry.val] = { factors: combined };
-
-      // Queue small entries for FDB verification
-      if (entry.status !== 'full' && entry.val.length <= 50000) {
-        toVerify.push({ n, number: entry.val });
-      }
-
       added++;
     }
 
     saveFDBCache(fdbCache);
-    // Remove verified entries from fdb-unknown set
     const s = loadFdbUnknownSet();
     for (const [nStr] of Object.entries(seed)) s.delete(parseInt(nStr));
     saveFdbUnknownSet(s);
@@ -1989,25 +1979,18 @@ async function importFactorsSeed() {
     scheduleECMPush();
     if (btn) btn.textContent = '✓ Imported';
 
-    // Auto-verify on FDB — only entries without existing FDB confirmation
-    // Skip entries already confirmed by FDB (have a cached status from a real query)
-    const needsVerify = toVerify.filter(t => {
-      const c = fdbCache[t.number];
-      return !c || !['FF','CF','P','PRP','C'].includes(c.status);
-    });
-
     const VERIFY_CAP = 100;
-    if (needsVerify.length > 0) {
-      const batch     = needsVerify.slice(0, VERIFY_CAP);
-      const remaining = needsVerify.length - batch.length;
-      const msg = 'Verifying first ' + batch.length + ' of ' + needsVerify.length + ' unverified entries on FDB'
+    if (toVerify.length > 0) {
+      const batch     = toVerify.slice(0, VERIFY_CAP);
+      const remaining = toVerify.length - batch.length;
+      const msg = 'Verifying first ' + batch.length + ' of ' + toVerify.length + ' entries on FDB'
         + (remaining > 0 ? ' — click Import again for next ' + Math.min(remaining, VERIFY_CAP) : '');
       addLog(msg, '');
       setStatus(msg, '');
       runPollQueue(batch, false, null, false);
     } else {
-      addLog('All imported entries already FDB-verified — no queries needed', 'ok');
-      setStatus('Import complete — all entries already FDB-verified', 'ok');
+      addLog('Import done — all entries already had FDB data, no re-verification needed', 'ok');
+      setStatus('Import complete — factors merged, no FDB queries needed', 'ok');
     }
   } catch(err) {
     addLog('Factors import failed: ' + err.message, 'err');
@@ -2271,6 +2254,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         cofactorLen:    cofactorStr ? cofactorStr.length : null,
         cofactorPreview: cofactorStr ? cofactorStr.slice(0, 35) : null,
         timestamp:      Date.now(),
+        source:         'fdb', // confirmed by actual FDB query
         n:              target.n
       };
       fdbCache[target.number] = fullEntry;
