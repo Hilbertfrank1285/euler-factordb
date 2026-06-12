@@ -956,8 +956,7 @@ function loadFDBCache() {
       const n   = parseInt(nStr);
       const num = eulerValues[n] || v.numKey || '';
       if (!num) continue;
-      full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null,
-                    cofactorLen: v.cofactorLen || null, cofactorPreview: v.cofactorPreview || null, n,
+      full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null, n,
                     ...(fdbFactors[num] || {}) };
     }
     return full;
@@ -970,8 +969,7 @@ function saveFDBCache(c) {
   for (const [k, v] of Object.entries(c)) {
     if (v.n == null) continue; // skip entries without n index
     const key = String(v.n);  // key by n, not by number string
-    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20), source: v.source || null,
-                  cofactorLen: v.cofactorLen || null, cofactorPreview: v.cofactorPreview || null };
+    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20), source: v.source || null };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
@@ -1055,9 +1053,7 @@ function replayFDBCache() {
     if (n == null) continue;
     const entry = allEntries.find(x => x.n === n);
     if (!entry) continue;
-    // Restore cofactor metadata (persisted in slim localStorage / results.json)
-    if (cached.cofactorLen     && !entry.cofactorLen)     entry.cofactorLen     = cached.cofactorLen;
-    if (cached.cofactorPreview && !entry.cofactorPreview) entry.cofactorPreview = cached.cofactorPreview;
+
 
     // If this was a cofactor lookup and it resolved
     const effectiveStatus = status === 'UN' ? 'FF' : status;
@@ -1513,26 +1509,13 @@ function buildSyncPayload() {
     // CF/FF/P/PRP — include prime factors + cofactor metadata
     const fd = num ? (fdbFactors[num] || {}) : {};
     const allFactors = (fd.factors || []).filter(f => f && f !== '1');
-    let primeFactors = allFactors, cofactorLen = null, cofactorPreview = null;
-    // For CF entries: last factor is always the composite cofactor
+    let primeFactors = allFactors;
+    // For CF entries: all but last factor are prime; last is cofactor — skip it
     if (v.status === 'CF' && allFactors.length > 1) {
-      const last       = allFactors[allFactors.length - 1];
-      primeFactors     = allFactors.slice(0, -1);
-      cofactorLen      = last.length;
-      cofactorPreview  = last.slice(0, 35);
-    } else if (allFactors.length >= 1) {
-      // Legacy: any factor >500d is a cofactor
-      const last = allFactors[allFactors.length - 1];
-      if (last.length > 500) {
-        primeFactors    = allFactors.slice(0, -1);
-        cofactorLen     = last.length;
-        cofactorPreview = last.slice(0, 35);
-      }
+      primeFactors = allFactors.slice(0, -1);
     }
-    if (primeFactors.length) entry.factors        = primeFactors;
-    if (cofactorLen)         entry.cofactorLen     = cofactorLen;
-    if (cofactorPreview)     entry.cofactorPreview = cofactorPreview;
-    if (v.source)            entry.source          = v.source; // preserve fdb/seed flag
+    if (primeFactors.length) entry.factors = primeFactors;
+    if (v.source)            entry.source  = v.source; // preserve fdb/seed flag
     full[nStr] = entry;
   }
   return {
@@ -1573,7 +1556,7 @@ function mergeSyncPayload(remote) {
       // Local wins on timestamp — but copy factors from remote if local has none
       // (local slim cache loses factors on reload; remote results.json has them)
       if (!merged[k].factors && v.factors && v.factors.length) {
-        merged[k] = { ...merged[k], factors: v.factors, cofactor: v.cofactor };
+        merged[k] = { ...merged[k], factors: v.factors };
       }
       mergeStats.localWins++;
     }
@@ -1583,14 +1566,7 @@ function mergeSyncPayload(remote) {
   for (const [k, v] of Object.entries(merged)) {
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
-    // Restore cofactorPreview + cofactorLen to allEntries so modal can display them
-    if ((v.cofactorLen || v.cofactorPreview) && v.n != null) {
-      const entry = allEntries.find(e => e.n === v.n);
-      if (entry) {
-        if (v.cofactorLen)     entry.cofactorLen     = v.cofactorLen;
-        if (v.cofactorPreview) entry.cofactorPreview = v.cofactorPreview;
-      }
-    }
+
   }
   saveFDBCache(merged); // saves slim (n-keyed) to localStorage
   fdbCache = merged;    // in-memory: number-string keyed with full data
@@ -1961,8 +1937,6 @@ async function importFactorsSeed() {
       }
 
       entry.factors         = combined;
-      entry.cofactorLen     = null;
-      entry.cofactorPreview = null;
       entry.cofactor        = null;
 
       if (['unknown', 'fdb-unknown'].includes(entry.status)) entry.status = 'partial';
@@ -2254,24 +2228,17 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
       // For CF: last factor is always the composite cofactor, all preceding are prime
       // For FF/P/PRP: all factors are prime (the number itself if it's prime)
-      let primeFactors, cofactorStr;
-      if (status === 'CF' && allFdbFactors.length > 1) {
-        primeFactors = allFdbFactors.slice(0, -1);  // all but last
-        cofactorStr  = allFdbFactors[allFdbFactors.length - 1]; // last = cofactor
-      } else {
-        primeFactors = allFdbFactors;
-        cofactorStr  = null;
-      }
+      // For CF: last factor is the composite cofactor — skip it, keep only primes
+      const primeFactors = (status === 'CF' && allFdbFactors.length > 1)
+        ? allFdbFactors.slice(0, -1)
+        : allFdbFactors;
 
-      // Build cache entry — never store the full cofactor string
       const fullEntry = {
         status,
-        factors:        primeFactors,
-        cofactorLen:    cofactorStr ? cofactorStr.length : null,
-        cofactorPreview: cofactorStr ? cofactorStr.slice(0, 35) : null,
-        timestamp:      Date.now(),
-        source:         'fdb', // confirmed by actual FDB query
-        n:              target.n
+        factors:   primeFactors,
+        timestamp: Date.now(),
+        source:    'fdb',
+        n:         target.n
       };
       fdbCache[target.number] = fullEntry;
       if (primeFactors.length) fdbFactors[target.number] = { factors: primeFactors };
@@ -2336,8 +2303,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
             entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
             entry.cofactor    = cofactorNum;
-            entry.cofactorLen     = cofactorNum && /^\d+$/.test(cofactorNum) ? cofactorNum.length : entry.cofactorLen;
-            entry.cofactorPreview = cofactorNum && /^\d+$/.test(cofactorNum) ? cofactorNum.slice(0,35) : entry.cofactorPreview;
+    
             entry.status          = 'partial';
             entry._fdbVerified = true;
             const logMsg = `E(${target.n}) partial: ${knownFactors.join(' × ')}${cofactorNum ? ' × [cofactor '+cofactorNum.length+'d]' : ''}`;
@@ -2557,20 +2523,11 @@ async function verifyAndAddFactor(n) {
     // For expressions like 5^3, we already computed the value. Store canonical string.
     e.factors = [...(e.factors || []), factorStr];
     e.cofactor = null;
-    e.cofactorLen = null;
-    e.cofactorPreview = null;
     e.status = 'partial';
 
-    // Compute new remaining cofactor for display
+    // Check if fully factored
     const newRemaining = remaining / factorBig;
-    const remStr = String(newRemaining);
-    if (newRemaining > 1n) {
-      e.cofactorLen     = remStr.length;
-      e.cofactorPreview = remStr.slice(0, 35);
-    } else {
-      // Fully factored!
-      e.status = 'full';
-    }
+    if (newRemaining === 1n) e.status = 'full';
 
     fdbCache[e.val] = { status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors, timestamp: Date.now(), n };
     fdbFactors[e.val] = { factors: e.factors };
@@ -2915,16 +2872,7 @@ function renderGrid() {
           }
         } catch(_) {}
       }
-      // Cofactor preview — shown separately from prime factors
-      try {
-        if (e.status === 'partial' && (e.cofactorLen || e.cofactorPreview)) {
-          const preview = e.cofactorPreview ? e.cofactorPreview.slice(0,30) + '…' : '';
-          const len = e.cofactorLen ? e.cofactorLen.toLocaleString() + 'd' : '';
-          html += `<div style="font-size:8px;color:var(--text-muted);margin-top:3px;border-top:1px solid var(--border);padding-top:3px">
-            <span style="opacity:0.6">cofactor:</span> <span style="font-family:monospace">${preview}</span><span style="opacity:0.5"> (${len})</span>
-          </div>`;
-        }
-      } catch(_) {}
+
       // CPU time
       try {
         const cpu = getTotalCpuForEntry(e);
@@ -3086,56 +3034,7 @@ function openModal(n) {
   }
 
   // Cofactor + FactorDB result
-  let cofactorHtml = '';
-  if (e.status === 'partial' && e.cofactor) {
-    let fdbHtml = '';
-    const isReal = e.cofactor && !e.cofactor.startsWith('(');
-    if (isReal) {
-      const c = fdbCache[e.cofactor];
-      if (c) {
-        const age   = Date.now() - c.timestamp;
-        const fresh = age < AUTO_INTERVAL;
-        const fList = (c.factors || []).filter(Boolean);
-        fdbHtml = `<div class="fdb-block" style="margin-top:10px">
-          <div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>
-          ${fList.length ? `<div class="fdb-row"><span class="fdb-key">FDB Factors</span><span class="fdb-val">${fList.join(' × ')}</span></div>` : ''}
-          <div class="fdb-timestamp">${fresh ? '✓ Checked today' : 'Last checked: '+new Date(c.timestamp).toLocaleDateString()} · Raw status: ${c.status}</div>
-        </div>`;
-      }
-      fdbHtml += `<button class="fdb-check-btn" id="modalCheckBtn" onclick="modalCheckCofactor(${n})" ${polling?'disabled':''}>
-        ↻ Query FactorDB now
-      </button>`;
-    }
-    // Get best available cofactor string: full > cofactorPreview from sync > nothing
-    const knownLen     = e.cofactorLen || (isReal ? e.cofactor.length : 0);
-    const fullCofactor = (isReal && /^\d+$/.test(e.cofactor) &&
-                          (!e.cofactorLen || e.cofactor.length >= e.cofactorLen - 5))
-                         ? e.cofactor : null;
-    const previewSrc   = fullCofactor || e.cofactorPreview || null;
-    const cofDigits    = knownLen || (fullCofactor ? fullCofactor.length : 0);
-    const digitTag     = cofDigits ? `<span style="font-size:10px;margin-left:8px;color:var(--text-muted)">${cofDigits} digits</span>` : '';
-
-    // Always show first 30 digits + … + copy button (copies full if available, preview otherwise)
-    const cofPreview  = previewSrc
-      ? previewSrc.slice(0, 30) + (cofDigits > 30 ? '…' : '')
-      : '<span style="color:var(--text-muted);font-style:italic">not available — re-query FDB</span>';
-    const copyVal     = fullCofactor || previewSrc || '';
-    const cofCopyBtn  = copyVal
-      ? `<button class="copy-btn" onclick="copyToClipboard(this.dataset.val,this)" data-val="${copyVal}" title="${fullCofactor ? 'Copy full ' + cofDigits + '-digit cofactor' : 'Copy first 35 digits (full value: re-query FDB)'}">⎘</button>`
-      : '';
-
-    cofactorHtml = `<div class="modal-section">
-      <div class="modal-section-label">Remaining Cofactor ${digitTag}</div>
-      <div class="value-box" style="position:relative;cursor:default;font-family:monospace;letter-spacing:0.5px">
-        ${cofCopyBtn}
-        ${cofPreview}
-      </div>
- : ''}
-      ${fdbHtml}
-    </div>`;
-  }
-
-  // Value
+    // Value
   // Value — store in a global map to avoid attribute escaping issues with large numbers
   window._eulerValMap = window._eulerValMap || {};
   window._eulerValMap[n] = e.val || '';
@@ -3176,7 +3075,6 @@ function openModal(n) {
     </div>
     ${noteHtml}
     ${factorsHtml}
-    ${cofactorHtml}
     ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}
     </div>` : ''}
     ${(e.status === 'fdb-unknown' || e.status === 'partial') ? `
@@ -3570,9 +3468,7 @@ function difficultyLabel(score) {
 }
 
 function getCofactorDigits(e) {
-  if (e.cofactor && /^\d+$/.test(e.cofactor)) return e.cofactor.length;
-  if (e.cofactorLen) return e.cofactorLen;
-  if (e.val && e.val.length > 0 && e.status !== 'full') return e.val.length;
+  if (e.val && e.status !== 'full') return e.val.length;
   return null;
 }
 
