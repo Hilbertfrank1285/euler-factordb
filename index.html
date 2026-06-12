@@ -2314,7 +2314,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
         // Path 2: full value lookup resolved (unknown → full)
         } else if (entry.val === target.number && (entry.status === 'unknown' || entry.status === 'composite') && resolved) {
-          const fdbFactors = factors.filter(f => f && f !== '1');
+          const fdbFactors = primeFactors.filter(f => f && f !== '1');
           entry.factors = fdbFactors;
           entry.cofactor = null;
           entry.status   = 'full';
@@ -2328,11 +2328,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
 
         // Path 3b: partial factors found (CF) — update known factors + set cofactor
-        } else if (status === 'CF' && factors.length >= 1) {
-          // FDB CF: all factors listed, last one is the remaining composite
-          // Determine which are small/prime (all but the last in typical FDB response)
-          // We treat all returned factors as known, last one as the cofactor if it's large
-          const allFDB = factors.filter(f => f && f !== '1');
+        } else if (status === 'CF' && primeFactors.length >= 1) {
+          const allFDB = primeFactors.filter(f => f && f !== '1');
           if (allFDB.length > 0) {
             // Heuristic: last factor is the unfactored remainder if it's much larger than others
             const sorted = [...allFDB].sort((a,b) => a.length - b.length);
@@ -2466,16 +2463,16 @@ async function quickCheckFDB(n, btn) {
   if (!e || !e.val) return;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    const data    = await queryFactorDB(e.val);
-    const rawSt   = data.status || 'U';
-    const status  = rawSt === 'UN' ? 'FF' : rawSt;
-    const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
-    fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
-    if (factors.length) fdbFactors[e.val] = { factors };
+    const data      = await queryFactorDB(e.val);
+    const rawSt     = data.status || 'U';
+    const status    = rawSt === 'UN' ? 'FF' : rawSt;
+    const allF      = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
+    const primes    = (status === 'CF' && allF.length > 1) ? allF.slice(0,-1) : allF;
+    fdbCache[e.val] = { status, factors: primes, timestamp: Date.now(), source: 'fdb', n };
+    if (primes.length) fdbFactors[e.val] = { factors: primes };
     saveFDBCache(fdbCache);
-    // Promote status
-    if (['FF','P','PRP'].includes(status)) { e.factors = factors.filter(f=>f&&f!=='1'); e.cofactor = null; e.status = 'full'; }
-    else if (status === 'CF' && factors.length) { e.status = 'partial'; }
+    if (['FF','P','PRP'].includes(status)) { e.factors = primes; e.cofactor = null; e.status = 'full'; }
+    else if (status === 'CF' && primes.length)  { e.status = 'partial'; e.factors = primes; }
     else if (status === 'C') { if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'composite'; }
     else if (status === 'U') { if (e.status === 'unknown') e.status = 'fdb-unknown'; }
     addLog('E(' + n + ') ↻ ' + fdbStatusLabel(status), 'ok');
@@ -3160,9 +3157,10 @@ async function modalCheckCofactor(n) {
     const data   = await queryFactorDB(e.cofactor);
     const rawStC = data.status || 'U';
     const status = rawStC === 'UN' ? 'FF' : rawStC;
-    const factors= (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
-    fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), n };
-    if (factors && factors.length) fdbFactors[e.cofactor] = { factors };
+    const allCF   = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
+    const factors = (status === 'CF' && allCF.length > 1) ? allCF.slice(0, -1) : allCF;
+    fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), source: 'fdb', n };
+    if (factors.length) fdbFactors[e.cofactor] = { factors };
     saveFDBCache(fdbCache);
     addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
     applyFilters();
@@ -3190,24 +3188,24 @@ async function modalCheckFull(n) {
   if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
 
   try {
-    const data    = await queryFactorDB(e.val);
-    const rawSt   = data.status || 'U';
-    const status  = (rawSt === 'UN') ? 'FF' : rawSt;
-    const factors = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(Boolean);
-    fdbCache[e.val] = { status, factors, timestamp: Date.now(), n };
-    if (factors && factors.length) fdbFactors[e.val] = { factors };
+    const data      = await queryFactorDB(e.val);
+    const rawSt     = data.status || 'U';
+    const status    = (rawSt === 'UN') ? 'FF' : rawSt;
+    const allMF     = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
+    const primesMF  = (status === 'CF' && allMF.length > 1) ? allMF.slice(0,-1) : allMF;
+    fdbCache[e.val] = { status, factors: primesMF, timestamp: Date.now(), source: 'fdb', n };
+    if (primesMF.length) fdbFactors[e.val] = { factors: primesMF };
     saveFDBCache(fdbCache);
 
     // Promote entry immediately
     if (['FF','P','PRP'].includes(status)) {
-      const fdbFactors = factors.filter(f => f && f !== '1');
-      e.factors  = fdbFactors;
+      e.factors  = primesMF;
       e.cofactor = null;
       e.status   = 'full';
       e._fdbVerified = true;
       addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
-    } else if (status === 'CF' && factors.length >= 1) {
-      const allFDB = factors.filter(f => f && f !== '1');
+    } else if (status === 'CF' && primesMF.length >= 1) {
+      const allFDB = primesMF.filter(f => f && f !== '1');
       const lastF  = allFDB[allFDB.length - 1];
       const isLastBig = lastF && lastF.length > 15 && allFDB.length > 1;
       e.factors  = [...new Set([...(e.factors||[]), ...(isLastBig ? allFDB.slice(0,-1) : allFDB)])];
