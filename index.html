@@ -1032,12 +1032,16 @@ let sortMode     = 'default'; // 'default' | 'diff-asc' | 'diff-desc'
 // REPLAY — restore FDB discoveries from cache into allEntries on page load
 // ─────────────────────────────────────────────────────────────────────────────
 function replayFDBCache() {
-  // ── Migrate: strip ^1 from any factors stored before the fix ──
+  // ── Migrate: strip ^1 from factors + strip last factor from CF entries (was cofactor) ──
   let migrated = false;
   for (const key of Object.keys(fdbCache)) {
     const entry = fdbCache[key];
     if (entry.factors && Array.isArray(entry.factors)) {
-      const cleaned = entry.factors.map(f => typeof f === 'string' ? f.replace(/\^1$/,'') : f);
+      let cleaned = entry.factors.map(f => typeof f === 'string' ? f.replace(/\^1$/,'') : f);
+      // CF: last factor is always the composite cofactor — strip it
+      if (entry.status === 'CF' && cleaned.length > 1) {
+        cleaned = cleaned.slice(0, -1);
+      }
       if (cleaned.join() !== entry.factors.join()) {
         fdbCache[key] = { ...entry, factors: cleaned };
         if (cleaned.length) fdbFactors[key] = { factors: cleaned };
@@ -1918,9 +1922,8 @@ async function importFactorsSeed() {
       if (!seedPrimes.length) { skipped++; continue; }
 
       const cached       = fdbCache[entry.val] || {};
-      // Only consider FDB-verified if confirmed by actual FDB query (not just seed import)
-      const wasFdbVerified = ['FF','CF','P','PRP','C'].includes(cached.status)
-                             && cached.source !== 'seed';
+      // Always re-verify all entries on each import click — start fresh from E(0)
+      const wasFdbVerified = false;
 
       // Decide if this entry needs FDB verification BEFORE we touch fdbCache
       if (!wasFdbVerified && entry.val.length <= 50000) {
@@ -2188,7 +2191,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   document.getElementById('queueInfo').style.display = 'flex';
   const qcEl = document.getElementById('queueCount');
   if (qcEl) qcEl.textContent = total;
-  document.getElementById('cancelBtn').style.display = 'flex';
+  const cancelBtnEl = document.getElementById('cancelBtn');
+  if (cancelBtnEl) { cancelBtnEl.style.display = 'flex'; cancelBtnEl.disabled = false; cancelBtnEl.textContent = '⊘ Cancel'; }
 
   addLog(`Poll started — ${total} targets`, '');
 
