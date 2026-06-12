@@ -589,6 +589,9 @@
   <button class="poll-btn" id="ecmImportBtn" onclick="importECMSeed()" style="background:var(--surface2)" title="One-time import of ecm_seed.json from GitHub">
     ↑ Import ECM seed
   </button>
+  <button class="poll-btn" id="factorsImportBtn" onclick="importFactorsSeed()" style="background:var(--surface2)" title="One-time import of factors_seed.json — then auto-checks small entries on FDB">
+    ↑ Import factors
+  </button>
   <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
   <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
@@ -1900,6 +1903,71 @@ function csvEsc(v) {
   // This prevents scientific notation on long numbers
   if (/^\d{10,}$/.test(s)) return '="' + s + '"';
   return '"' + s.replace(/"/g, '""') + '"';
+}
+
+async function importFactorsSeed() {
+  const btn = document.getElementById('factorsImportBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  try {
+    const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
+    const r = await fetch(baseUrl + 'factors_seed.json?t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' — upload factors_seed.json to repo root');
+    const seed = await r.json();
+
+    let added = 0, skipped = 0, toVerify = [];
+
+    for (const [nStr, data] of Object.entries(seed)) {
+      const n = parseInt(nStr);
+      const entry = allEntries.find(e => e.n === n);
+      if (!entry || !entry.val) { skipped++; continue; }
+
+      // Skip if already fully factored
+      if (entry.status === 'full') { skipped++; continue; }
+
+      // data is a flat array of prime factor strings
+      const primes = (Array.isArray(data) ? data : []).filter(f => f && f !== '1');
+      if (!primes.length) { skipped++; continue; }
+
+      entry.factors         = primes;
+      entry.cofactorLen     = null;
+      entry.cofactorPreview = null;
+      entry.cofactor        = null;
+      // Mark as partial — FDB verification will confirm if actually full
+      entry.status = 'partial';
+
+      fdbCache[entry.val] = { status: 'CF', factors: primes, timestamp: Date.now(), n };
+      fdbFactors[entry.val] = { factors: primes };
+
+      // Queue small entries for FDB verification
+      if (newStatus !== 'full' && entry.val.length <= 50000) {
+        toVerify.push({ n, number: entry.val });
+      }
+
+      added++;
+    }
+
+    saveFDBCache(fdbCache);
+    // Remove verified entries from fdb-unknown set
+    const s = loadFdbUnknownSet();
+    for (const [nStr] of Object.entries(seed)) s.delete(parseInt(nStr));
+    saveFdbUnknownSet(s);
+
+    addLog('Factors imported: ' + added + ' entries, ' + skipped + ' skipped', 'ok');
+    setStatus('Factors import done — ' + added + ' added. Now verifying ' + toVerify.length + ' entries on FDB…', 'ok');
+    applyFilters(); renderStats();
+    scheduleECMPush();
+    if (btn) btn.textContent = '✓ Imported';
+
+    // Auto-verify on FDB in background (updates FF→full, CF→partial with real factors)
+    if (toVerify.length > 0) {
+      addLog('Starting FDB verification for ' + toVerify.length + ' entries…', '');
+      runPollQueue(toVerify, false, null, false);
+    }
+  } catch(err) {
+    addLog('Factors import failed: ' + err.message, 'err');
+    setStatus('Factors import failed: ' + err.message, 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; }
+  }
 }
 
 async function importECMSeed() {
