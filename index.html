@@ -1622,7 +1622,9 @@ async function githubPull() {
     if (s.token) headers['Authorization'] = 'Bearer ' + s.token;
     const r = await fetch(apiUrl, { headers, cache: 'no-store' });
     if (r.status === 404) {
-      setGHStatus('No results.json found in repo yet — push first to create it', '');
+      // File doesn't exist yet — treat as empty, allow push to create it
+      setGHStatus('No results.json on GitHub yet — push to create it', '');
+      addLog('No results.json found — starting fresh', '');
       return;
     }
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -2042,6 +2044,7 @@ function clearAllLocalData() {
     '  • Changelog\n' +
     '  • Activity log\n' +
     '  • FDB-unknown set\n\n' +
+    'GitHub settings (token) are kept.\n' +
     'You will need to re-import ECM seed and factors seed.\n\n' +
     'Continue?'
   );
@@ -2050,8 +2053,9 @@ function clearAllLocalData() {
   // Clear every key we own
   const keysToRemove = [
     STORAGE_KEY, ECM_KEY, CHANGELOG_KEY, LOG_KEY,
-    COOLDOWN_KEY, GH_SETTINGS_KEY,
-    'eulerFDB_fdbUnknown_v1', 'eulerFDB_theme'
+    COOLDOWN_KEY,
+    'eulerFDB_fdbUnknown_v1'
+    // GH_SETTINGS_KEY intentionally kept — you need the token to push after reset
   ];
   keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
 
