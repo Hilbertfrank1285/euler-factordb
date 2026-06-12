@@ -956,7 +956,8 @@ function loadFDBCache() {
       const n   = parseInt(nStr);
       const num = eulerValues[n] || v.numKey || '';
       if (!num) continue;
-      full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null, n,
+      full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null,
+                    cofactorLen: v.cofactorLen || null, cofactorPreview: v.cofactorPreview || null, n,
                     ...(fdbFactors[num] || {}) };
     }
     return full;
@@ -969,7 +970,8 @@ function saveFDBCache(c) {
   for (const [k, v] of Object.entries(c)) {
     if (v.n == null) continue; // skip entries without n index
     const key = String(v.n);  // key by n, not by number string
-    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20), source: v.source || null };
+    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20), source: v.source || null,
+                  cofactorLen: v.cofactorLen || null, cofactorPreview: v.cofactorPreview || null };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
@@ -1053,6 +1055,9 @@ function replayFDBCache() {
     if (n == null) continue;
     const entry = allEntries.find(x => x.n === n);
     if (!entry) continue;
+    // Restore cofactor metadata (persisted in slim localStorage / results.json)
+    if (cached.cofactorLen     && !entry.cofactorLen)     entry.cofactorLen     = cached.cofactorLen;
+    if (cached.cofactorPreview && !entry.cofactorPreview) entry.cofactorPreview = cached.cofactorPreview;
 
     // If this was a cofactor lookup and it resolved
     const effectiveStatus = status === 'UN' ? 'FF' : status;
