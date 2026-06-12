@@ -1091,7 +1091,9 @@ function replayFDBCache() {
       // Reconstruct cofactor placeholder if we have its length but not the string
       const cofactorNum  = cofactorLen ? ('(~' + cofactorLen + 'd cofactor)') : null;
       if (knownFactors.length > 0 || cofactorLen) {
-        entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
+        // Strip any old large composite "factors" (>500 digits) — these are stale cofactors
+        const cleanExisting = (entry.factors || []).filter(f => f.length <= 500);
+        entry.factors  = [...new Set([...cleanExisting, ...knownFactors])];
         entry.cofactor = cofactorNum; // may be a placeholder string like "(~1247d cofactor)"
         if (entry.status !== 'full') entry.status = 'partial';
         entry._fdbVerified = true;
@@ -3029,8 +3031,14 @@ function openModal(n) {
 
   let factorsHtml = '';
   if (e.factors && e.factors.length && e.factors[0] !== '1') {
-    // Exclude the cofactor from the chips — it's shown separately below
-    const primeFactors = e.factors.filter(f => !e.cofactor || f !== e.cofactor);
+    // Only show factors ≤500 digits — larger ones are composite cofactors, not primes
+    // Also exclude any factor that matches e.cofactor exactly
+    const primeFactors = e.factors.filter(f => {
+      const digits = /^\d+\^\d+$/.test(f)
+        ? String(BigInt(f.split('^')[0]) ** BigInt(f.split('^')[1])).length
+        : f.length;
+      return digits <= 500 && (!e.cofactor || f !== e.cofactor);
+    });
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
       let lbl;
