@@ -1509,9 +1509,16 @@ function buildSyncPayload() {
     const fd = num ? (fdbFactors[num] || {}) : {};
     const allFactors = (fd.factors || []).filter(f => f && f !== '1');
     let primeFactors = allFactors, cofactorLen = null, cofactorPreview = null;
-    if (allFactors.length >= 1) {
+    // For CF entries: last factor is always the composite cofactor
+    if (v.status === 'CF' && allFactors.length > 1) {
+      const last       = allFactors[allFactors.length - 1];
+      primeFactors     = allFactors.slice(0, -1);
+      cofactorLen      = last.length;
+      cofactorPreview  = last.slice(0, 35);
+    } else if (allFactors.length >= 1) {
+      // Legacy: any factor >500d is a cofactor
       const last = allFactors[allFactors.length - 1];
-      if (last.length > 500) { // large final factor = cofactor
+      if (last.length > 500) {
         primeFactors    = allFactors.slice(0, -1);
         cofactorLen     = last.length;
         cofactorPreview = last.slice(0, 35);
@@ -2240,14 +2247,16 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
         .filter(f => f && f !== '1');
 
-      // Separate prime factors (≤500 digits) from composite cofactor (>500 digits)
-      // FDB always puts the cofactor last in CF entries
-      const primeFactors  = allFdbFactors.filter(f => {
-        try { return String(eval(f.replace('^','**'))).length <= 500; } catch { return f.length <= 500; }
-      });
-      const cofactorStr   = allFdbFactors.find(f => {
-        try { return String(eval(f.replace('^','**'))).length > 500; } catch { return f.length > 500; }
-      }) || null;
+      // For CF: last factor is always the composite cofactor, all preceding are prime
+      // For FF/P/PRP: all factors are prime (the number itself if it's prime)
+      let primeFactors, cofactorStr;
+      if (status === 'CF' && allFdbFactors.length > 1) {
+        primeFactors = allFdbFactors.slice(0, -1);  // all but last
+        cofactorStr  = allFdbFactors[allFdbFactors.length - 1]; // last = cofactor
+      } else {
+        primeFactors = allFdbFactors;
+        cofactorStr  = null;
+      }
 
       // Build cache entry — never store the full cofactor string
       const fullEntry = {
@@ -3034,13 +3043,11 @@ function openModal(n) {
 
   let factorsHtml = '';
   if (e.factors && e.factors.length && e.factors[0] !== '1') {
-    // Only show factors ≤500 digits — larger ones are composite cofactors, not primes
-    // Also exclude any factor that matches e.cofactor exactly
+    // Show all factors except exact cofactor match or clearly huge legacy composites (>50000d)
     const primeFactors = e.factors.filter(f => {
-      const digits = /^\d+\^\d+$/.test(f)
-        ? String(BigInt(f.split('^')[0]) ** BigInt(f.split('^')[1])).length
-        : f.length;
-      return digits <= 500 && (!e.cofactor || f !== e.cofactor);
+      if (e.cofactor && f === e.cofactor) return false; // exact cofactor match
+      if (f.length > 50000) return false;               // legacy huge composite
+      return true;
     });
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
