@@ -1970,7 +1970,7 @@ async function importFactorsSeed() {
       fdbFactors[entry.val] = { factors: combined };
 
       // Queue small entries for FDB verification
-      if (newStatus !== 'full' && entry.val.length <= 50000) {
+      if (entry.status !== 'full' && entry.val.length <= 50000) {
         toVerify.push({ n, number: entry.val });
       }
 
