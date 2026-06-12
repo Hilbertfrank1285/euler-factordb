@@ -1984,7 +1984,7 @@ async function importFactorsSeed() {
     saveFdbUnknownSet(s);
 
     addLog('Factors imported: ' + added + ' entries, ' + skipped + ' skipped', 'ok');
-    setStatus('Factors import done — ' + added + ' added. Now verifying ' + toVerify.length + ' entries on FDB…', 'ok');
+    setStatus('Factors import done — ' + added + ' added.', 'ok');
     applyFilters(); renderStats();
     scheduleECMPush();
     if (btn) btn.textContent = '✓ Imported';
@@ -1996,16 +1996,18 @@ async function importFactorsSeed() {
       return !c || !['FF','CF','P','PRP','C'].includes(c.status);
     });
 
+    const VERIFY_CAP = 100;
     if (needsVerify.length > 0) {
-      // Cap at 100 per session to avoid hammering FDB
-      const batch = needsVerify.slice(0, 100);
+      const batch     = needsVerify.slice(0, VERIFY_CAP);
       const remaining = needsVerify.length - batch.length;
-      addLog('FDB verification: queuing ' + batch.length + ' entries' +
-        (remaining > 0 ? ' (' + remaining + ' more — re-import to continue)' : ''), '');
-      setStatus('Verifying ' + batch.length + ' entries on FDB…', '');
+      const msg = 'Verifying first ' + batch.length + ' of ' + needsVerify.length + ' unverified entries on FDB'
+        + (remaining > 0 ? ' — click Import again for next ' + Math.min(remaining, VERIFY_CAP) : '');
+      addLog(msg, '');
+      setStatus(msg, '');
       runPollQueue(batch, false, null, false);
     } else {
       addLog('All imported entries already FDB-verified — no queries needed', 'ok');
+      setStatus('Import complete — all entries already FDB-verified', 'ok');
     }
   } catch(err) {
     addLog('Factors import failed: ' + err.message, 'err');
@@ -2246,27 +2248,42 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     try {
       const data = await queryFactorDB(target.number);
       const rawStatus = data.status || 'U';
-      // FactorDB returns 'UN' (unit) for |E(n)|=1; treat as fully factored
-      const status = rawStatus === 'UN' ? 'FF' : rawStatus;
-      const factors = (data.factors || []).map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f)).filter(Boolean);
+      const status    = rawStatus === 'UN' ? 'FF' : rawStatus;
 
-      const prev    = fdbCache[target.number];
-      const fullEntry = { status, factors, timestamp: Date.now(), n: target.n };
+      // Parse all factors from FDB response
+      const allFdbFactors = (data.factors || [])
+        .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
+        .filter(f => f && f !== '1');
+
+      // Separate prime factors (≤500 digits) from composite cofactor (>500 digits)
+      // FDB always puts the cofactor last in CF entries
+      const primeFactors  = allFdbFactors.filter(f => {
+        try { return String(eval(f.replace('^','**'))).length <= 500; } catch { return f.length <= 500; }
+      });
+      const cofactorStr   = allFdbFactors.find(f => {
+        try { return String(eval(f.replace('^','**'))).length > 500; } catch { return f.length > 500; }
+      }) || null;
+
+      // Build cache entry — never store the full cofactor string
+      const fullEntry = {
+        status,
+        factors:        primeFactors,
+        cofactorLen:    cofactorStr ? cofactorStr.length : null,
+        cofactorPreview: cofactorStr ? cofactorStr.slice(0, 35) : null,
+        timestamp:      Date.now(),
+        n:              target.n
+      };
       fdbCache[target.number] = fullEntry;
-      if (factors && factors.length) fdbFactors[target.number] = { factors };
+      if (primeFactors.length) fdbFactors[target.number] = { factors: primeFactors };
       saveFDBCache(fdbCache);
+
+      // U → fdb-unknown
       if (status === 'U') {
         const uEntry = allEntries.find(e => e.n === target.n);
         if (uEntry && (uEntry.status === 'unknown' || uEntry.status === 'fdb-unknown')) {
           uEntry.status = 'fdb-unknown';
           addFdbUnknown(target.n);
         }
-      }
-
-      // If FDB returns Unknown, open its page so user can click "Test if probable prime"
-      // Only when tab is visible (don't spam tabs in background)
-      if (status === 'U' && !document.hidden && target.number && target.number.length <= 7000) {
-        window.open('https://factordb.com/index.php?query=' + encodeURIComponent(target.number), '_blank', 'noopener,noreferrer');
       }
 
       const resolved = ['FF', 'P', 'PRP'].includes(status);
