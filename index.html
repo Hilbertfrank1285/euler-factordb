@@ -1965,20 +1965,16 @@ async function importFactorsSeed() {
     setStatus('Factors import done — ' + added + ' added.', 'ok');
     applyFilters(); renderStats();
     scheduleECMPush();
-    if (btn) btn.textContent = '✓ Imported';
+    if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; } }, 3000); }
 
-    const VERIFY_CAP = 100;
     if (toVerify.length > 0) {
-      const batch     = toVerify.slice(0, VERIFY_CAP);
-      const remaining = toVerify.length - batch.length;
-      const msg = 'Verifying first ' + batch.length + ' of ' + toVerify.length + ' entries on FDB'
-        + (remaining > 0 ? ' — click Import again for next ' + Math.min(remaining, VERIFY_CAP) : '');
+      const msg = 'Verifying ' + toVerify.length + ' entries on FDB…';
       addLog(msg, '');
       setStatus(msg, '');
-      runPollQueue(batch, false, null, false);
+      runPollQueue(toVerify, false, null, false);
     } else {
-      addLog('Import done — all entries already had FDB data, no re-verification needed', 'ok');
-      setStatus('Import complete — factors merged, no FDB queries needed', 'ok');
+      addLog('Import done — all entries already FDB-verified', 'ok');
+      setStatus('Import complete — all entries already FDB-verified', 'ok');
     }
   } catch(err) {
     addLog('Factors import failed: ' + err.message, 'err');
@@ -2257,12 +2253,12 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       const entry = allEntries.find(x => x.n === target.n);
 
       // Always log what FDB returned
-      addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${factors.length} factor(s)${factors.length ? ': '+factors.slice(0,3).join(' × ')+(factors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
+      addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${primeFactors.length} factor(s)${primeFactors.length ? ': '+primeFactors.slice(0,3).join(' × ')+(primeFactors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
 
       if (entry) {
         // Path 1: cofactor lookup resolved
         if (entry.cofactor === target.number && resolved) {
-          const fdbFactors = factors.filter(f => f && f !== '1');
+          const fdbFactors = primeFactors.filter(f => f && f !== '1');
           entry.factors = [...(entry.factors || []), ...fdbFactors];
           entry.cofactor = null;
           entry.status   = 'full';
