@@ -42558,9 +42558,13 @@
       "source": "fdb"
     },
     "9486": {
-      "status": "U",
-      "timestamp": 1781504746224,
-      "n": 9486
+      "status": "CF",
+      "timestamp": 1781525085680,
+      "n": 9486,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "9488": {
       "status": "CF",
@@ -77364,6 +77368,12 @@
   },
   "changelog": [
     {
+      "n": 9486,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781525085712
+    },
+    {
       "n": 9520,
       "type": "updated",
       "detail": "FDB CF: 12 factor(s)",
@@ -77956,14 +77966,8 @@
       "type": "updated",
       "detail": "FDB CF: 9 factor(s)",
       "ts": 1781523497217
-    },
-    {
-      "n": 7966,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523496717
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-15T12:02:57.786Z"
+  "updatedAt": "2026-06-15T12:04:51.484Z"
 }
