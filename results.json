@@ -1,0 +1,924 @@
+{
+  "fdbCache": {
+    "4": {
+      "status": "P",
+      "timestamp": 1781500997914,
+      "n": 4,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
+    },
+    "6": {
+      "status": "P",
+      "timestamp": 1781500998411,
+      "n": 6,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
+    },
+    "8": {
+      "status": "FF",
+      "timestamp": 1781500998921,
+      "n": 8,
+      "factors": [
+        "5",
+        "277"
+      ],
+      "source": "fdb"
+    },
+    "10": {
+      "status": "FF",
+      "timestamp": 1781500999445,
+      "n": 10,
+      "factors": [
+        "19",
+        "2659"
+      ],
+      "source": "fdb"
+    },
+    "12": {
+      "status": "FF",
+      "timestamp": 1781500999944,
+      "n": 12,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "967"
+      ],
+      "source": "fdb"
+    },
+    "14": {
+      "status": "FF",
+      "timestamp": 1781501000458,
+      "n": 14,
+      "factors": [
+        "47",
+        "4241723"
+      ],
+      "source": "fdb"
+    },
+    "16": {
+      "status": "FF",
+      "timestamp": 1781501000968,
+      "n": 16,
+      "factors": [
+        "5",
+        "17",
+        "228135437"
+      ],
+      "source": "fdb"
+    },
+    "18": {
+      "status": "FF",
+      "timestamp": 1781501001386,
+      "n": 18,
+      "factors": [
+        "79",
+        "349",
+        "87224971"
+      ],
+      "source": "fdb"
+    },
+    "20": {
+      "status": "FF",
+      "timestamp": 1781501001787,
+      "n": 20,
+      "factors": [
+        "5^2",
+        "41737",
+        "354957173"
+      ],
+      "source": "fdb"
+    },
+    "22": {
+      "status": "FF",
+      "timestamp": 1781501002300,
+      "n": 22,
+      "factors": [
+        "31",
+        "1567103",
+        "1427513357"
+      ],
+      "source": "fdb"
+    },
+    "24": {
+      "status": "FF",
+      "timestamp": 1781501002707,
+      "n": 24,
+      "factors": [
+        "5",
+        "13",
+        "2137",
+        "111691689741601"
+      ],
+      "source": "fdb"
+    },
+    "26": {
+      "status": "FF",
+      "timestamp": 1781501003220,
+      "n": 26,
+      "factors": [
+        "67",
+        "61001082228255580483"
+      ],
+      "source": "fdb"
+    },
+    "28": {
+      "status": "FF",
+      "timestamp": 1781501003633,
+      "n": 28,
+      "factors": [
+        "5",
+        "19",
+        "29",
+        "71",
+        "30211",
+        "2717447",
+        "77980901"
+      ],
+      "source": "fdb"
+    },
+    "30": {
+      "status": "FF",
+      "timestamp": 1781501004068,
+      "n": 30,
+      "factors": [
+        "15669721",
+        "28178159218598921101"
+      ],
+      "source": "fdb"
+    },
+    "32": {
+      "status": "FF",
+      "timestamp": 1781501004459,
+      "n": 32,
+      "factors": [
+        "5",
+        "17",
+        "930157",
+        "42737921",
+        "52536026741617"
+      ],
+      "source": "fdb"
+    },
+    "34": {
+      "status": "FF",
+      "timestamp": 1781501004966,
+      "n": 34,
+      "factors": [
+        "4153",
+        "8429689",
+        "2305820097576334676593"
+      ],
+      "source": "fdb"
+    },
+    "36": {
+      "status": "FF",
+      "timestamp": 1781501005474,
+      "n": 36,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "9257",
+        "73026287",
+        "25355088490684770871"
+      ],
+      "source": "fdb"
+    },
+    "38": {
+      "status": "P",
+      "timestamp": 1781501005883,
+      "n": 38,
+      "factors": [
+        "23489580527043108252017828576198947741"
+      ],
+      "source": "fdb"
+    },
+    "40": {
+      "status": "FF",
+      "timestamp": 1781501006293,
+      "n": 40,
+      "factors": [
+        "5^2",
+        "41",
+        "763601",
+        "52778129",
+        "359513962188687126618793"
+      ],
+      "source": "fdb"
+    },
+    "42": {
+      "status": "FF",
+      "timestamp": 1781501006687,
+      "n": 42,
+      "factors": [
+        "137",
+        "5563",
+        "13599529127564174819549339030619651971"
+      ],
+      "source": "fdb"
+    },
+    "44": {
+      "status": "FF",
+      "timestamp": 1781501007080,
+      "n": 44,
+      "factors": [
+        "5",
+        "587",
+        "32027",
+        "9728167327",
+        "36408069989737",
+        "238716161191111"
+      ],
+      "source": "fdb"
+    },
+    "46": {
+      "status": "FF",
+      "timestamp": 1781501007523,
+      "n": 46,
+      "factors": [
+        "19",
+        "285528427091",
+        "1229030085617829967076190070873124909"
+      ],
+      "source": "fdb"
+    },
+    "48": {
+      "status": "FF",
+      "timestamp": 1781501008055,
+      "n": 48,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "5516994249383296071214195242422482492286460673697"
+      ],
+      "source": "fdb"
+    },
+    "50": {
+      "status": "FF",
+      "timestamp": 1781501008546,
+      "n": 50,
+      "factors": [
+        "5639",
+        "1508047",
+        "10546435076057211497",
+        "67494515552598479622918721"
+      ],
+      "source": "fdb"
+    },
+    "52": {
+      "status": "FF",
+      "timestamp": 1781501008955,
+      "n": 52,
+      "factors": [
+        "5",
+        "31",
+        "53",
+        "1601",
+        "2144617",
+        "537569557577904730817",
+        "429083282746263743638619"
+      ],
+      "source": "fdb"
+    },
+    "54": {
+      "status": "FF",
+      "timestamp": 1781501009366,
+      "n": 54,
+      "factors": [
+        "43",
+        "2749",
+        "3886651",
+        "78383747632327",
+        "209560784826737564385795230911608079"
+      ],
+      "source": "fdb"
+    },
+    "56": {
+      "status": "FF",
+      "timestamp": 1781501009741,
+      "n": 56,
+      "factors": [
+        "5",
+        "29",
+        "5303",
+        "7256152441",
+        "52327916441",
+        "2551319957161",
+        "12646529075062293075738167"
+      ],
+      "source": "fdb"
+    },
+    "58": {
+      "status": "FF",
+      "timestamp": 1781501010123,
+      "n": 58,
+      "factors": [
+        "1459879476771247347961031445001033",
+        "8645932388694028255845384768828577"
+      ],
+      "source": "fdb"
+    },
+    "60": {
+      "status": "FF",
+      "timestamp": 1781501010493,
+      "n": 60,
+      "factors": [
+        "5^2",
+        "13",
+        "47",
+        "61",
+        "6821509",
+        "14922423647156041",
+        "190924415797997235233811858285255904935247"
+      ],
+      "source": "fdb"
+    },
+    "62": {
+      "status": "FF",
+      "timestamp": 1781501010880,
+      "n": 62,
+      "factors": [
+        "101",
+        "6863",
+        "418739",
+        "1042901",
+        "91696392173931715546458327937225591842756597414460291393"
+      ],
+      "source": "fdb"
+    },
+    "64": {
+      "status": "FF",
+      "timestamp": 1781501011292,
+      "n": 64,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "25349",
+        "85297",
+        "12989360531548972327803547656767339375006258039696642617507398739"
+      ],
+      "source": "fdb"
+    },
+    "66": {
+      "status": "FF",
+      "timestamp": 1781501011688,
+      "n": 66,
+      "factors": [
+        "61",
+        "105075119",
+        "508679461",
+        "155312172341",
+        "155737429414728656346088798821794971221082287203779"
+      ],
+      "source": "fdb"
+    },
+    "68": {
+      "status": "FF",
+      "timestamp": 1781501012130,
+      "n": 68,
+      "factors": [
+        "5",
+        "2039",
+        "66041",
+        "29487071944189",
+        "15138431327918641",
+        "484510273389546188488228650507868434878928667"
+      ],
+      "source": "fdb"
+    },
+    "70": {
+      "status": "FF",
+      "timestamp": 1781501012539,
+      "n": 70,
+      "factors": [
+        "353",
+        "2586437056036336027701234101159",
+        "312210239910371909857727050224078527206101218811162523"
+      ],
+      "source": "fdb"
+    },
+    "72": {
+      "status": "FF",
+      "timestamp": 1781501012954,
+      "n": 72,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "73",
+        "2341",
+        "4014623",
+        "24259423",
+        "30601587075439337",
+        "482132394333433671681711454588230154366429871388577"
+      ],
+      "source": "fdb"
+    },
+    "74": {
+      "status": "FF",
+      "timestamp": 1781501013346,
+      "n": 74,
+      "factors": [
+        "193",
+        "34629826749613",
+        "4207222848740394629",
+        "22060457167870794468746201",
+        "2084356623048603581413664959497121"
+      ],
+      "source": "fdb"
+    },
+    "76": {
+      "status": "FF",
+      "timestamp": 1781501013875,
+      "n": 76,
+      "factors": [
+        "5",
+        "145007",
+        "3460859370585503071",
+        "581662827280863723239564386159",
+        "2046494332840854220697501265093364699008503"
+      ],
+      "source": "fdb"
+    },
+    "78": {
+      "status": "FF",
+      "timestamp": 1781501014339,
+      "n": 78,
+      "factors": [
+        "2740019561103910291228417123054994825316979387",
+        "2653485331720644497330964662311698866076250195175420143"
+      ],
+      "source": "fdb"
+    },
+    "80": {
+      "status": "FF",
+      "timestamp": 1781501014794,
+      "n": 80,
+      "factors": [
+        "5^2",
+        "17",
+        "41",
+        "7701306020743",
+        "3572363603188902175396213",
+        "38846764704262590259300934027789308313372462321468975007497723"
+      ],
+      "source": "fdb"
+    },
+    "82": {
+      "status": "FF",
+      "timestamp": 1781501015305,
+      "n": 82,
+      "factors": [
+        "19",
+        "31",
+        "4395659",
+        "19362770909688015706969070010251447300069869218730738631081856478707091043441129483728814525689151"
+      ],
+      "source": "fdb"
+    },
+    "84": {
+      "status": "FF",
+      "timestamp": 1781501015715,
+      "n": 84,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "4397",
+        "739762335239015186706527735192795520726707",
+        "23102787557601588721456558705317833928862314134208348372143087"
+      ],
+      "source": "fdb"
+    },
+    "86": {
+      "status": "FF",
+      "timestamp": 1781501016329,
+      "n": 86,
+      "factors": [
+        "311",
+        "390751",
+        "46053168570671",
+        "74986319845812145784551868048126190369278156634642367534774456226474257609636379648051949931"
+      ],
+      "source": "fdb"
+    },
+    "88": {
+      "status": "FF",
+      "timestamp": 1781501016776,
+      "n": 88,
+      "factors": [
+        "5",
+        "89",
+        "1019",
+        "588528876550967927",
+        "16292380848703930709213",
+        "299486802265136211149001182581773707871231241730856886331844648891572917"
+      ],
+      "source": "fdb"
+    },
+    "90": {
+      "status": "FF",
+      "timestamp": 1781501017250,
+      "n": 90,
+      "factors": [
+        "307",
+        "1964309984670433843694580256152588601980583986713006597",
+        "7009847602004167115916290986605684053531335416698972470816994999"
+      ],
+      "source": "fdb"
+    },
+    "92": {
+      "status": "FF",
+      "timestamp": 1781501017642,
+      "n": 92,
+      "factors": [
+        "5",
+        "67",
+        "7096363493",
+        "7308346963823",
+        "120476813565517",
+        "6852407024669068390909754709442624892869625075497417472114059263321858504941240893213"
+      ],
+      "source": "fdb"
+    },
+    "94": {
+      "status": "FF",
+      "timestamp": 1781501018070,
+      "n": 94,
+      "factors": [
+        "53089",
+        "20609829625906839913745698187",
+        "180986288780569828566819992453",
+        "256621399078520721362779415524071232557900216108064435815974652739"
+      ],
+      "source": "fdb"
+    },
+    "96": {
+      "status": "FF",
+      "timestamp": 1781501018478,
+      "n": 96,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "43",
+        "79",
+        "97",
+        "835823",
+        "2233081",
+        "1951860271597317997069749059",
+        "9416370608392625586845089085196635167",
+        "15038064837301437151577874662131773543986118119"
+      ],
+      "source": "fdb"
+    },
+    "98": {
+      "status": "FF",
+      "timestamp": 1781501018873,
+      "n": 98,
+      "factors": [
+        "71",
+        "376003429",
+        "5160267661",
+        "4363907262506552373343",
+        "1203740115210949188708862833173555456573308765113803046758404643968072850828871065564911985513"
+      ],
+      "source": "fdb"
+    },
+    "100": {
+      "status": "FF",
+      "timestamp": 1781501019271,
+      "n": 100,
+      "factors": [
+        "5^3",
+        "19",
+        "101",
+        "37425288022730945391029688959184999895624961872309545117125516009",
+        "323426745939670232370945964142599333281963947324682256641819433713631"
+      ],
+      "source": "fdb"
+    },
+    "102": {
+      "status": "FF",
+      "timestamp": 1781501019707,
+      "n": 102,
+      "factors": [
+        "8647",
+        "198943119321654388058500384086517043195558620394228397755851",
+        "7047149416458071487967246745672316954994551826273995139785075734373341685377233"
+      ],
+      "source": "fdb"
+    }
+  },
+  "changelog": [
+    {
+      "n": 102,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501019709
+    },
+    {
+      "n": 100,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501019273
+    },
+    {
+      "n": 98,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501018877
+    },
+    {
+      "n": 96,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501018482
+    },
+    {
+      "n": 94,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501018072
+    },
+    {
+      "n": 92,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501017644
+    },
+    {
+      "n": 90,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501017252
+    },
+    {
+      "n": 88,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501016779
+    },
+    {
+      "n": 86,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501016332
+    },
+    {
+      "n": 84,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501015717
+    },
+    {
+      "n": 82,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501015307
+    },
+    {
+      "n": 80,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501014796
+    },
+    {
+      "n": 78,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501014341
+    },
+    {
+      "n": 76,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501013877
+    },
+    {
+      "n": 74,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501013348
+    },
+    {
+      "n": 72,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501012957
+    },
+    {
+      "n": 70,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501012541
+    },
+    {
+      "n": 68,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501012132
+    },
+    {
+      "n": 66,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501011692
+    },
+    {
+      "n": 64,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501011293
+    },
+    {
+      "n": 62,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501010882
+    },
+    {
+      "n": 60,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501010495
+    },
+    {
+      "n": 58,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501010124
+    },
+    {
+      "n": 56,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501009743
+    },
+    {
+      "n": 54,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501009366
+    },
+    {
+      "n": 52,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501008956
+    },
+    {
+      "n": 50,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501008548
+    },
+    {
+      "n": 48,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501008057
+    },
+    {
+      "n": 46,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501007525
+    },
+    {
+      "n": 44,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501007082
+    },
+    {
+      "n": 42,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501006688
+    },
+    {
+      "n": 40,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501006295
+    },
+    {
+      "n": 38,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Prime)",
+      "ts": 1781501005885
+    },
+    {
+      "n": 36,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501005475
+    },
+    {
+      "n": 34,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501004967
+    },
+    {
+      "n": 32,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501004460
+    },
+    {
+      "n": 30,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501004069
+    },
+    {
+      "n": 28,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501003635
+    },
+    {
+      "n": 26,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501003222
+    },
+    {
+      "n": 24,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501002708
+    },
+    {
+      "n": 22,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501002301
+    },
+    {
+      "n": 20,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501001789
+    },
+    {
+      "n": 18,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501001387
+    },
+    {
+      "n": 16,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501000970
+    },
+    {
+      "n": 14,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781501000459
+    },
+    {
+      "n": 12,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781500999946
+    },
+    {
+      "n": 10,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781500999447
+    },
+    {
+      "n": 8,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781500998922
+    },
+    {
+      "n": 6,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Prime)",
+      "ts": 1781500998413
+    },
+    {
+      "n": 4,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Prime)",
+      "ts": 1781500997915
+    }
+  ],
+  "ecm": {},
+  "updatedAt": "2026-06-15T05:31:48.838Z"
+}
