@@ -1689,8 +1689,11 @@ async function githubPush() {
   try {
     // Helper to get current SHA
     async function getCurrentSha() {
-      const r = await fetch(ghApiBase() + '?ref=' + (s.branch||'main'), { headers: ghHeaders() });
+      // Cache-buster + no-store to always get the LIVE sha (avoids stale 409 loops)
+      const url = ghApiBase() + '?ref=' + (s.branch||'main') + '&_=' + Date.now();
+      const r = await fetch(url, { headers: { ...ghHeaders(), 'Cache-Control': 'no-cache' }, cache: 'no-store' });
       if (r.ok) { const d = await r.json(); return d.sha || null; }
+      if (r.status === 404) return null; // file doesn't exist yet
       return null;
     }
 
@@ -1719,7 +1722,7 @@ async function githubPush() {
 
     // Retry up to 3 times on SHA conflict — every conflict gets a fresh SHA
     let retries = 0;
-    while (!r.ok && retries < 5) {
+    while (!r.ok && retries < 2) {
       // Peek at the error message to determine if it's a SHA conflict
       const clone = r.clone();
       let isConflict = (r.status === 409 || r.status === 422);
@@ -1730,7 +1733,7 @@ async function githubPush() {
       if (!isConflict) break;
 
       retries++;
-      setGHStatus('SHA conflict — retrying (' + retries + '/5)…', 'busy');
+      setGHStatus('SHA conflict — retrying (' + retries + '/2)…', 'busy');
       // Small backoff to let GitHub's API stabilise
       await new Promise(res => setTimeout(res, 500 * retries));
       sha = await getCurrentSha();
