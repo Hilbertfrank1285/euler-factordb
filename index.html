@@ -582,7 +582,6 @@
 <!-- FactorDB status bar -->
 <div class="factordb-bar">
 
-
   <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
     ↓ Export CSV
   </button>
@@ -1068,7 +1067,6 @@ function replayFDBCache() {
     const entry = allEntries.find(x => x.n === n);
     if (!entry) continue;
 
-
     // If this was a cofactor lookup and it resolved
     const effectiveStatus = status === 'UN' ? 'FF' : status;
     if (entry.cofactor === number && ['FF','P','PRP'].includes(effectiveStatus)) {
@@ -1121,16 +1119,6 @@ function replayFDBCache() {
 }
 
 // Which entries have cofactors that should be queried?
-function getCofactorTargets() {
-  return allEntries
-    .filter(e => {
-      // Has a numeric cofactor string (not null, not placeholder text)
-      if (!e.cofactor) return false;
-      if (e.cofactor.startsWith('(')) return false; // placeholder
-      return true;
-    })
-    .map(e => ({ n: e.n, number: e.cofactor }));
-}
 
 // Which are "unknown" entries with a known absolute value small enough to query?
 const MAX_AUTO_DIGITS = 50; // kept for modal warning only
@@ -1791,11 +1779,6 @@ async function maybeAutoPull() {
   await githubPull();
 }
 
-function setSortMode(mode) {
-  sortMode = mode;
-  applyFilters();
-}
-
 function toggleSortN() {
   sortMode = (sortMode === 'default') ? 'n-desc' : 'default';
   const btn = document.getElementById('sortNBtn');
@@ -2135,24 +2118,6 @@ function exportCSV() {
   addLog('Exported CSV — ' + allEntries.length + ' entries', '');
 }
 
-function clearAllCache() {
-  if (!confirm('Clear ALL cached FactorDB results? This will reset all discovered factors and statuses.')) return;
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(CHANGELOG_KEY);
-  localStorage.removeItem(LOG_KEY);
-  localStorage.removeItem(COOLDOWN_KEY);
-  localStorage.removeItem(ECM_KEY);
-  fdbCache    = {};
-  activityLog = [];
-  allEntries  = buildEntries();
-  filtered    = [...allEntries];
-  renderLog();
-  renderChangelog();
-  applyFilters();
-  setStatus('Cache cleared — all FactorDB data removed');
-  addLog('Cache cleared by user', 'warn');
-}
-
 function clearChangelog(evt) {
   evt.stopPropagation();
   if (!confirm('Clear the entire changelog?')) return;
@@ -2309,20 +2274,8 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${primeFactors.length} factor(s)${primeFactors.length ? ': '+primeFactors.slice(0,3).join(' × ')+(primeFactors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
 
       if (entry) {
-        // Path 1: cofactor lookup resolved
-        if (entry.cofactor === target.number && resolved) {
-          const fdbFactors = primeFactors.filter(f => f && f !== '1');
-          entry.factors = [...(entry.factors || []), ...fdbFactors];
-          entry.cofactor = null;
-          entry.status   = 'full';
-          entry._fdbVerified = true;
-          entry._resolvedViaCofactor = target.number;
-          invalidateDifficultyCache(target.n);
-          addLog(`E(${target.n}) promoted to FULLY FACTORED — cofactor resolved`, 'ok');
-          addChangelogEntry(target.n, 'promoted', 'Cofactor resolved via FactorDB (' + fdbStatusLabel(status) + ')');
-
-        // Path 2: full value lookup resolved (unknown → full)
-        } else if (entry.val === target.number && entry.status !== 'full' && resolved) {
+        // Full value resolved (any non-full → full)
+        if (entry.val === target.number && entry.status !== 'full' && resolved) {
           const fdbFactors = primeFactors.filter(f => f && f !== '1');
           entry.factors = fdbFactors;
           entry.cofactor = null;
@@ -2331,10 +2284,15 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
           addChangelogEntry(target.n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
 
-        // Path 3a: confirmed composite, no factors (C status) → mark as composite
-        } else if (status === 'C' && (entry.status === 'unknown' || entry.status === 'composite')) {
-          entry.status = 'composite';
-          addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
+        // Path 3a: FDB says composite, no factors (C status)
+        // Don't downgrade entries that already have known factors (partial)
+        } else if (status === 'C') {
+          if (entry.status !== 'full' && entry.status !== 'partial' && !(entry.factors && entry.factors.length)) {
+            entry.status = 'composite';
+            addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
+          } else {
+            addLog(`E(${target.n}) FDB shows C but we have local factors — keeping ${entry.status}`, '');
+          }
 
         // Path 3b: partial factors (CF) — primeFactors already stripped of cofactor
         } else if (status === 'CF') {
@@ -2459,14 +2417,6 @@ function getStorageBreakdown() {
   }
   breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
   return breakdown;
-}
-
-function getStorageUsage() {
-  try {
-    let total = 0;
-    for (const k of Object.keys(localStorage)) total += localStorage.getItem(k).length;
-    return total;
-  } catch { return 0; }
 }
 
 function setStatus(msg, cls = '') {
@@ -2723,18 +2673,6 @@ function startManualPoll() {
   runPollQueue(allTargets(), true, document.getElementById('pollBtn'), true);
 }
 
-function maybeAutoPoll() {
-  const targets = allTargets().filter(t => needsDailyCheck(t.number));
-  if (targets.length === 0) {
-    const oldest = Math.min(...allTargets().map(t => (fdbCache[t.number]?.timestamp || 0)));
-    const next   = oldest ? new Date(oldest + AUTO_INTERVAL).toLocaleTimeString() : '—';
-    setStatus(`All entries checked today · next auto-check ~${next}`);
-    return;
-  }
-  setStatus(`Auto-checking ${targets.length} stale entr${targets.length===1?'y':'ies'}…`);
-  setTimeout(() => runPollQueue(targets, false), 1500);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2872,11 +2810,6 @@ function fmtFdbDate(timestamp) {
   const date  = fresh ? 'Today' : d.toLocaleDateString();
   const time  = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   return `${date} ${time}`;
-}
-
-function fdbTagForEntry(e) {
-  // No tag on card anymore — date shown in card subtitle instead
-  return '';
 }
 
 function renderGrid() {
@@ -3182,29 +3115,6 @@ function openModal(n) {
 }
 
 // One-off modal check for cofactor
-async function modalCheckCofactor(n) {
-  const e = allEntries.find(x => x.n === n);
-  if (!e || !e.cofactor || e.cofactor.startsWith('(')) return;
-  const btn = document.getElementById('modalCheckBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '↻ Querying…'; }
-  try {
-    const data   = await queryFactorDB(e.cofactor);
-    const rawStC = data.status || 'U';
-    const status = rawStC === 'UN' ? 'FF' : rawStC;
-    const allCF   = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
-    const factors = (status === 'CF' && allCF.length > 1) ? allCF.slice(0, -1) : allCF;
-    fdbCache[e.cofactor] = { status, factors, timestamp: Date.now(), source: 'fdb', n };
-    if (factors.length) fdbFactors[e.cofactor] = { factors };
-    saveFDBCache(fdbCache);
-    addLog(`E(${n}) cofactor queried → ${fdbStatusLabel(status)}`, 'ok');
-    applyFilters();
-    const bd = document.getElementById('modalBackdrop');
-    if (bd && bd.classList.contains('open')) openModal(n);
-  } catch(err) {
-    addLog(`E(${n}) cofactor query error: ${err.message}`, 'err');
-    if (btn) { btn.disabled = false; btn.textContent = '↻ Query FactorDB now'; }
-  }
-}
 
 async function modalCheckFull(n) {
   const e = allEntries.find(x => x.n === n);
@@ -3307,10 +3217,6 @@ async function modalCheckFull(n) {
 // Cache: { n: { score, base, nfsReduction, ecmReduction, pm1Reduction, ecmCoverage, pm1Coverage, cofactorDigits, _ts } }
 const difficultyCache = {};
 const DIFFICULTY_CACHE_MAX = 500;
-
-function invalidateDifficultyCache(n) {
-  delete difficultyCache[n];
-}
 
 function getCachedDifficulty(n, digits, attempts) {
   const cached = difficultyCache[n];
