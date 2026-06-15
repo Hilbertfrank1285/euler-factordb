@@ -2244,6 +2244,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
   let done = 0, updated = 0, errors = 0;
 
+  // Snapshot entry statuses before poll — used to detect meaningful changes
+  for (const e of allEntries) e._statusBeforePoll = e.status;
+
   cancelRequested = false;
   for (const target of (noCap ? queue : queue.slice(0, MAX_PER_SESSION))) {
     if (cancelRequested) {
@@ -2356,7 +2359,14 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         }
       }
 
-      const changed = !prev || prev.status !== status;
+      // Count as updated if FDB status changed OR entry status changed OR new factors added
+      const prevEntryStatus = allEntries.find(x => x.n === target.n)?._prevStatus;
+      const entryNow = allEntries.find(x => x.n === target.n);
+      const factorsChanged = primeFactors.length > 0 &&
+        JSON.stringify((prev?.factors || []).sort()) !== JSON.stringify(primeFactors.slice().sort());
+      const changed = !prev || prev.status !== status
+        || (entryNow && entryNow._statusBeforePoll !== entryNow.status)
+        || factorsChanged;
       if (changed) {
         updated++;
         // Flash the card
