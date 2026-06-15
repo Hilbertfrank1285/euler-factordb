@@ -20338,54 +20338,106 @@
       "source": "fdb"
     },
     "4402": {
-      "status": "U",
-      "timestamp": 1781503124817,
-      "n": 4402
+      "status": "CF",
+      "timestamp": 1781523430606,
+      "n": 4402,
+      "factors": [
+        "19",
+        "31",
+        "408763"
+      ],
+      "source": "fdb"
     },
     "4404": {
-      "status": "U",
-      "timestamp": 1781503125317,
-      "n": 4404
+      "status": "CF",
+      "timestamp": 1781523431092,
+      "n": 4404,
+      "factors": [
+        "5",
+        "13",
+        "263"
+      ],
+      "source": "fdb"
     },
     "4406": {
-      "status": "U",
-      "timestamp": 1781503125823,
-      "n": 4406
+      "status": "CF",
+      "timestamp": 1781523431561,
+      "n": 4406,
+      "factors": [
+        "139",
+        "39551"
+      ],
+      "source": "fdb"
     },
     "4408": {
-      "status": "U",
-      "timestamp": 1781503126328,
-      "n": 4408
+      "status": "CF",
+      "timestamp": 1781523432030,
+      "n": 4408,
+      "factors": [
+        "5",
+        "233",
+        "4409"
+      ],
+      "source": "fdb"
     },
     "4410": {
-      "status": "U",
-      "timestamp": 1781503126831,
-      "n": 4410
+      "status": "CF",
+      "timestamp": 1781523432508,
+      "n": 4410,
+      "factors": [
+        "3671"
+      ],
+      "source": "fdb"
     },
     "4412": {
-      "status": "U",
-      "timestamp": 1781503127410,
-      "n": 4412
+      "status": "CF",
+      "timestamp": 1781523432979,
+      "n": 4412,
+      "factors": [
+        "5",
+        "16001"
+      ],
+      "source": "fdb"
     },
     "4414": {
-      "status": "U",
-      "timestamp": 1781503127813,
+      "status": "C",
+      "timestamp": 1781523433428,
       "n": 4414
     },
     "4416": {
-      "status": "U",
-      "timestamp": 1781503128310,
-      "n": 4416
+      "status": "CF",
+      "timestamp": 1781523433912,
+      "n": 4416,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "97",
+        "193",
+        "277",
+        "270899",
+        "672379"
+      ],
+      "source": "fdb"
     },
     "4418": {
-      "status": "U",
-      "timestamp": 1781503128702,
+      "status": "C",
+      "timestamp": 1781523434429,
       "n": 4418
     },
     "4420": {
-      "status": "U",
-      "timestamp": 1781503129164,
-      "n": 4420
+      "status": "CF",
+      "timestamp": 1781523434938,
+      "n": 4420,
+      "factors": [
+        "5^2",
+        "19^2",
+        "53",
+        "307",
+        "359",
+        "4421"
+      ],
+      "source": "fdb"
     },
     "4422": {
       "status": "CF",
@@ -24898,304 +24950,675 @@
       "source": "fdb"
     },
     "5450": {
-      "status": "U",
-      "timestamp": 1781503729191,
-      "n": 5450
+      "status": "CF",
+      "timestamp": 1781523435436,
+      "n": 5450,
+      "factors": [
+        "193"
+      ],
+      "source": "fdb"
     },
     "5452": {
-      "status": "U",
-      "timestamp": 1781503729694,
-      "n": 5452
+      "status": "CF",
+      "timestamp": 1781523436757,
+      "n": 5452,
+      "factors": [
+        "5",
+        "31",
+        "263",
+        "34183"
+      ],
+      "source": "fdb"
     },
     "5454": {
-      "status": "U",
-      "timestamp": 1781503730203,
-      "n": 5454
+      "status": "CF",
+      "timestamp": 1781523437234,
+      "n": 5454,
+      "factors": [
+        "5521",
+        "5807"
+      ],
+      "source": "fdb"
     },
     "5456": {
-      "status": "U",
-      "timestamp": 1781503730714,
-      "n": 5456
+      "status": "CF",
+      "timestamp": 1781523437822,
+      "n": 5456,
+      "factors": [
+        "5",
+        "17",
+        "89",
+        "2729",
+        "6397",
+        "8307857"
+      ],
+      "source": "fdb"
     },
     "5458": {
-      "status": "U",
-      "timestamp": 1781503731239,
-      "n": 5458
+      "status": "CF",
+      "timestamp": 1781523438302,
+      "n": 5458,
+      "factors": [
+        "4481",
+        "17191",
+        "725739881"
+      ],
+      "source": "fdb"
     },
     "5460": {
-      "status": "U",
-      "timestamp": 1781503731753,
-      "n": 5460
+      "status": "CF",
+      "timestamp": 1781523438787,
+      "n": 5460,
+      "factors": [
+        "5^2",
+        "13^2",
+        "29",
+        "53",
+        "61",
+        "157",
+        "223",
+        "421"
+      ],
+      "source": "fdb"
     },
     "5462": {
-      "status": "U",
-      "timestamp": 1781503732271,
-      "n": 5462
+      "status": "CF",
+      "timestamp": 1781523439305,
+      "n": 5462,
+      "factors": [
+        "101",
+        "311",
+        "8311",
+        "11177",
+        "247060127"
+      ],
+      "source": "fdb"
     },
     "5464": {
-      "status": "U",
-      "timestamp": 1781503732789,
-      "n": 5464
+      "status": "CF",
+      "timestamp": 1781523439767,
+      "n": 5464,
+      "factors": [
+        "5",
+        "19",
+        "40519",
+        "429827"
+      ],
+      "source": "fdb"
     },
     "5466": {
-      "status": "U",
-      "timestamp": 1781503733314,
-      "n": 5466
+      "status": "CF",
+      "timestamp": 1781523440252,
+      "n": 5466,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "5468": {
-      "status": "U",
-      "timestamp": 1781503733841,
-      "n": 5468
+      "status": "CF",
+      "timestamp": 1781523440713,
+      "n": 5468,
+      "factors": [
+        "5",
+        "257717"
+      ],
+      "source": "fdb"
     },
     "5470": {
-      "status": "U",
-      "timestamp": 1781503734368,
-      "n": 5470
+      "status": "CF",
+      "timestamp": 1781523441170,
+      "n": 5470,
+      "factors": [
+        "1013",
+        "2999"
+      ],
+      "source": "fdb"
     },
     "5472": {
-      "status": "U",
-      "timestamp": 1781503734875,
-      "n": 5472
+      "status": "CF",
+      "timestamp": 1781523441630,
+      "n": 5472,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "37",
+        "43",
+        "73",
+        "97",
+        "229",
+        "457"
+      ],
+      "source": "fdb"
     },
     "5474": {
-      "status": "U",
-      "timestamp": 1781503735379,
-      "n": 5474
+      "status": "CF",
+      "timestamp": 1781523442115,
+      "n": 5474,
+      "factors": [
+        "149",
+        "21247"
+      ],
+      "source": "fdb"
     },
     "5476": {
-      "status": "U",
-      "timestamp": 1781503735893,
-      "n": 5476
+      "status": "CF",
+      "timestamp": 1781523442562,
+      "n": 5476,
+      "factors": [
+        "5",
+        "149",
+        "349"
+      ],
+      "source": "fdb"
     },
     "5478": {
-      "status": "U",
-      "timestamp": 1781503736414,
-      "n": 5478
+      "status": "CF",
+      "timestamp": 1781523443049,
+      "n": 5478,
+      "factors": [
+        "79"
+      ],
+      "source": "fdb"
     },
     "5480": {
-      "status": "U",
-      "timestamp": 1781503736936,
-      "n": 5480
+      "status": "CF",
+      "timestamp": 1781523443676,
+      "n": 5480,
+      "factors": [
+        "5^2",
+        "41",
+        "1097"
+      ],
+      "source": "fdb"
     },
     "5482": {
-      "status": "U",
-      "timestamp": 1781503737436,
-      "n": 5482
+      "status": "CF",
+      "timestamp": 1781523444121,
+      "n": 5482,
+      "factors": [
+        "19",
+        "31",
+        "137",
+        "1039"
+      ],
+      "source": "fdb"
     },
     "5484": {
-      "status": "U",
-      "timestamp": 1781503737952,
-      "n": 5484
+      "status": "CF",
+      "timestamp": 1781523444675,
+      "n": 5484,
+      "factors": [
+        "5",
+        "13",
+        "3187"
+      ],
+      "source": "fdb"
     },
     "5486": {
-      "status": "U",
-      "timestamp": 1781503738489,
-      "n": 5486
+      "status": "CF",
+      "timestamp": 1781523445130,
+      "n": 5486,
+      "factors": [
+        "461",
+        "619"
+      ],
+      "source": "fdb"
     },
     "5488": {
-      "status": "U",
-      "timestamp": 1781503739037,
-      "n": 5488
+      "status": "CF",
+      "timestamp": 1781523445615,
+      "n": 5488,
+      "factors": [
+        "5",
+        "17",
+        "29",
+        "47",
+        "71",
+        "113",
+        "197",
+        "1373",
+        "17123",
+        "17597",
+        "20399429"
+      ],
+      "source": "fdb"
     },
     "5490": {
-      "status": "U",
-      "timestamp": 1781503739553,
-      "n": 5490
+      "status": "CF",
+      "timestamp": 1781523446123,
+      "n": 5490,
+      "factors": [
+        "241"
+      ],
+      "source": "fdb"
     },
     "5492": {
-      "status": "U",
-      "timestamp": 1781503740052,
-      "n": 5492
+      "status": "CF",
+      "timestamp": 1781523446587,
+      "n": 5492,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "5494": {
-      "status": "U",
-      "timestamp": 1781503740563,
-      "n": 5494
+      "status": "CF",
+      "timestamp": 1781523447061,
+      "n": 5494,
+      "factors": [
+        "359"
+      ],
+      "source": "fdb"
     },
     "5496": {
-      "status": "U",
-      "timestamp": 1781503741099,
-      "n": 5496
+      "status": "CF",
+      "timestamp": 1781523447529,
+      "n": 5496,
+      "factors": [
+        "5",
+        "13",
+        "2749",
+        "1109931077"
+      ],
+      "source": "fdb"
     },
     "5498": {
-      "status": "U",
-      "timestamp": 1781503741609,
-      "n": 5498
+      "status": "CF",
+      "timestamp": 1781523447998,
+      "n": 5498,
+      "factors": [
+        "1637"
+      ],
+      "source": "fdb"
     },
     "5500": {
-      "status": "U",
-      "timestamp": 1781503742141,
-      "n": 5500
+      "status": "CF",
+      "timestamp": 1781523448476,
+      "n": 5500,
+      "factors": [
+        "5^4",
+        "19",
+        "101"
+      ],
+      "source": "fdb"
     },
     "5502": {
-      "status": "U",
-      "timestamp": 1781503742664,
-      "n": 5502
+      "status": "CF",
+      "timestamp": 1781523448925,
+      "n": 5502,
+      "factors": [
+        "2663730263"
+      ],
+      "source": "fdb"
     },
     "5504": {
-      "status": "U",
-      "timestamp": 1781503743180,
-      "n": 5504
+      "status": "CF",
+      "timestamp": 1781523449396,
+      "n": 5504,
+      "factors": [
+        "5",
+        "17",
+        "67",
+        "173",
+        "941",
+        "2753"
+      ],
+      "source": "fdb"
     },
     "5506": {
-      "status": "U",
-      "timestamp": 1781503743707,
-      "n": 5506
+      "status": "CF",
+      "timestamp": 1781523449862,
+      "n": 5506,
+      "factors": [
+        "1439"
+      ],
+      "source": "fdb"
     },
     "5508": {
-      "status": "U",
-      "timestamp": 1781503744243,
-      "n": 5508
+      "status": "CF",
+      "timestamp": 1781523450352,
+      "n": 5508,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "109",
+        "613"
+      ],
+      "source": "fdb"
     },
     "5510": {
-      "status": "U",
-      "timestamp": 1781503744780,
-      "n": 5510
+      "status": "CF",
+      "timestamp": 1781523450803,
+      "n": 5510,
+      "factors": [
+        "139"
+      ],
+      "source": "fdb"
     },
     "5512": {
-      "status": "U",
-      "timestamp": 1781503745296,
-      "n": 5512
+      "status": "CF",
+      "timestamp": 1781523451253,
+      "n": 5512,
+      "factors": [
+        "5",
+        "31",
+        "53^2"
+      ],
+      "source": "fdb"
     },
     "5514": {
-      "status": "U",
-      "timestamp": 1781503745831,
-      "n": 5514
+      "status": "CF",
+      "timestamp": 1781523451702,
+      "n": 5514,
+      "factors": [
+        "43",
+        "39869",
+        "2235971"
+      ],
+      "source": "fdb"
     },
     "5516": {
-      "status": "U",
-      "timestamp": 1781503746356,
-      "n": 5516
+      "status": "CF",
+      "timestamp": 1781523452144,
+      "n": 5516,
+      "factors": [
+        "5",
+        "29",
+        "12601",
+        "273517"
+      ],
+      "source": "fdb"
     },
     "5518": {
-      "status": "U",
-      "timestamp": 1781503746879,
-      "n": 5518
+      "status": "CF",
+      "timestamp": 1781523452593,
+      "n": 5518,
+      "factors": [
+        "19",
+        "241",
+        "571"
+      ],
+      "source": "fdb"
     },
     "5520": {
-      "status": "U",
-      "timestamp": 1781503747406,
-      "n": 5520
+      "status": "CF",
+      "timestamp": 1781523453085,
+      "n": 5520,
+      "factors": [
+        "5^2",
+        "13",
+        "17",
+        "41",
+        "61",
+        "241",
+        "277",
+        "461",
+        "1381",
+        "5521"
+      ],
+      "source": "fdb"
     },
     "5522": {
-      "status": "U",
-      "timestamp": 1781503747893,
-      "n": 5522
+      "status": "CF",
+      "timestamp": 1781523453550,
+      "n": 5522,
+      "factors": [
+        "13649"
+      ],
+      "source": "fdb"
     },
     "5524": {
-      "status": "U",
-      "timestamp": 1781503748405,
-      "n": 5524
+      "status": "CF",
+      "timestamp": 1781523454025,
+      "n": 5524,
+      "factors": [
+        "5",
+        "6421"
+      ],
+      "source": "fdb"
     },
     "5526": {
-      "status": "U",
-      "timestamp": 1781503748922,
-      "n": 5526
+      "status": "CF",
+      "timestamp": 1781523454497,
+      "n": 5526,
+      "factors": [
+        "61",
+        "11677"
+      ],
+      "source": "fdb"
     },
     "5528": {
-      "status": "U",
-      "timestamp": 1781503749442,
-      "n": 5528
+      "status": "CF",
+      "timestamp": 1781523455036,
+      "n": 5528,
+      "factors": [
+        "5",
+        "277",
+        "27103",
+        "879797"
+      ],
+      "source": "fdb"
     },
     "5530": {
-      "status": "U",
-      "timestamp": 1781503749928,
-      "n": 5530
+      "status": "CF",
+      "timestamp": 1781523455496,
+      "n": 5530,
+      "factors": [
+        "38414147"
+      ],
+      "source": "fdb"
     },
     "5532": {
-      "status": "U",
-      "timestamp": 1781503750475,
-      "n": 5532
+      "status": "CF",
+      "timestamp": 1781523455999,
+      "n": 5532,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "5534": {
-      "status": "U",
-      "timestamp": 1781503750985,
-      "n": 5534
+      "status": "CF",
+      "timestamp": 1781523456442,
+      "n": 5534,
+      "factors": [
+        "47"
+      ],
+      "source": "fdb"
     },
     "5536": {
-      "status": "U",
-      "timestamp": 1781503751508,
-      "n": 5536
+      "status": "CF",
+      "timestamp": 1781523456888,
+      "n": 5536,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "1091269"
+      ],
+      "source": "fdb"
     },
     "5538": {
-      "status": "U",
-      "timestamp": 1781503752028,
+      "status": "C",
+      "timestamp": 1781523457355,
       "n": 5538
     },
     "5540": {
-      "status": "U",
-      "timestamp": 1781503752577,
-      "n": 5540
+      "status": "CF",
+      "timestamp": 1781523457825,
+      "n": 5540,
+      "factors": [
+        "5^2",
+        "1109",
+        "9967",
+        "1108703"
+      ],
+      "source": "fdb"
     },
     "5542": {
-      "status": "U",
-      "timestamp": 1781503753119,
-      "n": 5542
+      "status": "CF",
+      "timestamp": 1781523458272,
+      "n": 5542,
+      "factors": [
+        "31",
+        "821",
+        "877"
+      ],
+      "source": "fdb"
     },
     "5544": {
-      "status": "U",
-      "timestamp": 1781503753659,
-      "n": 5544
+      "status": "CF",
+      "timestamp": 1781523458740,
+      "n": 5544,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "37",
+        "73",
+        "89",
+        "397",
+        "617",
+        "335161",
+        "20129687",
+        "33281741"
+      ],
+      "source": "fdb"
     },
     "5546": {
-      "status": "U",
-      "timestamp": 1781503754196,
-      "n": 5546
+      "status": "CF",
+      "timestamp": 1781523459207,
+      "n": 5546,
+      "factors": [
+        "751",
+        "56437",
+        "110821"
+      ],
+      "source": "fdb"
     },
     "5548": {
-      "status": "U",
-      "timestamp": 1781503754726,
-      "n": 5548
+      "status": "CF",
+      "timestamp": 1781523459722,
+      "n": 5548,
+      "factors": [
+        "5",
+        "293"
+      ],
+      "source": "fdb"
     },
     "5550": {
-      "status": "U",
-      "timestamp": 1781503755242,
-      "n": 5550
+      "status": "CF",
+      "timestamp": 1781523460186,
+      "n": 5550,
+      "factors": [
+        "2749",
+        "2803",
+        "46567"
+      ],
+      "source": "fdb"
     },
     "5552": {
-      "status": "U",
-      "timestamp": 1781503755764,
-      "n": 5552
+      "status": "CF",
+      "timestamp": 1781523460661,
+      "n": 5552,
+      "factors": [
+        "5",
+        "17",
+        "2777"
+      ],
+      "source": "fdb"
     },
     "5554": {
-      "status": "U",
-      "timestamp": 1781503756308,
-      "n": 5554
+      "status": "CF",
+      "timestamp": 1781523461125,
+      "n": 5554,
+      "factors": [
+        "19",
+        "1362131"
+      ],
+      "source": "fdb"
     },
     "5556": {
-      "status": "U",
-      "timestamp": 1781503756827,
-      "n": 5556
+      "status": "CF",
+      "timestamp": 1781523461601,
+      "n": 5556,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "79",
+        "5557",
+        "14551",
+        "58014899"
+      ],
+      "source": "fdb"
     },
     "5558": {
-      "status": "U",
-      "timestamp": 1781503757396,
-      "n": 5558
+      "status": "CF",
+      "timestamp": 1781523462089,
+      "n": 5558,
+      "factors": [
+        "71",
+        "698447"
+      ],
+      "source": "fdb"
     },
     "5560": {
-      "status": "U",
-      "timestamp": 1781503757925,
-      "n": 5560
+      "status": "CF",
+      "timestamp": 1781523462522,
+      "n": 5560,
+      "factors": [
+        "5^2",
+        "41",
+        "557"
+      ],
+      "source": "fdb"
     },
     "5562": {
-      "status": "U",
-      "timestamp": 1781503758424,
-      "n": 5562
+      "status": "CF",
+      "timestamp": 1781523463009,
+      "n": 5562,
+      "factors": [
+        "101^2"
+      ],
+      "source": "fdb"
     },
     "5564": {
-      "status": "U",
-      "timestamp": 1781503758937,
-      "n": 5564
+      "status": "CF",
+      "timestamp": 1781523463461,
+      "n": 5564,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "5566": {
-      "status": "U",
-      "timestamp": 1781503759516,
-      "n": 5566
+      "status": "CF",
+      "timestamp": 1781523463954,
+      "n": 5566,
+      "factors": [
+        "7465481"
+      ],
+      "source": "fdb"
     },
     "5568": {
-      "status": "U",
-      "timestamp": 1781503760029,
-      "n": 5568
+      "status": "CF",
+      "timestamp": 1781523464412,
+      "n": 5568,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "97",
+        "193",
+        "233",
+        "349",
+        "929"
+      ],
+      "source": "fdb"
     },
     "5570": {
       "status": "U",
@@ -25203,194 +25626,400 @@
       "n": 5570
     },
     "5572": {
-      "status": "U",
-      "timestamp": 1781503761129,
-      "n": 5572
+      "status": "CF",
+      "timestamp": 1781523465485,
+      "n": 5572,
+      "factors": [
+        "5",
+        "19",
+        "29",
+        "31",
+        "797",
+        "5573",
+        "15973"
+      ],
+      "source": "fdb"
     },
     "5574": {
-      "status": "U",
-      "timestamp": 1781503761615,
+      "status": "C",
+      "timestamp": 1781523465926,
       "n": 5574
     },
     "5576": {
-      "status": "U",
-      "timestamp": 1781503762142,
-      "n": 5576
+      "status": "CF",
+      "timestamp": 1781523466373,
+      "n": 5576,
+      "factors": [
+        "5",
+        "137"
+      ],
+      "source": "fdb"
     },
     "5578": {
-      "status": "U",
-      "timestamp": 1781503762672,
-      "n": 5578
+      "status": "CF",
+      "timestamp": 1781523466833,
+      "n": 5578,
+      "factors": [
+        "46993",
+        "213611"
+      ],
+      "source": "fdb"
     },
     "5580": {
-      "status": "U",
-      "timestamp": 1781503763182,
-      "n": 5580
+      "status": "CF",
+      "timestamp": 1781523467289,
+      "n": 5580,
+      "factors": [
+        "5^2",
+        "13",
+        "37",
+        "47",
+        "61",
+        "181",
+        "373",
+        "1117",
+        "1861"
+      ],
+      "source": "fdb"
     },
     "5582": {
-      "status": "U",
-      "timestamp": 1781503763716,
-      "n": 5582
+      "status": "CF",
+      "timestamp": 1781523467747,
+      "n": 5582,
+      "factors": [
+        "1049"
+      ],
+      "source": "fdb"
     },
     "5584": {
-      "status": "U",
-      "timestamp": 1781503764331,
-      "n": 5584
+      "status": "CF",
+      "timestamp": 1781523468204,
+      "n": 5584,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "source": "fdb"
     },
     "5586": {
-      "status": "U",
-      "timestamp": 1781503764902,
-      "n": 5586
+      "status": "CF",
+      "timestamp": 1781523468659,
+      "n": 5586,
+      "factors": [
+        "61",
+        "349"
+      ],
+      "source": "fdb"
     },
     "5588": {
-      "status": "U",
-      "timestamp": 1781503765438,
-      "n": 5588
+      "status": "CF",
+      "timestamp": 1781523469107,
+      "n": 5588,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "5590": {
-      "status": "U",
-      "timestamp": 1781503765948,
-      "n": 5590
+      "status": "CF",
+      "timestamp": 1781523469542,
+      "n": 5590,
+      "factors": [
+        "19",
+        "1019"
+      ],
+      "source": "fdb"
     },
     "5592": {
-      "status": "U",
-      "timestamp": 1781503766472,
-      "n": 5592
+      "status": "CF",
+      "timestamp": 1781523470015,
+      "n": 5592,
+      "factors": [
+        "5",
+        "13",
+        "419",
+        "1427",
+        "2797"
+      ],
+      "source": "fdb"
     },
     "5594": {
-      "status": "U",
-      "timestamp": 1781503766990,
+      "status": "C",
+      "timestamp": 1781523470455,
       "n": 5594
     },
     "5596": {
-      "status": "U",
-      "timestamp": 1781503767545,
-      "n": 5596
+      "status": "CF",
+      "timestamp": 1781523470936,
+      "n": 5596,
+      "factors": [
+        "5",
+        "4021"
+      ],
+      "source": "fdb"
     },
     "5598": {
-      "status": "U",
-      "timestamp": 1781503767958,
-      "n": 5598
+      "status": "CF",
+      "timestamp": 1781523471399,
+      "n": 5598,
+      "factors": [
+        "43",
+        "307"
+      ],
+      "source": "fdb"
     },
     "5600": {
-      "status": "U",
-      "timestamp": 1781503768548,
-      "n": 5600
+      "status": "CF",
+      "timestamp": 1781523471888,
+      "n": 5600,
+      "factors": [
+        "5^3",
+        "17",
+        "29",
+        "41",
+        "101",
+        "113",
+        "281",
+        "401",
+        "701",
+        "2801"
+      ],
+      "source": "fdb"
     },
     "5602": {
-      "status": "U",
-      "timestamp": 1781503769093,
-      "n": 5602
+      "status": "CF",
+      "timestamp": 1781523472357,
+      "n": 5602,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "5604": {
-      "status": "U",
-      "timestamp": 1781503769623,
-      "n": 5604
+      "status": "CF",
+      "timestamp": 1781523472815,
+      "n": 5604,
+      "factors": [
+        "5",
+        "13",
+        "5563"
+      ],
+      "source": "fdb"
     },
     "5606": {
-      "status": "U",
-      "timestamp": 1781503770137,
+      "status": "C",
+      "timestamp": 1781523473269,
       "n": 5606
     },
     "5608": {
-      "status": "U",
-      "timestamp": 1781503770666,
-      "n": 5608
+      "status": "CF",
+      "timestamp": 1781523473723,
+      "n": 5608,
+      "factors": [
+        "5",
+        "19",
+        "379",
+        "55343"
+      ],
+      "source": "fdb"
     },
     "5610": {
-      "status": "U",
-      "timestamp": 1781503771196,
-      "n": 5610
+      "status": "CF",
+      "timestamp": 1781523474188,
+      "n": 5610,
+      "factors": [
+        "577",
+        "1051",
+        "14293"
+      ],
+      "source": "fdb"
     },
     "5612": {
-      "status": "U",
-      "timestamp": 1781503771729,
-      "n": 5612
+      "status": "CF",
+      "timestamp": 1781523474664,
+      "n": 5612,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "5614": {
-      "status": "U",
-      "timestamp": 1781503772235,
+      "status": "C",
+      "timestamp": 1781523475100,
       "n": 5614
     },
     "5616": {
-      "status": "U",
-      "timestamp": 1781503772800,
-      "n": 5616
+      "status": "CF",
+      "timestamp": 1781523475557,
+      "n": 5616,
+      "factors": [
+        "5",
+        "13^2",
+        "17",
+        "37",
+        "53",
+        "73",
+        "109",
+        "157",
+        "313",
+        "433",
+        "937"
+      ],
+      "source": "fdb"
     },
     "5618": {
-      "status": "U",
-      "timestamp": 1781503773305,
-      "n": 5618
+      "status": "CF",
+      "timestamp": 1781523476032,
+      "n": 5618,
+      "factors": [
+        "137"
+      ],
+      "source": "fdb"
     },
     "5620": {
-      "status": "U",
-      "timestamp": 1781503773847,
-      "n": 5620
+      "status": "CF",
+      "timestamp": 1781523476482,
+      "n": 5620,
+      "factors": [
+        "5^2",
+        "1279",
+        "2011",
+        "37117"
+      ],
+      "source": "fdb"
     },
     "5622": {
-      "status": "U",
-      "timestamp": 1781503774406,
-      "n": 5622
+      "status": "CF",
+      "timestamp": 1781523476926,
+      "n": 5622,
+      "factors": [
+        "149",
+        "769"
+      ],
+      "source": "fdb"
     },
     "5624": {
-      "status": "U",
-      "timestamp": 1781503774936,
-      "n": 5624
+      "status": "CF",
+      "timestamp": 1781523477402,
+      "n": 5624,
+      "factors": [
+        "5",
+        "149",
+        "1757143"
+      ],
+      "source": "fdb"
     },
     "5626": {
-      "status": "U",
-      "timestamp": 1781503775469,
-      "n": 5626
+      "status": "CF",
+      "timestamp": 1781523477856,
+      "n": 5626,
+      "factors": [
+        "19",
+        "47",
+        "251"
+      ],
+      "source": "fdb"
     },
     "5628": {
-      "status": "U",
-      "timestamp": 1781503775992,
-      "n": 5628
+      "status": "CF",
+      "timestamp": 1781523478296,
+      "n": 5628,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "71",
+        "269"
+      ],
+      "source": "fdb"
     },
     "5630": {
-      "status": "U",
-      "timestamp": 1781503776478,
+      "status": "C",
+      "timestamp": 1781523478727,
       "n": 5630
     },
     "5632": {
-      "status": "U",
-      "timestamp": 1781503777003,
-      "n": 5632
+      "status": "CF",
+      "timestamp": 1781523479201,
+      "n": 5632,
+      "factors": [
+        "5",
+        "17",
+        "31",
+        "89",
+        "257",
+        "353",
+        "1409",
+        "1871664541"
+      ],
+      "source": "fdb"
     },
     "5634": {
-      "status": "U",
-      "timestamp": 1781503777508,
-      "n": 5634
+      "status": "CF",
+      "timestamp": 1781523479656,
+      "n": 5634,
+      "factors": [
+        "79"
+      ],
+      "source": "fdb"
     },
     "5636": {
-      "status": "U",
-      "timestamp": 1781503778261,
-      "n": 5636
+      "status": "CF",
+      "timestamp": 1781523480167,
+      "n": 5636,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "5638": {
-      "status": "U",
-      "timestamp": 1781503778787,
+      "status": "C",
+      "timestamp": 1781523480629,
       "n": 5638
     },
     "5640": {
-      "status": "U",
-      "timestamp": 1781503779320,
-      "n": 5640
+      "status": "CF",
+      "timestamp": 1781523481132,
+      "n": 5640,
+      "factors": [
+        "5^2",
+        "13",
+        "41",
+        "43",
+        "61",
+        "941",
+        "1129",
+        "5641"
+      ],
+      "source": "fdb"
     },
     "5642": {
-      "status": "U",
-      "timestamp": 1781503779845,
-      "n": 5642
+      "status": "CF",
+      "timestamp": 1781523481644,
+      "n": 5642,
+      "factors": [
+        "193"
+      ],
+      "source": "fdb"
     },
     "5644": {
-      "status": "U",
-      "timestamp": 1781503780364,
-      "n": 5644
+      "status": "CF",
+      "timestamp": 1781523482134,
+      "n": 5644,
+      "factors": [
+        "5",
+        "19"
+      ],
+      "source": "fdb"
     },
     "5646": {
-      "status": "U",
-      "timestamp": 1781503780900,
-      "n": 5646
+      "status": "CF",
+      "timestamp": 1781523482732,
+      "n": 5646,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "5648": {
       "status": "CF",
@@ -34660,14 +35289,23 @@
       "source": "fdb"
     },
     "7654": {
-      "status": "U",
-      "timestamp": 1781504275372,
+      "status": "C",
+      "timestamp": 1781523483195,
       "n": 7654
     },
     "7656": {
-      "status": "U",
-      "timestamp": 1781504275907,
-      "n": 7656
+      "status": "CF",
+      "timestamp": 1781523483688,
+      "n": 7656,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "89",
+        "233",
+        "349"
+      ],
+      "source": "fdb"
     },
     "7658": {
       "status": "CF",
@@ -35796,144 +36434,307 @@
       "source": "fdb"
     },
     "7916": {
-      "status": "U",
-      "timestamp": 1781504335759,
-      "n": 7916
+      "status": "CF",
+      "timestamp": 1781523484167,
+      "n": 7916,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7918": {
-      "status": "U",
-      "timestamp": 1781504336242,
-      "n": 7918
+      "status": "CF",
+      "timestamp": 1781523484653,
+      "n": 7918,
+      "factors": [
+        "241",
+        "77867"
+      ],
+      "source": "fdb"
     },
     "7920": {
-      "status": "U",
-      "timestamp": 1781504336823,
-      "n": 7920
+      "status": "CF",
+      "timestamp": 1781523485216,
+      "n": 7920,
+      "factors": [
+        "5^2",
+        "13",
+        "17",
+        "37",
+        "41",
+        "61",
+        "73",
+        "89",
+        "181",
+        "241",
+        "397",
+        "661",
+        "881",
+        "1321",
+        "3571"
+      ],
+      "source": "fdb"
     },
     "7922": {
-      "status": "U",
-      "timestamp": 1781504337355,
-      "n": 7922
+      "status": "CF",
+      "timestamp": 1781523485704,
+      "n": 7922,
+      "factors": [
+        "82529"
+      ],
+      "source": "fdb"
     },
     "7924": {
-      "status": "U",
-      "timestamp": 1781504337908,
-      "n": 7924
+      "status": "CF",
+      "timestamp": 1781523486181,
+      "n": 7924,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7926": {
-      "status": "U",
-      "timestamp": 1781504338452,
-      "n": 7926
+      "status": "CF",
+      "timestamp": 1781523486695,
+      "n": 7926,
+      "factors": [
+        "47",
+        "61"
+      ],
+      "source": "fdb"
     },
     "7928": {
-      "status": "U",
-      "timestamp": 1781504338987,
-      "n": 7928
+      "status": "CF",
+      "timestamp": 1781523487180,
+      "n": 7928,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7930": {
-      "status": "U",
-      "timestamp": 1781504339519,
-      "n": 7930
+      "status": "CF",
+      "timestamp": 1781523487685,
+      "n": 7930,
+      "factors": [
+        "19",
+        "137",
+        "33317"
+      ],
+      "source": "fdb"
     },
     "7932": {
-      "status": "U",
-      "timestamp": 1781504340058,
-      "n": 7932
+      "status": "CF",
+      "timestamp": 1781523488174,
+      "n": 7932,
+      "factors": [
+        "5",
+        "13",
+        "2129"
+      ],
+      "source": "fdb"
     },
     "7934": {
-      "status": "U",
-      "timestamp": 1781504340592,
-      "n": 7934
+      "status": "CF",
+      "timestamp": 1781523488649,
+      "n": 7934,
+      "factors": [
+        "1879",
+        "2591"
+      ],
+      "source": "fdb"
     },
     "7936": {
-      "status": "U",
-      "timestamp": 1781504341142,
-      "n": 7936
+      "status": "CF",
+      "timestamp": 1781523489125,
+      "n": 7936,
+      "factors": [
+        "5",
+        "17",
+        "257",
+        "7937"
+      ],
+      "source": "fdb"
     },
     "7938": {
-      "status": "U",
-      "timestamp": 1781504341692,
-      "n": 7938
+      "status": "CF",
+      "timestamp": 1781523489602,
+      "n": 7938,
+      "factors": [
+        "71"
+      ],
+      "source": "fdb"
     },
     "7940": {
-      "status": "U",
-      "timestamp": 1781504342260,
-      "n": 7940
+      "status": "CF",
+      "timestamp": 1781523490127,
+      "n": 7940,
+      "factors": [
+        "5^2",
+        "22091"
+      ],
+      "source": "fdb"
     },
     "7942": {
-      "status": "U",
-      "timestamp": 1781504342798,
-      "n": 7942
+      "status": "CF",
+      "timestamp": 1781523490617,
+      "n": 7942,
+      "factors": [
+        "31",
+        "311"
+      ],
+      "source": "fdb"
     },
     "7944": {
-      "status": "U",
-      "timestamp": 1781504343352,
-      "n": 7944
+      "status": "CF",
+      "timestamp": 1781523491070,
+      "n": 7944,
+      "factors": [
+        "5",
+        "13",
+        "13009"
+      ],
+      "source": "fdb"
     },
     "7946": {
-      "status": "U",
-      "timestamp": 1781504343881,
-      "n": 7946
+      "status": "CF",
+      "timestamp": 1781523491556,
+      "n": 7946,
+      "factors": [
+        "67",
+        "193"
+      ],
+      "source": "fdb"
     },
     "7948": {
-      "status": "U",
-      "timestamp": 1781504344440,
-      "n": 7948
+      "status": "CF",
+      "timestamp": 1781523492035,
+      "n": 7948,
+      "factors": [
+        "5",
+        "19",
+        "7949",
+        "10343"
+      ],
+      "source": "fdb"
     },
     "7950": {
-      "status": "U",
-      "timestamp": 1781504344992,
-      "n": 7950
+      "status": "CF",
+      "timestamp": 1781523492529,
+      "n": 7950,
+      "factors": [
+        "43",
+        "2686709"
+      ],
+      "source": "fdb"
     },
     "7952": {
-      "status": "U",
-      "timestamp": 1781504345570,
-      "n": 7952
+      "status": "CF",
+      "timestamp": 1781523493042,
+      "n": 7952,
+      "factors": [
+        "5",
+        "17",
+        "29",
+        "113",
+        "569",
+        "351437"
+      ],
+      "source": "fdb"
     },
     "7954": {
-      "status": "U",
-      "timestamp": 1781504346156,
-      "n": 7954
+      "status": "CF",
+      "timestamp": 1781523493505,
+      "n": 7954,
+      "factors": [
+        "648259307"
+      ],
+      "source": "fdb"
     },
     "7956": {
-      "status": "U",
-      "timestamp": 1781504346710,
-      "n": 7956
+      "status": "CF",
+      "timestamp": 1781523494207,
+      "n": 7956,
+      "factors": [
+        "5",
+        "13^2",
+        "37",
+        "53",
+        "157"
+      ],
+      "source": "fdb"
     },
     "7958": {
-      "status": "U",
-      "timestamp": 1781504347269,
-      "n": 7958
+      "status": "CF",
+      "timestamp": 1781523494757,
+      "n": 7958,
+      "factors": [
+        "619"
+      ],
+      "source": "fdb"
     },
     "7960": {
-      "status": "U",
-      "timestamp": 1781504347820,
-      "n": 7960
+      "status": "CF",
+      "timestamp": 1781523495246,
+      "n": 7960,
+      "factors": [
+        "5^2",
+        "41",
+        "797"
+      ],
+      "source": "fdb"
     },
     "7962": {
-      "status": "U",
-      "timestamp": 1781504348372,
-      "n": 7962
+      "status": "CF",
+      "timestamp": 1781523495750,
+      "n": 7962,
+      "factors": [
+        "101"
+      ],
+      "source": "fdb"
     },
     "7964": {
-      "status": "U",
-      "timestamp": 1781504348918,
-      "n": 7964
+      "status": "CF",
+      "timestamp": 1781523496220,
+      "n": 7964,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7966": {
-      "status": "U",
-      "timestamp": 1781504349479,
-      "n": 7966
+      "status": "CF",
+      "timestamp": 1781523496698,
+      "n": 7966,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "7968": {
-      "status": "U",
-      "timestamp": 1781504350035,
-      "n": 7968
+      "status": "CF",
+      "timestamp": 1781523497201,
+      "n": 7968,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "97",
+        "997",
+        "1993",
+        "2657",
+        "461147"
+      ],
+      "source": "fdb"
     },
     "7970": {
-      "status": "U",
-      "timestamp": 1781504350594,
-      "n": 7970
+      "status": "CF",
+      "timestamp": 1781523497678,
+      "n": 7970,
+      "factors": [
+        "7669"
+      ],
+      "source": "fdb"
     },
     "7972": {
       "status": "CF",
@@ -35964,7 +36765,7 @@
     },
     "7978": {
       "status": "C",
-      "timestamp": 1781520363069,
+      "timestamp": 1781523497972,
       "n": 7978
     },
     "7980": {
@@ -36051,7 +36852,7 @@
     },
     "7998": {
       "status": "C",
-      "timestamp": 1781520368042,
+      "timestamp": 1781523498283,
       "n": 7998
     },
     "8000": {
@@ -36173,7 +36974,7 @@
     },
     "8026": {
       "status": "C",
-      "timestamp": 1781520375010,
+      "timestamp": 1781523498584,
       "n": 8026
     },
     "8028": {
@@ -36187,7 +36988,7 @@
     },
     "8030": {
       "status": "C",
-      "timestamp": 1781520375978,
+      "timestamp": 1781523498876,
       "n": 8030
     },
     "8032": {
@@ -36309,7 +37110,7 @@
     },
     "8058": {
       "status": "C",
-      "timestamp": 1781520382897,
+      "timestamp": 1781523499172,
       "n": 8058
     },
     "8060": {
@@ -36369,7 +37170,7 @@
     },
     "8070": {
       "status": "C",
-      "timestamp": 1781520385917,
+      "timestamp": 1781523499468,
       "n": 8070
     },
     "8072": {
@@ -36473,7 +37274,7 @@
     },
     "8094": {
       "status": "C",
-      "timestamp": 1781520391956,
+      "timestamp": 1781523499766,
       "n": 8094
     },
     "8096": {
@@ -37834,7 +38635,7 @@
     },
     "8402": {
       "status": "C",
-      "timestamp": 1781520404772,
+      "timestamp": 1781523500137,
       "n": 8402
     },
     "8404": {
@@ -37958,7 +38759,7 @@
     },
     "8430": {
       "status": "C",
-      "timestamp": 1781520411783,
+      "timestamp": 1781523500494,
       "n": 8430
     },
     "8432": {
@@ -37990,7 +38791,7 @@
     },
     "8438": {
       "status": "C",
-      "timestamp": 1781520413792,
+      "timestamp": 1781523500836,
       "n": 8438
     },
     "8440": {
@@ -38022,7 +38823,7 @@
     },
     "8446": {
       "status": "C",
-      "timestamp": 1781520415752,
+      "timestamp": 1781523501182,
       "n": 8446
     },
     "8448": {
@@ -38241,7 +39042,7 @@
     },
     "8494": {
       "status": "C",
-      "timestamp": 1781520427910,
+      "timestamp": 1781523501523,
       "n": 8494
     },
     "8496": {
@@ -38407,7 +39208,7 @@
     },
     "8530": {
       "status": "C",
-      "timestamp": 1781520437553,
+      "timestamp": 1781523501870,
       "n": 8530
     },
     "8532": {
@@ -38515,7 +39316,7 @@
     },
     "8554": {
       "status": "C",
-      "timestamp": 1781520443640,
+      "timestamp": 1781523502211,
       "n": 8554
     },
     "8556": {
@@ -38529,7 +39330,7 @@
     },
     "8558": {
       "status": "C",
-      "timestamp": 1781520444592,
+      "timestamp": 1781523502561,
       "n": 8558
     },
     "8560": {
@@ -38678,7 +39479,7 @@
     },
     "8590": {
       "status": "C",
-      "timestamp": 1781520452536,
+      "timestamp": 1781523502903,
       "n": 8590
     },
     "8592": {
@@ -38692,7 +39493,7 @@
     },
     "8594": {
       "status": "C",
-      "timestamp": 1781520453625,
+      "timestamp": 1781523503249,
       "n": 8594
     },
     "8596": {
@@ -40004,7 +40805,7 @@
     },
     "8890": {
       "status": "C",
-      "timestamp": 1781520466246,
+      "timestamp": 1781523503593,
       "n": 8890
     },
     "8892": {
@@ -40019,7 +40820,7 @@
     },
     "8894": {
       "status": "C",
-      "timestamp": 1781520467262,
+      "timestamp": 1781523503947,
       "n": 8894
     },
     "8896": {
@@ -40141,7 +40942,7 @@
     },
     "8922": {
       "status": "C",
-      "timestamp": 1781520474188,
+      "timestamp": 1781523504292,
       "n": 8922
     },
     "8924": {
@@ -40155,7 +40956,7 @@
     },
     "8926": {
       "status": "C",
-      "timestamp": 1781520475143,
+      "timestamp": 1781523504637,
       "n": 8926
     },
     "8928": {
@@ -40172,7 +40973,7 @@
     },
     "8930": {
       "status": "C",
-      "timestamp": 1781520476099,
+      "timestamp": 1781523504993,
       "n": 8930
     },
     "8932": {
@@ -40258,7 +41059,7 @@
     },
     "8950": {
       "status": "C",
-      "timestamp": 1781520481348,
+      "timestamp": 1781523505342,
       "n": 8950
     },
     "8952": {
@@ -40474,7 +41275,7 @@
     },
     "8998": {
       "status": "C",
-      "timestamp": 1781520493672,
+      "timestamp": 1781523505683,
       "n": 8998
     },
     "9000": {
@@ -40656,7 +41457,7 @@
     },
     "9038": {
       "status": "C",
-      "timestamp": 1781520503730,
+      "timestamp": 1781523506043,
       "n": 9038
     },
     "9040": {
@@ -40707,7 +41508,7 @@
     },
     "9050": {
       "status": "C",
-      "timestamp": 1781520506683,
+      "timestamp": 1781523506377,
       "n": 9050
     },
     "9052": {
@@ -41832,309 +42633,646 @@
       "source": "fdb"
     },
     "9312": {
-      "status": "U",
-      "timestamp": 1781504696837,
-      "n": 9312
+      "status": "CF",
+      "timestamp": 1781523506906,
+      "n": 9312,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "97^2",
+        "389",
+        "1553"
+      ],
+      "source": "fdb"
     },
     "9314": {
-      "status": "U",
-      "timestamp": 1781504697430,
-      "n": 9314
+      "status": "CF",
+      "timestamp": 1781523507460,
+      "n": 9314,
+      "factors": [
+        "1151"
+      ],
+      "source": "fdb"
     },
     "9316": {
-      "status": "U",
-      "timestamp": 1781504698019,
-      "n": 9316
+      "status": "CF",
+      "timestamp": 1781523507979,
+      "n": 9316,
+      "factors": [
+        "5",
+        "19",
+        "307"
+      ],
+      "source": "fdb"
     },
     "9318": {
-      "status": "U",
-      "timestamp": 1781504698591,
-      "n": 9318
+      "status": "CF",
+      "timestamp": 1781523508480,
+      "n": 9318,
+      "factors": [
+        "3623"
+      ],
+      "source": "fdb"
     },
     "9320": {
-      "status": "U",
-      "timestamp": 1781504699184,
-      "n": 9320
+      "status": "CF",
+      "timestamp": 1781523509002,
+      "n": 9320,
+      "factors": [
+        "5^2",
+        "41",
+        "98993",
+        "149033"
+      ],
+      "source": "fdb"
     },
     "9322": {
-      "status": "U",
-      "timestamp": 1781504699749,
-      "n": 9322
+      "status": "CF",
+      "timestamp": 1781523509515,
+      "n": 9322,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "9324": {
-      "status": "U",
-      "timestamp": 1781504700313,
-      "n": 9324
+      "status": "CF",
+      "timestamp": 1781523510049,
+      "n": 9324,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "37^2",
+        "149"
+      ],
+      "source": "fdb"
     },
     "9326": {
-      "status": "U",
-      "timestamp": 1781504700860,
-      "n": 9326
+      "status": "CF",
+      "timestamp": 1781523510529,
+      "n": 9326,
+      "factors": [
+        "1787"
+      ],
+      "source": "fdb"
     },
     "9328": {
-      "status": "U",
-      "timestamp": 1781504701461,
-      "n": 9328
+      "status": "CF",
+      "timestamp": 1781523511034,
+      "n": 9328,
+      "factors": [
+        "5",
+        "17",
+        "89"
+      ],
+      "source": "fdb"
     },
     "9330": {
-      "status": "U",
-      "timestamp": 1781504702044,
-      "n": 9330
+      "status": "CF",
+      "timestamp": 1781523511603,
+      "n": 9330,
+      "factors": [
+        "241"
+      ],
+      "source": "fdb"
     },
     "9332": {
-      "status": "U",
-      "timestamp": 1781504702641,
-      "n": 9332
+      "status": "CF",
+      "timestamp": 1781523512186,
+      "n": 9332,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "9334": {
-      "status": "U",
-      "timestamp": 1781504703190,
-      "n": 9334
+      "status": "CF",
+      "timestamp": 1781523512768,
+      "n": 9334,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "9336": {
-      "status": "U",
-      "timestamp": 1781504703722,
-      "n": 9336
+      "status": "CF",
+      "timestamp": 1781523513261,
+      "n": 9336,
+      "factors": [
+        "5",
+        "13",
+        "43"
+      ],
+      "source": "fdb"
     },
     "9338": {
-      "status": "U",
-      "timestamp": 1781504704280,
-      "n": 9338
+      "status": "CF",
+      "timestamp": 1781523513747,
+      "n": 9338,
+      "factors": [
+        "71"
+      ],
+      "source": "fdb"
     },
     "9340": {
-      "status": "U",
-      "timestamp": 1781504704835,
-      "n": 9340
+      "status": "CF",
+      "timestamp": 1781523514314,
+      "n": 9340,
+      "factors": [
+        "5^2"
+      ],
+      "source": "fdb"
     },
     "9342": {
-      "status": "U",
-      "timestamp": 1781504705390,
+      "status": "C",
+      "timestamp": 1781523514808,
       "n": 9342
     },
     "9344": {
-      "status": "U",
-      "timestamp": 1781504705976,
-      "n": 9344
+      "status": "CF",
+      "timestamp": 1781523515326,
+      "n": 9344,
+      "factors": [
+        "5",
+        "17",
+        "293"
+      ],
+      "source": "fdb"
     },
     "9346": {
-      "status": "U",
-      "timestamp": 1781504706544,
-      "n": 9346
+      "status": "CF",
+      "timestamp": 1781523516011,
+      "n": 9346,
+      "factors": [
+        "6229"
+      ],
+      "source": "fdb"
     },
     "9348": {
-      "status": "U",
-      "timestamp": 1781504707081,
-      "n": 9348
+      "status": "CF",
+      "timestamp": 1781523516518,
+      "n": 9348,
+      "factors": [
+        "5",
+        "13",
+        "229",
+        "2687",
+        "9349"
+      ],
+      "source": "fdb"
     },
     "9350": {
-      "status": "U",
-      "timestamp": 1781504707655,
-      "n": 9350
+      "status": "CF",
+      "timestamp": 1781523517021,
+      "n": 9350,
+      "factors": [
+        "739"
+      ],
+      "source": "fdb"
     },
     "9352": {
-      "status": "U",
-      "timestamp": 1781504708228,
-      "n": 9352
+      "status": "CF",
+      "timestamp": 1781523517536,
+      "n": 9352,
+      "factors": [
+        "5",
+        "19",
+        "29",
+        "31"
+      ],
+      "source": "fdb"
     },
     "9354": {
-      "status": "U",
-      "timestamp": 1781504708814,
-      "n": 9354
+      "status": "CF",
+      "timestamp": 1781523518014,
+      "n": 9354,
+      "factors": [
+        "419"
+      ],
+      "source": "fdb"
     },
     "9356": {
-      "status": "U",
-      "timestamp": 1781504709360,
-      "n": 9356
+      "status": "CF",
+      "timestamp": 1781523518499,
+      "n": 9356,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "9358": {
-      "status": "U",
-      "timestamp": 1781504709922,
-      "n": 9358
+      "status": "CF",
+      "timestamp": 1781523518977,
+      "n": 9358,
+      "factors": [
+        "241"
+      ],
+      "source": "fdb"
     },
     "9360": {
-      "status": "U",
-      "timestamp": 1781504710524,
-      "n": 9360
+      "status": "CF",
+      "timestamp": 1781523519471,
+      "n": 9360,
+      "factors": [
+        "5^2",
+        "13^2",
+        "17",
+        "37",
+        "41",
+        "53",
+        "61",
+        "73",
+        "157",
+        "181",
+        "241",
+        "313",
+        "521",
+        "937",
+        "1873",
+        "2341"
+      ],
+      "source": "fdb"
     },
     "9362": {
-      "status": "U",
-      "timestamp": 1781504711088,
-      "n": 9362
+      "status": "CF",
+      "timestamp": 1781523519956,
+      "n": 9362,
+      "factors": [
+        "101"
+      ],
+      "source": "fdb"
     },
     "9364": {
-      "status": "U",
-      "timestamp": 1781504711640,
-      "n": 9364
+      "status": "CF",
+      "timestamp": 1781523520442,
+      "n": 9364,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "9366": {
-      "status": "U",
-      "timestamp": 1781504712173,
-      "n": 9366
+      "status": "CF",
+      "timestamp": 1781523520978,
+      "n": 9366,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "9368": {
-      "status": "U",
-      "timestamp": 1781504712729,
-      "n": 9368
+      "status": "CF",
+      "timestamp": 1781523521451,
+      "n": 9368,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "9370": {
-      "status": "U",
-      "timestamp": 1781504713280,
-      "n": 9370
+      "status": "CF",
+      "timestamp": 1781523521936,
+      "n": 9370,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "9372": {
-      "status": "U",
-      "timestamp": 1781504713828,
-      "n": 9372
+      "status": "CF",
+      "timestamp": 1781523522397,
+      "n": 9372,
+      "factors": [
+        "5",
+        "13",
+        "853",
+        "12619"
+      ],
+      "source": "fdb"
     },
     "9374": {
-      "status": "U",
-      "timestamp": 1781504714399,
-      "n": 9374
+      "status": "CF",
+      "timestamp": 1781523522952,
+      "n": 9374,
+      "factors": [
+        "139"
+      ],
+      "source": "fdb"
     },
     "9376": {
-      "status": "U",
-      "timestamp": 1781504714960,
-      "n": 9376
+      "status": "CF",
+      "timestamp": 1781523523448,
+      "n": 9376,
+      "factors": [
+        "5",
+        "17",
+        "251",
+        "1231",
+        "9377"
+      ],
+      "source": "fdb"
     },
     "9378": {
-      "status": "U",
-      "timestamp": 1781504715547,
-      "n": 9378
+      "status": "CF",
+      "timestamp": 1781523523949,
+      "n": 9378,
+      "factors": [
+        "43",
+        "79"
+      ],
+      "source": "fdb"
     },
     "9380": {
-      "status": "U",
-      "timestamp": 1781504716120,
-      "n": 9380
+      "status": "CF",
+      "timestamp": 1781523524473,
+      "n": 9380,
+      "factors": [
+        "5^2",
+        "29",
+        "269",
+        "1877"
+      ],
+      "source": "fdb"
     },
     "9382": {
-      "status": "U",
-      "timestamp": 1781504716656,
-      "n": 9382
+      "status": "CF",
+      "timestamp": 1781523524977,
+      "n": 9382,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "9384": {
-      "status": "U",
-      "timestamp": 1781504717216,
-      "n": 9384
+      "status": "CF",
+      "timestamp": 1781523525473,
+      "n": 9384,
+      "factors": [
+        "5",
+        "13",
+        "137",
+        "277"
+      ],
+      "source": "fdb"
     },
     "9386": {
-      "status": "U",
-      "timestamp": 1781504717746,
-      "n": 9386
+      "status": "CF",
+      "timestamp": 1781523525961,
+      "n": 9386,
+      "factors": [
+        "311",
+        "15101",
+        "149839"
+      ],
+      "source": "fdb"
     },
     "9388": {
-      "status": "U",
-      "timestamp": 1781504718298,
-      "n": 9388
+      "status": "CF",
+      "timestamp": 1781523526497,
+      "n": 9388,
+      "factors": [
+        "5",
+        "19",
+        "379"
+      ],
+      "source": "fdb"
     },
     "9390": {
-      "status": "U",
-      "timestamp": 1781504718850,
-      "n": 9390
+      "status": "CF",
+      "timestamp": 1781523526992,
+      "n": 9390,
+      "factors": [
+        "12421"
+      ],
+      "source": "fdb"
     },
     "9392": {
-      "status": "U",
-      "timestamp": 1781504719401,
-      "n": 9392
+      "status": "CF",
+      "timestamp": 1781523527473,
+      "n": 9392,
+      "factors": [
+        "5",
+        "17",
+        "277"
+      ],
+      "source": "fdb"
     },
     "9394": {
-      "status": "U",
-      "timestamp": 1781504719980,
-      "n": 9394
+      "status": "CF",
+      "timestamp": 1781523527968,
+      "n": 9394,
+      "factors": [
+        "983"
+      ],
+      "source": "fdb"
     },
     "9396": {
-      "status": "U",
-      "timestamp": 1781504720525,
-      "n": 9396
+      "status": "CF",
+      "timestamp": 1781523528466,
+      "n": 9396,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "109",
+        "349",
+        "1523",
+        "8663"
+      ],
+      "source": "fdb"
     },
     "9398": {
-      "status": "U",
-      "timestamp": 1781504721095,
-      "n": 9398
+      "status": "CF",
+      "timestamp": 1781523529000,
+      "n": 9398,
+      "factors": [
+        "47",
+        "67"
+      ],
+      "source": "fdb"
     },
     "9400": {
-      "status": "U",
-      "timestamp": 1781504721648,
-      "n": 9400
+      "status": "CF",
+      "timestamp": 1781523529487,
+      "n": 9400,
+      "factors": [
+        "5^3",
+        "41",
+        "101",
+        "941",
+        "7853"
+      ],
+      "source": "fdb"
     },
     "9402": {
-      "status": "U",
-      "timestamp": 1781504722184,
+      "status": "C",
+      "timestamp": 1781523529976,
       "n": 9402
     },
     "9404": {
-      "status": "U",
-      "timestamp": 1781504722752,
-      "n": 9404
+      "status": "CF",
+      "timestamp": 1781523530536,
+      "n": 9404,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "9406": {
-      "status": "U",
-      "timestamp": 1781504723322,
-      "n": 9406
+      "status": "CF",
+      "timestamp": 1781523531092,
+      "n": 9406,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "9408": {
-      "status": "U",
-      "timestamp": 1781504723891,
-      "n": 9408
+      "status": "CF",
+      "timestamp": 1781523531587,
+      "n": 9408,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "29",
+        "71",
+        "97",
+        "113",
+        "193",
+        "197",
+        "337",
+        "449",
+        "673"
+      ],
+      "source": "fdb"
     },
     "9410": {
-      "status": "U",
-      "timestamp": 1781504724480,
-      "n": 9410
+      "status": "CF",
+      "timestamp": 1781523532107,
+      "n": 9410,
+      "factors": [
+        "67993"
+      ],
+      "source": "fdb"
     },
     "9412": {
-      "status": "U",
-      "timestamp": 1781504725039,
-      "n": 9412
+      "status": "CF",
+      "timestamp": 1781523532586,
+      "n": 9412,
+      "factors": [
+        "5",
+        "31",
+        "53",
+        "1277"
+      ],
+      "source": "fdb"
     },
     "9414": {
-      "status": "U",
-      "timestamp": 1781504725623,
-      "n": 9414
+      "status": "CF",
+      "timestamp": 1781523533086,
+      "n": 9414,
+      "factors": [
+        "349"
+      ],
+      "source": "fdb"
     },
     "9416": {
-      "status": "U",
-      "timestamp": 1781504726191,
-      "n": 9416
+      "status": "CF",
+      "timestamp": 1781523533561,
+      "n": 9416,
+      "factors": [
+        "5",
+        "89",
+        "857"
+      ],
+      "source": "fdb"
     },
     "9418": {
-      "status": "U",
-      "timestamp": 1781504727003,
-      "n": 9418
+      "status": "CF",
+      "timestamp": 1781523534080,
+      "n": 9418,
+      "factors": [
+        "7757"
+      ],
+      "source": "fdb"
     },
     "9420": {
-      "status": "U",
-      "timestamp": 1781504727461,
-      "n": 9420
+      "status": "CF",
+      "timestamp": 1781523534629,
+      "n": 9420,
+      "factors": [
+        "5^2",
+        "13",
+        "43",
+        "61",
+        "587",
+        "887",
+        "2213",
+        "9421"
+      ],
+      "source": "fdb"
     },
     "9422": {
-      "status": "U",
-      "timestamp": 1781504728037,
-      "n": 9422
+      "status": "CF",
+      "timestamp": 1781523535105,
+      "n": 9422,
+      "factors": [
+        "5563"
+      ],
+      "source": "fdb"
     },
     "9424": {
-      "status": "U",
-      "timestamp": 1781504728600,
-      "n": 9424
+      "status": "CF",
+      "timestamp": 1781523535596,
+      "n": 9424,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "577"
+      ],
+      "source": "fdb"
     },
     "9426": {
-      "status": "U",
-      "timestamp": 1781504729200,
-      "n": 9426
+      "status": "CF",
+      "timestamp": 1781523536134,
+      "n": 9426,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "9428": {
-      "status": "U",
-      "timestamp": 1781504729794,
-      "n": 9428
+      "status": "CF",
+      "timestamp": 1781523536592,
+      "n": 9428,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "9430": {
-      "status": "U",
-      "timestamp": 1781504730347,
+      "status": "C",
+      "timestamp": 1781523537066,
       "n": 9430
     },
     "9432": {
-      "status": "U",
-      "timestamp": 1781504730916,
-      "n": 9432
+      "status": "CF",
+      "timestamp": 1781523537592,
+      "n": 9432,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "73",
+        "359",
+        "1049",
+        "2341"
+      ],
+      "source": "fdb"
     },
     "9434": {
       "status": "U",
@@ -77018,606 +78156,606 @@
   },
   "changelog": [
     {
-      "n": 7652,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523151516
-    },
-    {
-      "n": 7650,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523150269
-    },
-    {
-      "n": 7648,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523149030
-    },
-    {
-      "n": 7646,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523147773
-    },
-    {
-      "n": 7644,
-      "type": "updated",
-      "detail": "FDB CF: 9 factor(s)",
-      "ts": 1781523146547
-    },
-    {
-      "n": 7642,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523145287
-    },
-    {
-      "n": 7640,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523144014
-    },
-    {
-      "n": 7636,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523141341
-    },
-    {
-      "n": 7634,
-      "type": "promoted",
-      "detail": "Full value resolved via FactorDB (Fully Factored)",
-      "ts": 1781523140105
-    },
-    {
-      "n": 7632,
+      "n": 9432,
       "type": "updated",
       "detail": "FDB CF: 8 factor(s)",
-      "ts": 1781523138896
+      "ts": 1781523537609
     },
     {
-      "n": 7630,
+      "n": 9428,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523137645
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523536609
     },
     {
-      "n": 7628,
+      "n": 9426,
       "type": "updated",
       "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523136392
+      "ts": 1781523536149
     },
     {
-      "n": 7626,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523135144
-    },
-    {
-      "n": 7624,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523133916
-    },
-    {
-      "n": 7622,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523132666
-    },
-    {
-      "n": 7620,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523131362
-    },
-    {
-      "n": 7618,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523130123
-    },
-    {
-      "n": 7616,
-      "type": "updated",
-      "detail": "FDB CF: 8 factor(s)",
-      "ts": 1781523128905
-    },
-    {
-      "n": 7614,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523127657
-    },
-    {
-      "n": 7612,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523126433
-    },
-    {
-      "n": 7610,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523125176
-    },
-    {
-      "n": 7608,
+      "n": 9424,
       "type": "updated",
       "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523123937
+      "ts": 1781523535611
     },
     {
-      "n": 7606,
+      "n": 9422,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523122659
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523535122
     },
     {
-      "n": 7604,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523121404
-    },
-    {
-      "n": 7602,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523120069
-    },
-    {
-      "n": 7600,
+      "n": 9420,
       "type": "updated",
       "detail": "FDB CF: 9 factor(s)",
-      "ts": 1781523118807
+      "ts": 1781523534645
     },
     {
-      "n": 7596,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523116131
-    },
-    {
-      "n": 7594,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523114809
-    },
-    {
-      "n": 7592,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523113566
-    },
-    {
-      "n": 7590,
+      "n": 9418,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523112344
+      "ts": 1781523534096
     },
     {
-      "n": 7588,
+      "n": 9416,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523533579
+    },
+    {
+      "n": 9414,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523533104
+    },
+    {
+      "n": 9412,
       "type": "updated",
       "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523111101
+      "ts": 1781523532602
     },
     {
-      "n": 7586,
+      "n": 9410,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523109814
+      "ts": 1781523532123
     },
     {
-      "n": 7584,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781523108564
-    },
-    {
-      "n": 7582,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523107320
-    },
-    {
-      "n": 7580,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523106100
-    },
-    {
-      "n": 7578,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523104861
-    },
-    {
-      "n": 7576,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523103624
-    },
-    {
-      "n": 7574,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523102390
-    },
-    {
-      "n": 7572,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781523101163
-    },
-    {
-      "n": 7570,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523099867
-    },
-    {
-      "n": 7568,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523098602
-    },
-    {
-      "n": 7566,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523097351
-    },
-    {
-      "n": 7564,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523096011
-    },
-    {
-      "n": 7562,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523094759
-    },
-    {
-      "n": 7560,
-      "type": "updated",
-      "detail": "FDB CF: 17 factor(s)",
-      "ts": 1781523093501
-    },
-    {
-      "n": 7558,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523092250
-    },
-    {
-      "n": 7556,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523091007
-    },
-    {
-      "n": 7552,
-      "type": "updated",
-      "detail": "FDB CF: 9 factor(s)",
-      "ts": 1781523088355
-    },
-    {
-      "n": 7550,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523087047
-    },
-    {
-      "n": 7548,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781523085824
-    },
-    {
-      "n": 7546,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523084579
-    },
-    {
-      "n": 7544,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523083345
-    },
-    {
-      "n": 7540,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523080823
-    },
-    {
-      "n": 7536,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523078320
-    },
-    {
-      "n": 7534,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523077085
-    },
-    {
-      "n": 7532,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523075865
-    },
-    {
-      "n": 7530,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523074474
-    },
-    {
-      "n": 7528,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523073178
-    },
-    {
-      "n": 7526,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523071917
-    },
-    {
-      "n": 7524,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781523070656
-    },
-    {
-      "n": 7522,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523069405
-    },
-    {
-      "n": 7520,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523068182
-    },
-    {
-      "n": 7518,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523066840
-    },
-    {
-      "n": 7516,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523065581
-    },
-    {
-      "n": 7512,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523062927
-    },
-    {
-      "n": 7508,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523060334
-    },
-    {
-      "n": 7506,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523059010
-    },
-    {
-      "n": 7504,
-      "type": "updated",
-      "detail": "FDB CF: 9 factor(s)",
-      "ts": 1781523057727
-    },
-    {
-      "n": 7500,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523055154
-    },
-    {
-      "n": 7498,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523053854
-    },
-    {
-      "n": 7400,
-      "type": "updated",
-      "detail": "FDB CF: 9 factor(s)",
-      "ts": 1781523051488
-    },
-    {
-      "n": 7140,
-      "type": "updated",
-      "detail": "FDB CF: 10 factor(s)",
-      "ts": 1781523050217
-    },
-    {
-      "n": 6986,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523044642
-    },
-    {
-      "n": 6984,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781523043357
-    },
-    {
-      "n": 6982,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523042048
-    },
-    {
-      "n": 6980,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523040711
-    },
-    {
-      "n": 6978,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523039418
-    },
-    {
-      "n": 6976,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523038183
-    },
-    {
-      "n": 6974,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523036946
-    },
-    {
-      "n": 6972,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523035727
-    },
-    {
-      "n": 6968,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523033240
-    },
-    {
-      "n": 6966,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523032004
-    },
-    {
-      "n": 6964,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523030744
-    },
-    {
-      "n": 6962,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523029490
-    },
-    {
-      "n": 6960,
+      "n": 9408,
       "type": "updated",
       "detail": "FDB CF: 13 factor(s)",
-      "ts": 1781523028195
+      "ts": 1781523531603
     },
     {
-      "n": 6958,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523026938
-    },
-    {
-      "n": 6956,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781523025687
-    },
-    {
-      "n": 6954,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523024416
-    },
-    {
-      "n": 6952,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523023151
-    },
-    {
-      "n": 6950,
+      "n": 9406,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523021867
+      "ts": 1781523531109
     },
     {
-      "n": 6948,
+      "n": 9404,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523020586
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523530552
     },
     {
-      "n": 6684,
+      "n": 9400,
       "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523019329
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523529503
     },
     {
-      "n": 6682,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523018119
-    },
-    {
-      "n": 6680,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781523016870
-    },
-    {
-      "n": 6678,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523015632
-    },
-    {
-      "n": 6676,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781523014420
-    },
-    {
-      "n": 6674,
+      "n": 9398,
       "type": "updated",
       "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781523013183
+      "ts": 1781523529016
     },
     {
-      "n": 6672,
+      "n": 9396,
       "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781523011948
+      "detail": "FDB CF: 8 factor(s)",
+      "ts": 1781523528483
     },
     {
-      "n": 6670,
+      "n": 9394,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781523010702
+      "ts": 1781523527985
     },
     {
-      "n": 6668,
+      "n": 9392,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523527490
+    },
+    {
+      "n": 9390,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523527009
+    },
+    {
+      "n": 9388,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523526513
+    },
+    {
+      "n": 9386,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523525976
+    },
+    {
+      "n": 9384,
       "type": "updated",
       "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781523009449
+      "ts": 1781523525490
+    },
+    {
+      "n": 9382,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523524998
+    },
+    {
+      "n": 9380,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523524492
+    },
+    {
+      "n": 9378,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523523966
+    },
+    {
+      "n": 9376,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523523469
+    },
+    {
+      "n": 9374,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523522973
+    },
+    {
+      "n": 9372,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523522413
+    },
+    {
+      "n": 9370,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523521956
+    },
+    {
+      "n": 9368,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523521469
+    },
+    {
+      "n": 9366,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523520994
+    },
+    {
+      "n": 9364,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523520461
+    },
+    {
+      "n": 9362,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523519972
+    },
+    {
+      "n": 9360,
+      "type": "updated",
+      "detail": "FDB CF: 17 factor(s)",
+      "ts": 1781523519487
+    },
+    {
+      "n": 9358,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523518998
+    },
+    {
+      "n": 9356,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523518515
+    },
+    {
+      "n": 9354,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523518031
+    },
+    {
+      "n": 9352,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523517557
+    },
+    {
+      "n": 9350,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523517038
+    },
+    {
+      "n": 9348,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523516534
+    },
+    {
+      "n": 9346,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523516032
+    },
+    {
+      "n": 9344,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523515346
+    },
+    {
+      "n": 9340,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523514336
+    },
+    {
+      "n": 9338,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523513763
+    },
+    {
+      "n": 9336,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523513278
+    },
+    {
+      "n": 9334,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523512799
+    },
+    {
+      "n": 9332,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523512203
+    },
+    {
+      "n": 9330,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523511620
+    },
+    {
+      "n": 9328,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523511050
+    },
+    {
+      "n": 9326,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523510545
+    },
+    {
+      "n": 9324,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523510074
+    },
+    {
+      "n": 9322,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523509531
+    },
+    {
+      "n": 9320,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523509018
+    },
+    {
+      "n": 9318,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523508502
+    },
+    {
+      "n": 9316,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523507995
+    },
+    {
+      "n": 9314,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523507476
+    },
+    {
+      "n": 9312,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523506930
+    },
+    {
+      "n": 7970,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523497693
+    },
+    {
+      "n": 7968,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523497217
+    },
+    {
+      "n": 7966,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523496717
+    },
+    {
+      "n": 7964,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523496240
+    },
+    {
+      "n": 7962,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523495772
+    },
+    {
+      "n": 7960,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523495261
+    },
+    {
+      "n": 7958,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523494773
+    },
+    {
+      "n": 7956,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523494224
+    },
+    {
+      "n": 7954,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523493521
+    },
+    {
+      "n": 7952,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523493057
+    },
+    {
+      "n": 7950,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523492543
+    },
+    {
+      "n": 7948,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523492058
+    },
+    {
+      "n": 7946,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523491578
+    },
+    {
+      "n": 7944,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523491084
+    },
+    {
+      "n": 7942,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523490631
+    },
+    {
+      "n": 7940,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523490142
+    },
+    {
+      "n": 7938,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523489623
+    },
+    {
+      "n": 7936,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523489138
+    },
+    {
+      "n": 7934,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523488664
+    },
+    {
+      "n": 7932,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523488192
+    },
+    {
+      "n": 7930,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523487704
+    },
+    {
+      "n": 7928,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523487195
+    },
+    {
+      "n": 7926,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523486711
+    },
+    {
+      "n": 7924,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523486195
+    },
+    {
+      "n": 7922,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523485718
+    },
+    {
+      "n": 7920,
+      "type": "updated",
+      "detail": "FDB CF: 16 factor(s)",
+      "ts": 1781523485231
+    },
+    {
+      "n": 7918,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523484673
+    },
+    {
+      "n": 7916,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523484181
+    },
+    {
+      "n": 7656,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523483703
+    },
+    {
+      "n": 5646,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523482753
+    },
+    {
+      "n": 5644,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523482151
+    },
+    {
+      "n": 5642,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523481659
+    },
+    {
+      "n": 5640,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523481146
+    },
+    {
+      "n": 5636,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523480183
+    },
+    {
+      "n": 5634,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523479670
+    },
+    {
+      "n": 5632,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523479216
+    },
+    {
+      "n": 5628,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523478311
+    },
+    {
+      "n": 5626,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523477872
+    },
+    {
+      "n": 5624,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523477417
+    },
+    {
+      "n": 5622,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523476942
+    },
+    {
+      "n": 5620,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523476497
+    },
+    {
+      "n": 5618,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523476048
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-15T11:32:32.971Z"
+  "updatedAt": "2026-06-15T11:40:26.911Z"
 }
