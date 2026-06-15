@@ -14864,144 +14864,300 @@
       "source": "fdb"
     },
     "3226": {
-      "status": "U",
-      "timestamp": 1781502867624,
-      "n": 3226
+      "status": "CF",
+      "timestamp": 1781522803092,
+      "n": 3226,
+      "factors": [
+        "1231"
+      ],
+      "source": "fdb"
     },
     "3228": {
-      "status": "U",
-      "timestamp": 1781502868028,
-      "n": 3228
+      "status": "CF",
+      "timestamp": 1781522803576,
+      "n": 3228,
+      "factors": [
+        "5",
+        "13",
+        "3229"
+      ],
+      "source": "fdb"
     },
     "3230": {
-      "status": "U",
-      "timestamp": 1781502868476,
+      "status": "C",
+      "timestamp": 1781522804021,
       "n": 3230
     },
     "3232": {
-      "status": "U",
-      "timestamp": 1781502868882,
-      "n": 3232
+      "status": "CF",
+      "timestamp": 1781522804489,
+      "n": 3232,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "31^2",
+        "677"
+      ],
+      "source": "fdb"
     },
     "3234": {
-      "status": "U",
-      "timestamp": 1781502869289,
-      "n": 3234
+      "status": "CF",
+      "timestamp": 1781522804970,
+      "n": 3234,
+      "factors": [
+        "47",
+        "2536559",
+        "311591017",
+        "1799079533",
+        "2767076069"
+      ],
+      "source": "fdb"
     },
     "3236": {
-      "status": "U",
-      "timestamp": 1781502869688,
-      "n": 3236
+      "status": "CF",
+      "timestamp": 1781522805449,
+      "n": 3236,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "3238": {
-      "status": "U",
-      "timestamp": 1781502870081,
-      "n": 3238
+      "status": "CF",
+      "timestamp": 1781522805914,
+      "n": 3238,
+      "factors": [
+        "353",
+        "433",
+        "571",
+        "675463"
+      ],
+      "source": "fdb"
     },
     "3240": {
-      "status": "U",
-      "timestamp": 1781502870477,
-      "n": 3240
+      "status": "CF",
+      "timestamp": 1781522806405,
+      "n": 3240,
+      "factors": [
+        "5^2",
+        "13",
+        "37",
+        "41",
+        "61",
+        "73",
+        "109",
+        "181",
+        "223",
+        "541"
+      ],
+      "source": "fdb"
     },
     "3242": {
-      "status": "U",
-      "timestamp": 1781502870878,
-      "n": 3242
+      "status": "CF",
+      "timestamp": 1781522806870,
+      "n": 3242,
+      "factors": [
+        "44263"
+      ],
+      "source": "fdb"
     },
     "3244": {
-      "status": "U",
-      "timestamp": 1781502871308,
-      "n": 3244
+      "status": "CF",
+      "timestamp": 1781522807319,
+      "n": 3244,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "3246": {
-      "status": "U",
-      "timestamp": 1781502871714,
-      "n": 3246
+      "status": "CF",
+      "timestamp": 1781522807740,
+      "n": 3246,
+      "factors": [
+        "43",
+        "61"
+      ],
+      "source": "fdb"
     },
     "3248": {
-      "status": "U",
-      "timestamp": 1781502872127,
-      "n": 3248
+      "status": "CF",
+      "timestamp": 1781522808170,
+      "n": 3248,
+      "factors": [
+        "5",
+        "17",
+        "29^2",
+        "71",
+        "113",
+        "233"
+      ],
+      "source": "fdb"
     },
     "3250": {
-      "status": "U",
-      "timestamp": 1781502872537,
-      "n": 3250
+      "status": "CF",
+      "timestamp": 1781522808624,
+      "n": 3250,
+      "factors": [
+        "19",
+        "5088289421"
+      ],
+      "source": "fdb"
     },
     "3252": {
-      "status": "U",
-      "timestamp": 1781502872929,
-      "n": 3252
+      "status": "CF",
+      "timestamp": 1781522809072,
+      "n": 3252,
+      "factors": [
+        "5",
+        "13",
+        "1601"
+      ],
+      "source": "fdb"
     },
     "3254": {
-      "status": "U",
-      "timestamp": 1781502873347,
-      "n": 3254
+      "status": "CF",
+      "timestamp": 1781522809520,
+      "n": 3254,
+      "factors": [
+        "149",
+        "1291"
+      ],
+      "source": "fdb"
     },
     "3256": {
-      "status": "U",
-      "timestamp": 1781502874012,
-      "n": 3256
+      "status": "CF",
+      "timestamp": 1781522809986,
+      "n": 3256,
+      "factors": [
+        "5",
+        "89",
+        "149",
+        "3257",
+        "11423",
+        "43607"
+      ],
+      "source": "fdb"
     },
     "3258": {
-      "status": "U",
-      "timestamp": 1781502874403,
+      "status": "C",
+      "timestamp": 1781522810391,
       "n": 3258
     },
     "3260": {
-      "status": "U",
-      "timestamp": 1781502874802,
-      "n": 3260
+      "status": "CF",
+      "timestamp": 1781522810866,
+      "n": 3260,
+      "factors": [
+        "5^2",
+        "67"
+      ],
+      "source": "fdb"
     },
     "3262": {
-      "status": "U",
-      "timestamp": 1781502875216,
-      "n": 3262
+      "status": "CF",
+      "timestamp": 1781522811330,
+      "n": 3262,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "3264": {
-      "status": "U",
-      "timestamp": 1781502875610,
-      "n": 3264
+      "status": "CF",
+      "timestamp": 1781522811760,
+      "n": 3264,
+      "factors": [
+        "5",
+        "13",
+        "17^2",
+        "97",
+        "137",
+        "193",
+        "409",
+        "9067"
+      ],
+      "source": "fdb"
     },
     "3266": {
-      "status": "U",
-      "timestamp": 1781502875994,
-      "n": 3266
+      "status": "CF",
+      "timestamp": 1781522812224,
+      "n": 3266,
+      "factors": [
+        "19379"
+      ],
+      "source": "fdb"
     },
     "3268": {
-      "status": "U",
-      "timestamp": 1781502876385,
-      "n": 3268
+      "status": "CF",
+      "timestamp": 1781522812768,
+      "n": 3268,
+      "factors": [
+        "5",
+        "19"
+      ],
+      "source": "fdb"
     },
     "3270": {
-      "status": "U",
-      "timestamp": 1781502876771,
-      "n": 3270
+      "status": "CF",
+      "timestamp": 1781522813205,
+      "n": 3270,
+      "factors": [
+        "8693"
+      ],
+      "source": "fdb"
     },
     "3272": {
-      "status": "U",
-      "timestamp": 1781502877174,
-      "n": 3272
+      "status": "CF",
+      "timestamp": 1781522813645,
+      "n": 3272,
+      "factors": [
+        "5",
+        "1637",
+        "802709"
+      ],
+      "source": "fdb"
     },
     "3274": {
-      "status": "U",
-      "timestamp": 1781502877590,
-      "n": 3274
+      "status": "CF",
+      "timestamp": 1781522814063,
+      "n": 3274,
+      "factors": [
+        "8286685229"
+      ],
+      "source": "fdb"
     },
     "3276": {
-      "status": "U",
-      "timestamp": 1781502877993,
-      "n": 3276
+      "status": "CF",
+      "timestamp": 1781522814493,
+      "n": 3276,
+      "factors": [
+        "5",
+        "13^2",
+        "29",
+        "37",
+        "53",
+        "157"
+      ],
+      "source": "fdb"
     },
     "3278": {
-      "status": "U",
-      "timestamp": 1781502878389,
+      "status": "C",
+      "timestamp": 1781522814906,
       "n": 3278
     },
     "3280": {
-      "status": "U",
-      "timestamp": 1781502878782,
-      "n": 3280
+      "status": "CF",
+      "timestamp": 1781522815342,
+      "n": 3280,
+      "factors": [
+        "5^2",
+        "17",
+        "41^2",
+        "47"
+      ],
+      "source": "fdb"
     },
     "3282": {
       "status": "C",
@@ -16405,24 +16561,57 @@
       "source": "fdb"
     },
     "3600": {
-      "status": "U",
-      "timestamp": 1781502947740,
-      "n": 3600
+      "status": "CF",
+      "timestamp": 1781522815783,
+      "n": 3600,
+      "factors": [
+        "5^3",
+        "13",
+        "17",
+        "37",
+        "41",
+        "61",
+        "73",
+        "101",
+        "181",
+        "241",
+        "401",
+        "601",
+        "1201",
+        "1801",
+        "18959"
+      ],
+      "source": "fdb"
     },
     "3602": {
-      "status": "U",
-      "timestamp": 1781502948138,
-      "n": 3602
+      "status": "CF",
+      "timestamp": 1781522816243,
+      "n": 3602,
+      "factors": [
+        "47",
+        "311",
+        "1583",
+        "5233"
+      ],
+      "source": "fdb"
     },
     "3604": {
-      "status": "U",
-      "timestamp": 1781502948557,
-      "n": 3604
+      "status": "CF",
+      "timestamp": 1781522816671,
+      "n": 3604,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "3606": {
-      "status": "U",
-      "timestamp": 1781502948968,
-      "n": 3606
+      "status": "CF",
+      "timestamp": 1781522817271,
+      "n": 3606,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "3608": {
       "status": "CF",
@@ -16453,7 +16642,7 @@
     },
     "3614": {
       "status": "C",
-      "timestamp": 1781519873188,
+      "timestamp": 1781522817573,
       "n": 3614
     },
     "3616": {
@@ -16539,7 +16728,7 @@
     },
     "3634": {
       "status": "C",
-      "timestamp": 1781519877723,
+      "timestamp": 1781522817862,
       "n": 3634
     },
     "3636": {
@@ -16553,7 +16742,7 @@
     },
     "3638": {
       "status": "C",
-      "timestamp": 1781519878582,
+      "timestamp": 1781522818153,
       "n": 3638
     },
     "3640": {
@@ -16865,7 +17054,7 @@
     },
     "3706": {
       "status": "C",
-      "timestamp": 1781519893519,
+      "timestamp": 1781522818453,
       "n": 3706
     },
     "3708": {
@@ -17100,7 +17289,7 @@
     },
     "3758": {
       "status": "C",
-      "timestamp": 1781519905183,
+      "timestamp": 1781522818738,
       "n": 3758
     },
     "3760": {
@@ -17208,7 +17397,7 @@
     },
     "3782": {
       "status": "C",
-      "timestamp": 1781519910539,
+      "timestamp": 1781522819028,
       "n": 3782
     },
     "3784": {
@@ -17351,7 +17540,7 @@
     },
     "3814": {
       "status": "C",
-      "timestamp": 1781519917582,
+      "timestamp": 1781522819326,
       "n": 3814
     },
     "3816": {
@@ -17419,7 +17608,7 @@
     },
     "3830": {
       "status": "C",
-      "timestamp": 1781519921188,
+      "timestamp": 1781522819622,
       "n": 3830
     },
     "3832": {
@@ -17653,28 +17842,54 @@
       "source": "fdb"
     },
     "3882": {
-      "status": "U",
-      "timestamp": 1781503006151,
-      "n": 3882
+      "status": "CF",
+      "timestamp": 1781522820079,
+      "n": 3882,
+      "factors": [
+        "373",
+        "577"
+      ],
+      "source": "fdb"
     },
     "3884": {
-      "status": "U",
-      "timestamp": 1781503006559,
-      "n": 3884
+      "status": "CF",
+      "timestamp": 1781522820505,
+      "n": 3884,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "3886": {
-      "status": "U",
-      "timestamp": 1781503006959,
-      "n": 3886
+      "status": "CF",
+      "timestamp": 1781522820921,
+      "n": 3886,
+      "factors": [
+        "342869"
+      ],
+      "source": "fdb"
     },
     "3888": {
-      "status": "U",
-      "timestamp": 1781503007366,
-      "n": 3888
+      "status": "CF",
+      "timestamp": 1781522821357,
+      "n": 3888,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "37",
+        "73",
+        "109",
+        "433",
+        "1297",
+        "3889",
+        "13691"
+      ],
+      "source": "fdb"
     },
     "3890": {
-      "status": "U",
-      "timestamp": 1781503007770,
+      "status": "C",
+      "timestamp": 1781522821801,
       "n": 3890
     },
     "3892": {
@@ -18925,564 +19140,1202 @@
       "source": "fdb"
     },
     "4178": {
-      "status": "U",
-      "timestamp": 1781503070404,
-      "n": 4178
+      "status": "CF",
+      "timestamp": 1781522822252,
+      "n": 4178,
+      "factors": [
+        "1879"
+      ],
+      "source": "fdb"
     },
     "4180": {
-      "status": "U",
-      "timestamp": 1781503070870,
-      "n": 4180
+      "status": "CF",
+      "timestamp": 1781522822719,
+      "n": 4180,
+      "factors": [
+        "5^2",
+        "1907"
+      ],
+      "source": "fdb"
     },
     "4182": {
-      "status": "U",
-      "timestamp": 1781503071364,
-      "n": 4182
+      "status": "CF",
+      "timestamp": 1781522823150,
+      "n": 4182,
+      "factors": [
+        "1717343",
+        "107171629"
+      ],
+      "source": "fdb"
     },
     "4184": {
-      "status": "U",
-      "timestamp": 1781503071842,
-      "n": 4184
+      "status": "CF",
+      "timestamp": 1781522823609,
+      "n": 4184,
+      "factors": [
+        "5",
+        "67"
+      ],
+      "source": "fdb"
     },
     "4186": {
-      "status": "U",
-      "timestamp": 1781503072316,
-      "n": 4186
+      "status": "CF",
+      "timestamp": 1781522824048,
+      "n": 4186,
+      "factors": [
+        "19",
+        "4153",
+        "25703"
+      ],
+      "source": "fdb"
     },
     "4188": {
-      "status": "U",
-      "timestamp": 1781503072798,
-      "n": 4188
+      "status": "CF",
+      "timestamp": 1781522824498,
+      "n": 4188,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4190": {
-      "status": "U",
-      "timestamp": 1781503073321,
-      "n": 4190
+      "status": "CF",
+      "timestamp": 1781522824940,
+      "n": 4190,
+      "factors": [
+        "158143",
+        "468581",
+        "22862767"
+      ],
+      "source": "fdb"
     },
     "4192": {
-      "status": "U",
-      "timestamp": 1781503073852,
-      "n": 4192
+      "status": "CF",
+      "timestamp": 1781522825418,
+      "n": 4192,
+      "factors": [
+        "5",
+        "17",
+        "31",
+        "1049"
+      ],
+      "source": "fdb"
     },
     "4194": {
-      "status": "U",
-      "timestamp": 1781503074348,
-      "n": 4194
+      "status": "CF",
+      "timestamp": 1781522825838,
+      "n": 4194,
+      "factors": [
+        "349",
+        "563"
+      ],
+      "source": "fdb"
     },
     "4196": {
-      "status": "U",
-      "timestamp": 1781503074807,
-      "n": 4196
+      "status": "CF",
+      "timestamp": 1781522826278,
+      "n": 4196,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4198": {
-      "status": "U",
-      "timestamp": 1781503075305,
-      "n": 4198
+      "status": "CF",
+      "timestamp": 1781522826726,
+      "n": 4198,
+      "factors": [
+        "36901"
+      ],
+      "source": "fdb"
     },
     "4200": {
-      "status": "U",
-      "timestamp": 1781503075770,
-      "n": 4200
+      "status": "CF",
+      "timestamp": 1781522827182,
+      "n": 4200,
+      "factors": [
+        "5^3",
+        "13",
+        "29",
+        "41",
+        "47",
+        "61",
+        "101",
+        "281",
+        "421",
+        "601",
+        "701",
+        "2131",
+        "2729",
+        "4201"
+      ],
+      "source": "fdb"
     },
     "4202": {
-      "status": "U",
-      "timestamp": 1781503076231,
+      "status": "C",
+      "timestamp": 1781522827606,
       "n": 4202
     },
     "4204": {
-      "status": "U",
-      "timestamp": 1781503076711,
-      "n": 4204
+      "status": "CF",
+      "timestamp": 1781522828025,
+      "n": 4204,
+      "factors": [
+        "5",
+        "19",
+        "509"
+      ],
+      "source": "fdb"
     },
     "4206": {
-      "status": "U",
-      "timestamp": 1781503077162,
-      "n": 4206
+      "status": "CF",
+      "timestamp": 1781522828452,
+      "n": 4206,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "4208": {
-      "status": "U",
-      "timestamp": 1781503077571,
-      "n": 4208
+      "status": "CF",
+      "timestamp": 1781522828947,
+      "n": 4208,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "source": "fdb"
     },
     "4210": {
-      "status": "U",
-      "timestamp": 1781503078045,
+      "status": "C",
+      "timestamp": 1781522829377,
       "n": 4210
     },
     "4212": {
-      "status": "U",
-      "timestamp": 1781503078528,
-      "n": 4212
+      "status": "CF",
+      "timestamp": 1781522829833,
+      "n": 4212,
+      "factors": [
+        "5",
+        "13^2",
+        "37",
+        "43",
+        "53",
+        "109",
+        "157"
+      ],
+      "source": "fdb"
     },
     "4214": {
-      "status": "U",
-      "timestamp": 1781503079016,
-      "n": 4214
+      "status": "CF",
+      "timestamp": 1781522830279,
+      "n": 4214,
+      "factors": [
+        "3974356717"
+      ],
+      "source": "fdb"
     },
     "4216": {
-      "status": "U",
-      "timestamp": 1781503079504,
-      "n": 4216
+      "status": "CF",
+      "timestamp": 1781522830756,
+      "n": 4216,
+      "factors": [
+        "5",
+        "137"
+      ],
+      "source": "fdb"
     },
     "4218": {
-      "status": "U",
-      "timestamp": 1781503079973,
-      "n": 4218
+      "status": "CF",
+      "timestamp": 1781522831223,
+      "n": 4218,
+      "factors": [
+        "3011487307"
+      ],
+      "source": "fdb"
     },
     "4220": {
-      "status": "U",
-      "timestamp": 1781503080463,
-      "n": 4220
+      "status": "CF",
+      "timestamp": 1781522831706,
+      "n": 4220,
+      "factors": [
+        "5^2",
+        "28406803"
+      ],
+      "source": "fdb"
     },
     "4222": {
-      "status": "U",
-      "timestamp": 1781503080938,
-      "n": 4222
+      "status": "CF",
+      "timestamp": 1781522832146,
+      "n": 4222,
+      "factors": [
+        "19",
+        "31"
+      ],
+      "source": "fdb"
     },
     "4224": {
-      "status": "U",
-      "timestamp": 1781503081609,
-      "n": 4224
+      "status": "CF",
+      "timestamp": 1781522832605,
+      "n": 4224,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "89",
+        "97",
+        "193",
+        "353",
+        "1409",
+        "2113"
+      ],
+      "source": "fdb"
     },
     "4226": {
-      "status": "U",
-      "timestamp": 1781503082022,
-      "n": 4226
+      "status": "CF",
+      "timestamp": 1781522833072,
+      "n": 4226,
+      "factors": [
+        "96019223"
+      ],
+      "source": "fdb"
     },
     "4228": {
-      "status": "U",
-      "timestamp": 1781503082513,
-      "n": 4228
+      "status": "CF",
+      "timestamp": 1781522833524,
+      "n": 4228,
+      "factors": [
+        "5",
+        "29",
+        "71"
+      ],
+      "source": "fdb"
     },
     "4230": {
-      "status": "U",
-      "timestamp": 1781503083008,
-      "n": 4230
+      "status": "CF",
+      "timestamp": 1781522833969,
+      "n": 4230,
+      "factors": [
+        "79"
+      ],
+      "source": "fdb"
     },
     "4232": {
-      "status": "U",
-      "timestamp": 1781503083501,
-      "n": 4232
+      "status": "CF",
+      "timestamp": 1781522834412,
+      "n": 4232,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4234": {
-      "status": "U",
-      "timestamp": 1781503083997,
-      "n": 4234
+      "status": "CF",
+      "timestamp": 1781522834894,
+      "n": 4234,
+      "factors": [
+        "160687"
+      ],
+      "source": "fdb"
     },
     "4236": {
-      "status": "U",
-      "timestamp": 1781503084482,
-      "n": 4236
+      "status": "CF",
+      "timestamp": 1781522835354,
+      "n": 4236,
+      "factors": [
+        "5",
+        "13"
+      ],
+      "source": "fdb"
     },
     "4238": {
-      "status": "U",
-      "timestamp": 1781503084956,
-      "n": 4238
+      "status": "CF",
+      "timestamp": 1781522835800,
+      "n": 4238,
+      "factors": [
+        "1337783"
+      ],
+      "source": "fdb"
     },
     "4240": {
-      "status": "U",
-      "timestamp": 1781503085472,
-      "n": 4240
+      "status": "CF",
+      "timestamp": 1781522836251,
+      "n": 4240,
+      "factors": [
+        "5^2",
+        "17",
+        "19",
+        "41",
+        "577",
+        "1061",
+        "4241",
+        "1101649",
+        "291987463"
+      ],
+      "source": "fdb"
     },
     "4242": {
-      "status": "U",
-      "timestamp": 1781503085947,
-      "n": 4242
+      "status": "CF",
+      "timestamp": 1781522836706,
+      "n": 4242,
+      "factors": [
+        "2161",
+        "2213"
+      ],
+      "source": "fdb"
     },
     "4244": {
-      "status": "U",
-      "timestamp": 1781503086421,
-      "n": 4244
+      "status": "CF",
+      "timestamp": 1781522837150,
+      "n": 4244,
+      "factors": [
+        "5",
+        "541"
+      ],
+      "source": "fdb"
     },
     "4246": {
-      "status": "U",
-      "timestamp": 1781503086893,
-      "n": 4246
+      "status": "CF",
+      "timestamp": 1781522837720,
+      "n": 4246,
+      "factors": [
+        "47"
+      ],
+      "source": "fdb"
     },
     "4248": {
-      "status": "U",
-      "timestamp": 1781503087371,
-      "n": 4248
+      "status": "CF",
+      "timestamp": 1781522838160,
+      "n": 4248,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "73",
+        "709",
+        "2242111"
+      ],
+      "source": "fdb"
     },
     "4250": {
-      "status": "U",
-      "timestamp": 1781503087767,
-      "n": 4250
+      "status": "CF",
+      "timestamp": 1781522838591,
+      "n": 4250,
+      "factors": [
+        "67",
+        "619"
+      ],
+      "source": "fdb"
     },
     "4252": {
-      "status": "U",
-      "timestamp": 1781503088259,
-      "n": 4252
+      "status": "CF",
+      "timestamp": 1781522839032,
+      "n": 4252,
+      "factors": [
+        "5",
+        "31"
+      ],
+      "source": "fdb"
     },
     "4254": {
-      "status": "U",
-      "timestamp": 1781503088748,
-      "n": 4254
+      "status": "CF",
+      "timestamp": 1781522839487,
+      "n": 4254,
+      "factors": [
+        "43",
+        "373",
+        "68737"
+      ],
+      "source": "fdb"
     },
     "4256": {
-      "status": "U",
-      "timestamp": 1781503089234,
-      "n": 4256
+      "status": "CF",
+      "timestamp": 1781522840047,
+      "n": 4256,
+      "factors": [
+        "5",
+        "17",
+        "29",
+        "113"
+      ],
+      "source": "fdb"
     },
     "4258": {
-      "status": "U",
-      "timestamp": 1781503089717,
-      "n": 4258
+      "status": "CF",
+      "timestamp": 1781522840488,
+      "n": 4258,
+      "factors": [
+        "19",
+        "137"
+      ],
+      "source": "fdb"
     },
     "4260": {
-      "status": "U",
-      "timestamp": 1781503090203,
-      "n": 4260
+      "status": "CF",
+      "timestamp": 1781522840917,
+      "n": 4260,
+      "factors": [
+        "5^2",
+        "13",
+        "61",
+        "853",
+        "4261"
+      ],
+      "source": "fdb"
     },
     "4262": {
-      "status": "U",
-      "timestamp": 1781503090692,
-      "n": 4262
+      "status": "CF",
+      "timestamp": 1781522841349,
+      "n": 4262,
+      "factors": [
+        "101"
+      ],
+      "source": "fdb"
     },
     "4264": {
-      "status": "U",
-      "timestamp": 1781503091171,
-      "n": 4264
+      "status": "CF",
+      "timestamp": 1781522841785,
+      "n": 4264,
+      "factors": [
+        "5",
+        "53",
+        "10193",
+        "106727"
+      ],
+      "source": "fdb"
     },
     "4266": {
-      "status": "U",
-      "timestamp": 1781503091698,
-      "n": 4266
+      "status": "CF",
+      "timestamp": 1781522842249,
+      "n": 4266,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "4268": {
-      "status": "U",
-      "timestamp": 1781503092098,
-      "n": 4268
+      "status": "CF",
+      "timestamp": 1781522842688,
+      "n": 4268,
+      "factors": [
+        "5",
+        "139"
+      ],
+      "source": "fdb"
     },
     "4270": {
-      "status": "U",
-      "timestamp": 1781503092580,
-      "n": 4270
+      "status": "CF",
+      "timestamp": 1781522843143,
+      "n": 4270,
+      "factors": [
+        "5209"
+      ],
+      "source": "fdb"
     },
     "4272": {
-      "status": "U",
-      "timestamp": 1781503092992,
-      "n": 4272
+      "status": "CF",
+      "timestamp": 1781522843616,
+      "n": 4272,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "1069",
+        "2137"
+      ],
+      "source": "fdb"
     },
     "4274": {
-      "status": "U",
-      "timestamp": 1781503093499,
-      "n": 4274
+      "status": "CF",
+      "timestamp": 1781522844058,
+      "n": 4274,
+      "factors": [
+        "39167717"
+      ],
+      "source": "fdb"
     },
     "4276": {
-      "status": "U",
-      "timestamp": 1781503093989,
-      "n": 4276
+      "status": "CF",
+      "timestamp": 1781522844573,
+      "n": 4276,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4278": {
-      "status": "U",
-      "timestamp": 1781503094461,
-      "n": 4278
+      "status": "CF",
+      "timestamp": 1781522844999,
+      "n": 4278,
+      "factors": [
+        "2450130443"
+      ],
+      "source": "fdb"
     },
     "4280": {
-      "status": "U",
-      "timestamp": 1781503094983,
-      "n": 4280
+      "status": "CF",
+      "timestamp": 1781522845438,
+      "n": 4280,
+      "factors": [
+        "5^2",
+        "41",
+        "857",
+        "2141",
+        "7669"
+      ],
+      "source": "fdb"
     },
     "4282": {
-      "status": "U",
-      "timestamp": 1781503095458,
-      "n": 4282
+      "status": "CF",
+      "timestamp": 1781522845877,
+      "n": 4282,
+      "factors": [
+        "31",
+        "36869269"
+      ],
+      "source": "fdb"
     },
     "4284": {
-      "status": "U",
-      "timestamp": 1781503095938,
-      "n": 4284
+      "status": "CF",
+      "timestamp": 1781522846325,
+      "n": 4284,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "37",
+        "613",
+        "1429"
+      ],
+      "source": "fdb"
     },
     "4286": {
-      "status": "U",
-      "timestamp": 1781503096405,
-      "n": 4286
+      "status": "CF",
+      "timestamp": 1781522846766,
+      "n": 4286,
+      "factors": [
+        "1759763"
+      ],
+      "source": "fdb"
     },
     "4288": {
-      "status": "U",
-      "timestamp": 1781503096900,
-      "n": 4288
+      "status": "CF",
+      "timestamp": 1781522847230,
+      "n": 4288,
+      "factors": [
+        "5",
+        "17",
+        "269",
+        "4289",
+        "11483"
+      ],
+      "source": "fdb"
     },
     "4290": {
-      "status": "U",
-      "timestamp": 1781503097360,
-      "n": 4290
+      "status": "CF",
+      "timestamp": 1781522847659,
+      "n": 4290,
+      "factors": [
+        "149",
+        "241"
+      ],
+      "source": "fdb"
     },
     "4292": {
-      "status": "U",
-      "timestamp": 1781503097872,
-      "n": 4292
+      "status": "CF",
+      "timestamp": 1781522848124,
+      "n": 4292,
+      "factors": [
+        "5",
+        "47",
+        "149",
+        "1104217"
+      ],
+      "source": "fdb"
     },
     "4294": {
-      "status": "U",
-      "timestamp": 1781503098340,
-      "n": 4294
+      "status": "CF",
+      "timestamp": 1781522848564,
+      "n": 4294,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "4296": {
-      "status": "U",
-      "timestamp": 1781503098859,
-      "n": 4296
+      "status": "CF",
+      "timestamp": 1781522849012,
+      "n": 4296,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "1433",
+        "2137",
+        "4297",
+        "87833",
+        "186129649"
+      ],
+      "source": "fdb"
     },
     "4298": {
-      "status": "U",
-      "timestamp": 1781503099334,
-      "n": 4298
+      "status": "CF",
+      "timestamp": 1781522849468,
+      "n": 4298,
+      "factors": [
+        "71",
+        "193"
+      ],
+      "source": "fdb"
     },
     "4300": {
-      "status": "U",
-      "timestamp": 1781503099837,
-      "n": 4300
+      "status": "CF",
+      "timestamp": 1781522849966,
+      "n": 4300,
+      "factors": [
+        "5^3",
+        "101"
+      ],
+      "source": "fdb"
     },
     "4302": {
-      "status": "U",
-      "timestamp": 1781503100335,
-      "n": 4302
+      "status": "CF",
+      "timestamp": 1781522850405,
+      "n": 4302,
+      "factors": [
+        "313721",
+        "667549"
+      ],
+      "source": "fdb"
     },
     "4304": {
-      "status": "U",
-      "timestamp": 1781503100823,
-      "n": 4304
+      "status": "CF",
+      "timestamp": 1781522850868,
+      "n": 4304,
+      "factors": [
+        "5",
+        "17",
+        "2153"
+      ],
+      "source": "fdb"
     },
     "4306": {
-      "status": "U",
-      "timestamp": 1781503101346,
-      "n": 4306
+      "status": "CF",
+      "timestamp": 1781522851309,
+      "n": 4306,
+      "factors": [
+        "657583"
+      ],
+      "source": "fdb"
     },
     "4308": {
-      "status": "U",
-      "timestamp": 1781503101909,
-      "n": 4308
+      "status": "CF",
+      "timestamp": 1781522851752,
+      "n": 4308,
+      "factors": [
+        "5",
+        "13",
+        "79"
+      ],
+      "source": "fdb"
     },
     "4310": {
-      "status": "U",
-      "timestamp": 1781503102332,
-      "n": 4310
+      "status": "CF",
+      "timestamp": 1781522852230,
+      "n": 4310,
+      "factors": [
+        "3257",
+        "9629"
+      ],
+      "source": "fdb"
     },
     "4312": {
-      "status": "U",
-      "timestamp": 1781503102810,
-      "n": 4312
+      "status": "CF",
+      "timestamp": 1781522852695,
+      "n": 4312,
+      "factors": [
+        "5",
+        "19",
+        "29",
+        "31",
+        "89",
+        "197",
+        "617",
+        "25583"
+      ],
+      "source": "fdb"
     },
     "4314": {
-      "status": "U",
-      "timestamp": 1781503103266,
+      "status": "C",
+      "timestamp": 1781522853117,
       "n": 4314
     },
     "4316": {
-      "status": "U",
-      "timestamp": 1781503103778,
-      "n": 4316
+      "status": "CF",
+      "timestamp": 1781522853553,
+      "n": 4316,
+      "factors": [
+        "5",
+        "53"
+      ],
+      "source": "fdb"
     },
     "4318": {
-      "status": "U",
-      "timestamp": 1781503104249,
-      "n": 4318
+      "status": "CF",
+      "timestamp": 1781522853994,
+      "n": 4318,
+      "factors": [
+        "241",
+        "5831281",
+        "2275379999"
+      ],
+      "source": "fdb"
     },
     "4320": {
-      "status": "U",
-      "timestamp": 1781503104732,
-      "n": 4320
+      "status": "CF",
+      "timestamp": 1781522854459,
+      "n": 4320,
+      "factors": [
+        "5^2",
+        "13",
+        "17",
+        "37",
+        "41",
+        "61",
+        "73",
+        "97",
+        "109",
+        "181",
+        "241",
+        "433",
+        "541",
+        "2161",
+        "22129"
+      ],
+      "source": "fdb"
     },
     "4322": {
-      "status": "U",
-      "timestamp": 1781503105208,
+      "status": "C",
+      "timestamp": 1781522854904,
       "n": 4322
     },
     "4324": {
-      "status": "U",
-      "timestamp": 1781503105692,
-      "n": 4324
+      "status": "CF",
+      "timestamp": 1781522855349,
+      "n": 4324,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4326": {
-      "status": "U",
-      "timestamp": 1781503106397,
-      "n": 4326
+      "status": "CF",
+      "timestamp": 1781522855795,
+      "n": 4326,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "4328": {
-      "status": "U",
-      "timestamp": 1781503106868,
-      "n": 4328
+      "status": "CF",
+      "timestamp": 1781522856270,
+      "n": 4328,
+      "factors": [
+        "5",
+        "2957",
+        "5399"
+      ],
+      "source": "fdb"
     },
     "4330": {
-      "status": "U",
-      "timestamp": 1781503107348,
-      "n": 4330
+      "status": "CF",
+      "timestamp": 1781522856737,
+      "n": 4330,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "4332": {
-      "status": "U",
-      "timestamp": 1781503107813,
-      "n": 4332
+      "status": "CF",
+      "timestamp": 1781522857255,
+      "n": 4332,
+      "factors": [
+        "5",
+        "13",
+        "229"
+      ],
+      "source": "fdb"
     },
     "4334": {
-      "status": "U",
-      "timestamp": 1781503108295,
-      "n": 4334
+      "status": "CF",
+      "timestamp": 1781522857730,
+      "n": 4334,
+      "factors": [
+        "277097"
+      ],
+      "source": "fdb"
     },
     "4336": {
-      "status": "U",
-      "timestamp": 1781503108770,
-      "n": 4336
+      "status": "CF",
+      "timestamp": 1781522858184,
+      "n": 4336,
+      "factors": [
+        "5",
+        "17"
+      ],
+      "source": "fdb"
     },
     "4338": {
-      "status": "U",
-      "timestamp": 1781503109227,
-      "n": 4338
+      "status": "CF",
+      "timestamp": 1781522858619,
+      "n": 4338,
+      "factors": [
+        "43",
+        "47",
+        "419"
+      ],
+      "source": "fdb"
     },
     "4340": {
-      "status": "U",
-      "timestamp": 1781503109685,
-      "n": 4340
+      "status": "CF",
+      "timestamp": 1781522859069,
+      "n": 4340,
+      "factors": [
+        "5^2"
+      ],
+      "source": "fdb"
     },
     "4342": {
-      "status": "U",
-      "timestamp": 1781503110178,
-      "n": 4342
+      "status": "CF",
+      "timestamp": 1781522859495,
+      "n": 4342,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "4344": {
-      "status": "U",
-      "timestamp": 1781503110650,
-      "n": 4344
+      "status": "CF",
+      "timestamp": 1781522859950,
+      "n": 4344,
+      "factors": [
+        "5",
+        "13",
+        "21319",
+        "797169281"
+      ],
+      "source": "fdb"
     },
     "4346": {
-      "status": "U",
-      "timestamp": 1781503111116,
-      "n": 4346
+      "status": "CF",
+      "timestamp": 1781522860374,
+      "n": 4346,
+      "factors": [
+        "57559"
+      ],
+      "source": "fdb"
     },
     "4348": {
-      "status": "U",
-      "timestamp": 1781503111617,
-      "n": 4348
+      "status": "CF",
+      "timestamp": 1781522860814,
+      "n": 4348,
+      "factors": [
+        "5",
+        "19",
+        "491",
+        "4349"
+      ],
+      "source": "fdb"
     },
     "4350": {
-      "status": "U",
-      "timestamp": 1781503112366,
-      "n": 4350
+      "status": "CF",
+      "timestamp": 1781522861261,
+      "n": 4350,
+      "factors": [
+        "223",
+        "3571",
+        "19973"
+      ],
+      "source": "fdb"
     },
     "4352": {
-      "status": "U",
-      "timestamp": 1781503112839,
-      "n": 4352
+      "status": "CF",
+      "timestamp": 1781522861720,
+      "n": 4352,
+      "factors": [
+        "5",
+        "17^2",
+        "137",
+        "257"
+      ],
+      "source": "fdb"
     },
     "4354": {
-      "status": "U",
-      "timestamp": 1781503113317,
-      "n": 4354
+      "status": "CF",
+      "timestamp": 1781522862185,
+      "n": 4354,
+      "factors": [
+        "250625311"
+      ],
+      "source": "fdb"
     },
     "4356": {
-      "status": "U",
-      "timestamp": 1781503113807,
-      "n": 4356
+      "status": "CF",
+      "timestamp": 1781522862647,
+      "n": 4356,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "397",
+        "1163",
+        "1453",
+        "4357"
+      ],
+      "source": "fdb"
     },
     "4358": {
-      "status": "U",
-      "timestamp": 1781503114316,
-      "n": 4358
+      "status": "CF",
+      "timestamp": 1781522863070,
+      "n": 4358,
+      "factors": [
+        "773"
+      ],
+      "source": "fdb"
     },
     "4360": {
-      "status": "U",
-      "timestamp": 1781503114815,
-      "n": 4360
+      "status": "CF",
+      "timestamp": 1781522863521,
+      "n": 4360,
+      "factors": [
+        "5^2",
+        "41",
+        "1019"
+      ],
+      "source": "fdb"
     },
     "4362": {
-      "status": "U",
-      "timestamp": 1781503115221,
-      "n": 4362
+      "status": "CF",
+      "timestamp": 1781522863968,
+      "n": 4362,
+      "factors": [
+        "101"
+      ],
+      "source": "fdb"
     },
     "4364": {
-      "status": "U",
-      "timestamp": 1781503115642,
-      "n": 4364
+      "status": "CF",
+      "timestamp": 1781522864423,
+      "n": 4364,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4366": {
-      "status": "U",
-      "timestamp": 1781503116063,
-      "n": 4366
+      "status": "CF",
+      "timestamp": 1781522864876,
+      "n": 4366,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "4368": {
-      "status": "U",
-      "timestamp": 1781503116477,
-      "n": 4368
+      "status": "CF",
+      "timestamp": 1781522865343,
+      "n": 4368,
+      "factors": [
+        "5",
+        "13^2",
+        "17",
+        "29",
+        "53",
+        "71",
+        "113",
+        "157",
+        "313",
+        "337",
+        "1093",
+        "143291"
+      ],
+      "source": "fdb"
     },
     "4370": {
-      "status": "U",
-      "timestamp": 1781503116877,
-      "n": 4370
+      "status": "CF",
+      "timestamp": 1781522865787,
+      "n": 4370,
+      "factors": [
+        "63855732463"
+      ],
+      "source": "fdb"
     },
     "4372": {
-      "status": "U",
-      "timestamp": 1781503117432,
-      "n": 4372
+      "status": "CF",
+      "timestamp": 1781522866217,
+      "n": 4372,
+      "factors": [
+        "5",
+        "31",
+        "4373"
+      ],
+      "source": "fdb"
     },
     "4374": {
-      "status": "U",
-      "timestamp": 1781503117908,
-      "n": 4374
+      "status": "CF",
+      "timestamp": 1781522866655,
+      "n": 4374,
+      "factors": [
+        "307"
+      ],
+      "source": "fdb"
     },
     "4376": {
-      "status": "U",
-      "timestamp": 1781503118408,
-      "n": 4376
+      "status": "CF",
+      "timestamp": 1781522867092,
+      "n": 4376,
+      "factors": [
+        "5",
+        "251",
+        "1818181831"
+      ],
+      "source": "fdb"
     },
     "4378": {
-      "status": "U",
-      "timestamp": 1781503118876,
-      "n": 4378
+      "status": "CF",
+      "timestamp": 1781522867553,
+      "n": 4378,
+      "factors": [
+        "571"
+      ],
+      "source": "fdb"
     },
     "4380": {
-      "status": "U",
-      "timestamp": 1781503119358,
-      "n": 4380
+      "status": "CF",
+      "timestamp": 1781522867991,
+      "n": 4380,
+      "factors": [
+        "5^2",
+        "13",
+        "43",
+        "61",
+        "293"
+      ],
+      "source": "fdb"
     },
     "4382": {
-      "status": "U",
-      "timestamp": 1781503119830,
-      "n": 4382
+      "status": "CF",
+      "timestamp": 1781522868432,
+      "n": 4382,
+      "factors": [
+        "67"
+      ],
+      "source": "fdb"
     },
     "4384": {
-      "status": "U",
-      "timestamp": 1781503120316,
-      "n": 4384
+      "status": "CF",
+      "timestamp": 1781522868876,
+      "n": 4384,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "47",
+        "1097",
+        "3169",
+        "18461"
+      ],
+      "source": "fdb"
     },
     "4386": {
-      "status": "U",
-      "timestamp": 1781503120798,
-      "n": 4386
+      "status": "CF",
+      "timestamp": 1781522869329,
+      "n": 4386,
+      "factors": [
+        "61",
+        "79"
+      ],
+      "source": "fdb"
     },
     "4388": {
-      "status": "U",
-      "timestamp": 1781503121304,
-      "n": 4388
+      "status": "CF",
+      "timestamp": 1781522869753,
+      "n": 4388,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "4390": {
-      "status": "U",
-      "timestamp": 1781503121793,
-      "n": 4390
+      "status": "CF",
+      "timestamp": 1781522870354,
+      "n": 4390,
+      "factors": [
+        "41227"
+      ],
+      "source": "fdb"
     },
     "4392": {
-      "status": "U",
-      "timestamp": 1781503122315,
-      "n": 4392
+      "status": "CF",
+      "timestamp": 1781522870837,
+      "n": 4392,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "73",
+        "733",
+        "1250779",
+        "16060861",
+        "820835863"
+      ],
+      "source": "fdb"
     },
     "4394": {
-      "status": "U",
-      "timestamp": 1781503122820,
-      "n": 4394
+      "status": "CF",
+      "timestamp": 1781522871293,
+      "n": 4394,
+      "factors": [
+        "137"
+      ],
+      "source": "fdb"
     },
     "4396": {
-      "status": "U",
-      "timestamp": 1781503123314,
-      "n": 4396
+      "status": "CF",
+      "timestamp": 1781522871729,
+      "n": 4396,
+      "factors": [
+        "5",
+        "29"
+      ],
+      "source": "fdb"
     },
     "4398": {
-      "status": "U",
-      "timestamp": 1781503123807,
-      "n": 4398
+      "status": "CF",
+      "timestamp": 1781522872182,
+      "n": 4398,
+      "factors": [
+        "1031",
+        "13807",
+        "49891"
+      ],
+      "source": "fdb"
     },
     "4400": {
-      "status": "U",
-      "timestamp": 1781503124317,
-      "n": 4400
+      "status": "CF",
+      "timestamp": 1781522872624,
+      "n": 4400,
+      "factors": [
+        "5^3",
+        "17",
+        "41",
+        "89",
+        "101",
+        "401"
+      ],
+      "source": "fdb"
     },
     "4402": {
       "status": "U",
@@ -20904,7 +21757,7 @@
     },
     "4730": {
       "status": "C",
-      "timestamp": 1781520001836,
+      "timestamp": 1781522877699,
       "n": 4730
     },
     "4732": {
@@ -21102,7 +21955,7 @@
     },
     "4774": {
       "status": "C",
-      "timestamp": 1781520012009,
+      "timestamp": 1781522878010,
       "n": 4774
     },
     "4776": {
@@ -21152,7 +22005,7 @@
     },
     "4786": {
       "status": "C",
-      "timestamp": 1781520014746,
+      "timestamp": 1781522878310,
       "n": 4786
     },
     "4788": {
@@ -21263,7 +22116,7 @@
     },
     "4810": {
       "status": "C",
-      "timestamp": 1781520020164,
+      "timestamp": 1781522878618,
       "n": 4810
     },
     "4812": {
@@ -21277,7 +22130,7 @@
     },
     "4814": {
       "status": "C",
-      "timestamp": 1781520021018,
+      "timestamp": 1781522878899,
       "n": 4814
     },
     "4816": {
@@ -21332,7 +22185,7 @@
     },
     "4826": {
       "status": "C",
-      "timestamp": 1781520023661,
+      "timestamp": 1781522879194,
       "n": 4826
     },
     "4828": {
@@ -21564,7 +22417,7 @@
     },
     "4878": {
       "status": "C",
-      "timestamp": 1781520035596,
+      "timestamp": 1781522879495,
       "n": 4878
     },
     "4880": {
@@ -21596,7 +22449,7 @@
     },
     "4886": {
       "status": "C",
-      "timestamp": 1781520037384,
+      "timestamp": 1781522879780,
       "n": 4886
     },
     "4888": {
@@ -21628,7 +22481,7 @@
     },
     "4894": {
       "status": "C",
-      "timestamp": 1781520039456,
+      "timestamp": 1781522880064,
       "n": 4894
     },
     "4896": {
@@ -21715,7 +22568,7 @@
     },
     "4914": {
       "status": "C",
-      "timestamp": 1781520043954,
+      "timestamp": 1781522880361,
       "n": 4914
     },
     "4916": {
@@ -21788,7 +22641,7 @@
     },
     "4930": {
       "status": "C",
-      "timestamp": 1781520047526,
+      "timestamp": 1781522880648,
       "n": 4930
     },
     "4932": {
@@ -24540,54 +25393,107 @@
       "n": 5646
     },
     "5648": {
-      "status": "U",
-      "timestamp": 1781503781443,
-      "n": 5648
+      "status": "CF",
+      "timestamp": 1781522933544,
+      "n": 5648,
+      "factors": [
+        "5",
+        "17",
+        "139"
+      ],
+      "source": "fdb"
     },
     "5650": {
-      "status": "U",
-      "timestamp": 1781503781968,
+      "status": "C",
+      "timestamp": 1781522934002,
       "n": 5650
     },
     "5652": {
-      "status": "U",
-      "timestamp": 1781503782468,
-      "n": 5652
+      "status": "CF",
+      "timestamp": 1781522934493,
+      "n": 5652,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "5653"
+      ],
+      "source": "fdb"
     },
     "5654": {
-      "status": "U",
-      "timestamp": 1781503782980,
+      "status": "C",
+      "timestamp": 1781522934948,
       "n": 5654
     },
     "5656": {
-      "status": "U",
-      "timestamp": 1781503783537,
-      "n": 5656
+      "status": "CF",
+      "timestamp": 1781522935483,
+      "n": 5656,
+      "factors": [
+        "5",
+        "29",
+        "809",
+        "4271",
+        "5657",
+        "63820721"
+      ],
+      "source": "fdb"
     },
     "5658": {
-      "status": "U",
-      "timestamp": 1781503784064,
-      "n": 5658
+      "status": "CF",
+      "timestamp": 1781522935951,
+      "n": 5658,
+      "factors": [
+        "724219"
+      ],
+      "source": "fdb"
     },
     "5660": {
-      "status": "U",
-      "timestamp": 1781503784574,
-      "n": 5660
+      "status": "CF",
+      "timestamp": 1781522936432,
+      "n": 5660,
+      "factors": [
+        "5^2",
+        "739"
+      ],
+      "source": "fdb"
     },
     "5662": {
-      "status": "U",
-      "timestamp": 1781503785089,
-      "n": 5662
+      "status": "CF",
+      "timestamp": 1781522936882,
+      "n": 5662,
+      "factors": [
+        "19",
+        "31",
+        "101"
+      ],
+      "source": "fdb"
     },
     "5664": {
-      "status": "U",
-      "timestamp": 1781503785598,
-      "n": 5664
+      "status": "CF",
+      "timestamp": 1781522937329,
+      "n": 5664,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "97",
+        "709",
+        "1889",
+        "1933",
+        "2833",
+        "12941429"
+      ],
+      "source": "fdb"
     },
     "5666": {
-      "status": "U",
-      "timestamp": 1781503786134,
-      "n": 5666
+      "status": "CF",
+      "timestamp": 1781522938111,
+      "n": 5666,
+      "factors": [
+        "311"
+      ],
+      "source": "fdb"
     },
     "5668": {
       "status": "CF",
@@ -25868,34 +26774,66 @@
       "source": "fdb"
     },
     "5960": {
-      "status": "U",
-      "timestamp": 1781503852056,
-      "n": 5960
+      "status": "CF",
+      "timestamp": 1781522938561,
+      "n": 5960,
+      "factors": [
+        "5^2",
+        "41",
+        "751",
+        "1193"
+      ],
+      "source": "fdb"
     },
     "5962": {
-      "status": "U",
-      "timestamp": 1781503852564,
-      "n": 5962
+      "status": "CF",
+      "timestamp": 1781522939046,
+      "n": 5962,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "5964": {
-      "status": "U",
-      "timestamp": 1781503853085,
-      "n": 5964
+      "status": "CF",
+      "timestamp": 1781522939498,
+      "n": 5964,
+      "factors": [
+        "5",
+        "13",
+        "29"
+      ],
+      "source": "fdb"
     },
     "5966": {
-      "status": "U",
-      "timestamp": 1781503853624,
-      "n": 5966
+      "status": "CF",
+      "timestamp": 1781522939967,
+      "n": 5966,
+      "factors": [
+        "67"
+      ],
+      "source": "fdb"
     },
     "5968": {
-      "status": "U",
-      "timestamp": 1781503854157,
-      "n": 5968
+      "status": "CF",
+      "timestamp": 1781522940451,
+      "n": 5968,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "577"
+      ],
+      "source": "fdb"
     },
     "5970": {
-      "status": "U",
-      "timestamp": 1781503854681,
-      "n": 5970
+      "status": "CF",
+      "timestamp": 1781522940889,
+      "n": 5970,
+      "factors": [
+        "241"
+      ],
+      "source": "fdb"
     },
     "5972": {
       "status": "CF",
@@ -25908,7 +26846,7 @@
     },
     "5974": {
       "status": "C",
-      "timestamp": 1781520116164,
+      "timestamp": 1781522941178,
       "n": 5974
     },
     "5976": {
@@ -25942,7 +26880,7 @@
     },
     "5982": {
       "status": "C",
-      "timestamp": 1781520118141,
+      "timestamp": 1781522941464,
       "n": 5982
     },
     "5984": {
@@ -25974,7 +26912,7 @@
     },
     "5990": {
       "status": "C",
-      "timestamp": 1781520120183,
+      "timestamp": 1781522941750,
       "n": 5990
     },
     "5992": {
@@ -26154,7 +27092,7 @@
     },
     "6030": {
       "status": "C",
-      "timestamp": 1781520129937,
+      "timestamp": 1781522942045,
       "n": 6030
     },
     "6032": {
@@ -26186,7 +27124,7 @@
     },
     "6038": {
       "status": "C",
-      "timestamp": 1781520131796,
+      "timestamp": 1781522942337,
       "n": 6038
     },
     "6040": {
@@ -26218,7 +27156,7 @@
     },
     "6046": {
       "status": "C",
-      "timestamp": 1781520133673,
+      "timestamp": 1781522942634,
       "n": 6046
     },
     "6048": {
@@ -26333,7 +27271,7 @@
     },
     "6070": {
       "status": "C",
-      "timestamp": 1781520139391,
+      "timestamp": 1781522942921,
       "n": 6070
     },
     "6072": {
@@ -26511,7 +27449,7 @@
     },
     "6110": {
       "status": "C",
-      "timestamp": 1781520148751,
+      "timestamp": 1781522943215,
       "n": 6110
     },
     "6112": {
@@ -26805,7 +27743,7 @@
     },
     "6174": {
       "status": "C",
-      "timestamp": 1781520163566,
+      "timestamp": 1781522943548,
       "n": 6174
     },
     "6176": {
@@ -28237,7 +29175,7 @@
     },
     "6498": {
       "status": "C",
-      "timestamp": 1781520175900,
+      "timestamp": 1781522943839,
       "n": 6498
     },
     "6500": {
@@ -28250,464 +29188,956 @@
       "source": "fdb"
     },
     "6502": {
-      "status": "U",
-      "timestamp": 1781503985312,
-      "n": 6502
+      "status": "CF",
+      "timestamp": 1781522944300,
+      "n": 6502,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "6504": {
-      "status": "U",
-      "timestamp": 1781503985850,
-      "n": 6504
+      "status": "CF",
+      "timestamp": 1781522944744,
+      "n": 6504,
+      "factors": [
+        "5",
+        "13",
+        "3253"
+      ],
+      "source": "fdb"
     },
     "6506": {
-      "status": "U",
-      "timestamp": 1781503986351,
-      "n": 6506
+      "status": "CF",
+      "timestamp": 1781522945218,
+      "n": 6506,
+      "factors": [
+        "3449"
+      ],
+      "source": "fdb"
     },
     "6508": {
-      "status": "U",
-      "timestamp": 1781503986880,
-      "n": 6508
+      "status": "CF",
+      "timestamp": 1781522945667,
+      "n": 6508,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6510": {
-      "status": "U",
-      "timestamp": 1781503987414,
-      "n": 6510
+      "status": "CF",
+      "timestamp": 1781522946158,
+      "n": 6510,
+      "factors": [
+        "149"
+      ],
+      "source": "fdb"
     },
     "6512": {
-      "status": "U",
-      "timestamp": 1781503987959,
-      "n": 6512
+      "status": "CF",
+      "timestamp": 1781522946657,
+      "n": 6512,
+      "factors": [
+        "5",
+        "17",
+        "89",
+        "149",
+        "593",
+        "3257"
+      ],
+      "source": "fdb"
     },
     "6514": {
-      "status": "U",
-      "timestamp": 1781503988506,
-      "n": 6514
+      "status": "CF",
+      "timestamp": 1781522947119,
+      "n": 6514,
+      "factors": [
+        "715909"
+      ],
+      "source": "fdb"
     },
     "6516": {
-      "status": "U",
-      "timestamp": 1781503989055,
-      "n": 6516
+      "status": "CF",
+      "timestamp": 1781522947590,
+      "n": 6516,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "307"
+      ],
+      "source": "fdb"
     },
     "6518": {
-      "status": "U",
-      "timestamp": 1781503989563,
-      "n": 6518
+      "status": "CF",
+      "timestamp": 1781522948048,
+      "n": 6518,
+      "factors": [
+        "263411"
+      ],
+      "source": "fdb"
     },
     "6520": {
-      "status": "U",
-      "timestamp": 1781503990085,
-      "n": 6520
+      "status": "CF",
+      "timestamp": 1781522948523,
+      "n": 6520,
+      "factors": [
+        "5^2",
+        "41",
+        "349",
+        "653",
+        "1039"
+      ],
+      "source": "fdb"
     },
     "6522": {
-      "status": "U",
-      "timestamp": 1781503990618,
-      "n": 6522
+      "status": "CF",
+      "timestamp": 1781522949028,
+      "n": 6522,
+      "factors": [
+        "43"
+      ],
+      "source": "fdb"
     },
     "6524": {
-      "status": "U",
-      "timestamp": 1781503991162,
-      "n": 6524
+      "status": "CF",
+      "timestamp": 1781522949500,
+      "n": 6524,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6526": {
-      "status": "U",
-      "timestamp": 1781503991655,
-      "n": 6526
+      "status": "CF",
+      "timestamp": 1781522949979,
+      "n": 6526,
+      "factors": [
+        "19",
+        "108553"
+      ],
+      "source": "fdb"
     },
     "6528": {
-      "status": "U",
-      "timestamp": 1781503992194,
-      "n": 6528
+      "status": "CF",
+      "timestamp": 1781522950456,
+      "n": 6528,
+      "factors": [
+        "5",
+        "13",
+        "17^2",
+        "97",
+        "137",
+        "193",
+        "409",
+        "6529"
+      ],
+      "source": "fdb"
     },
     "6530": {
-      "status": "U",
-      "timestamp": 1781503992751,
+      "status": "C",
+      "timestamp": 1781522950904,
       "n": 6530
     },
     "6532": {
-      "status": "U",
-      "timestamp": 1781503993295,
-      "n": 6532
+      "status": "CF",
+      "timestamp": 1781522951454,
+      "n": 6532,
+      "factors": [
+        "5",
+        "31",
+        "41507",
+        "96827",
+        "677447"
+      ],
+      "source": "fdb"
     },
     "6534": {
-      "status": "U",
-      "timestamp": 1781503993800,
+      "status": "C",
+      "timestamp": 1781522951937,
       "n": 6534
     },
     "6536": {
-      "status": "U",
-      "timestamp": 1781503994344,
-      "n": 6536
+      "status": "CF",
+      "timestamp": 1781522952393,
+      "n": 6536,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6538": {
-      "status": "U",
-      "timestamp": 1781503994873,
-      "n": 6538
+      "status": "CF",
+      "timestamp": 1781522952854,
+      "n": 6538,
+      "factors": [
+        "71"
+      ],
+      "source": "fdb"
     },
     "6540": {
-      "status": "U",
-      "timestamp": 1781503995398,
-      "n": 6540
+      "status": "CF",
+      "timestamp": 1781522953312,
+      "n": 6540,
+      "factors": [
+        "5^2",
+        "13"
+      ],
+      "source": "fdb"
     },
     "6542": {
-      "status": "U",
-      "timestamp": 1781503995916,
-      "n": 6542
+      "status": "CF",
+      "timestamp": 1781522953799,
+      "n": 6542,
+      "factors": [
+        "6793",
+        "80713"
+      ],
+      "source": "fdb"
     },
     "6544": {
-      "status": "U",
-      "timestamp": 1781503996439,
-      "n": 6544
+      "status": "CF",
+      "timestamp": 1781522954300,
+      "n": 6544,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "577",
+        "1637",
+        "21499",
+        "330131",
+        "9168059"
+      ],
+      "source": "fdb"
     },
     "6546": {
-      "status": "U",
-      "timestamp": 1781503996950,
-      "n": 6546
+      "status": "CF",
+      "timestamp": 1781522954766,
+      "n": 6546,
+      "factors": [
+        "47"
+      ],
+      "source": "fdb"
     },
     "6548": {
-      "status": "U",
-      "timestamp": 1781503997446,
-      "n": 6548
+      "status": "CF",
+      "timestamp": 1781522955233,
+      "n": 6548,
+      "factors": [
+        "5",
+        "453367"
+      ],
+      "source": "fdb"
     },
     "6550": {
-      "status": "U",
-      "timestamp": 1781503997955,
-      "n": 6550
+      "status": "CF",
+      "timestamp": 1781522955718,
+      "n": 6550,
+      "factors": [
+        "619",
+        "66161"
+      ],
+      "source": "fdb"
     },
     "6552": {
-      "status": "U",
-      "timestamp": 1781503998471,
-      "n": 6552
+      "status": "CF",
+      "timestamp": 1781522956201,
+      "n": 6552,
+      "factors": [
+        "5",
+        "13^2",
+        "29",
+        "37",
+        "53",
+        "73",
+        "157",
+        "313",
+        "937",
+        "1093",
+        "1877",
+        "6553",
+        "7433863"
+      ],
+      "source": "fdb"
     },
     "6554": {
-      "status": "U",
-      "timestamp": 1781503998976,
-      "n": 6554
+      "status": "CF",
+      "timestamp": 1781522956677,
+      "n": 6554,
+      "factors": [
+        "8429",
+        "12781"
+      ],
+      "source": "fdb"
     },
     "6556": {
-      "status": "U",
-      "timestamp": 1781503999511,
-      "n": 6556
+      "status": "CF",
+      "timestamp": 1781522957142,
+      "n": 6556,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6558": {
-      "status": "U",
-      "timestamp": 1781504000034,
+      "status": "C",
+      "timestamp": 1781522957605,
       "n": 6558
     },
     "6560": {
-      "status": "U",
-      "timestamp": 1781504000569,
-      "n": 6560
+      "status": "CF",
+      "timestamp": 1781522958094,
+      "n": 6560,
+      "factors": [
+        "5^2",
+        "17",
+        "41^2",
+        "67",
+        "821",
+        "41759"
+      ],
+      "source": "fdb"
     },
     "6562": {
-      "status": "U",
-      "timestamp": 1781504001083,
-      "n": 6562
+      "status": "CF",
+      "timestamp": 1781522958562,
+      "n": 6562,
+      "factors": [
+        "19",
+        "31",
+        "101"
+      ],
+      "source": "fdb"
     },
     "6564": {
-      "status": "U",
-      "timestamp": 1781504001630,
-      "n": 6564
+      "status": "CF",
+      "timestamp": 1781522959065,
+      "n": 6564,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "98374751"
+      ],
+      "source": "fdb"
     },
     "6566": {
-      "status": "U",
-      "timestamp": 1781504002128,
+      "status": "C",
+      "timestamp": 1781522959511,
       "n": 6566
     },
     "6568": {
-      "status": "U",
-      "timestamp": 1781504002659,
-      "n": 6568
+      "status": "CF",
+      "timestamp": 1781522959978,
+      "n": 6568,
+      "factors": [
+        "5",
+        "359",
+        "6569",
+        "7079"
+      ],
+      "source": "fdb"
     },
     "6570": {
-      "status": "U",
-      "timestamp": 1781504003140,
-      "n": 6570
+      "status": "CF",
+      "timestamp": 1781522960729,
+      "n": 6570,
+      "factors": [
+        "79",
+        "137",
+        "223"
+      ],
+      "source": "fdb"
     },
     "6572": {
-      "status": "U",
-      "timestamp": 1781504003689,
-      "n": 6572
+      "status": "CF",
+      "timestamp": 1781522961318,
+      "n": 6572,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6574": {
-      "status": "U",
-      "timestamp": 1781504004204,
+      "status": "C",
+      "timestamp": 1781522961751,
       "n": 6574
     },
     "6576": {
-      "status": "U",
-      "timestamp": 1781504004729,
-      "n": 6576
+      "status": "CF",
+      "timestamp": 1781522962211,
+      "n": 6576,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "1097"
+      ],
+      "source": "fdb"
     },
     "6578": {
-      "status": "U",
-      "timestamp": 1781504005249,
+      "status": "C",
+      "timestamp": 1781522962671,
       "n": 6578
     },
     "6580": {
-      "status": "U",
-      "timestamp": 1781504006053,
-      "n": 6580
+      "status": "CF",
+      "timestamp": 1781522963141,
+      "n": 6580,
+      "factors": [
+        "5^2",
+        "19",
+        "29",
+        "941",
+        "6581"
+      ],
+      "source": "fdb"
     },
     "6582": {
-      "status": "U",
-      "timestamp": 1781504006567,
-      "n": 6582
+      "status": "CF",
+      "timestamp": 1781522963651,
+      "n": 6582,
+      "factors": [
+        "20097457"
+      ],
+      "source": "fdb"
     },
     "6584": {
-      "status": "U",
-      "timestamp": 1781504007100,
-      "n": 6584
+      "status": "CF",
+      "timestamp": 1781522964110,
+      "n": 6584,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6586": {
-      "status": "U",
-      "timestamp": 1781504007661,
+      "status": "C",
+      "timestamp": 1781522964568,
       "n": 6586
     },
     "6588": {
-      "status": "U",
-      "timestamp": 1781504008208,
-      "n": 6588
+      "status": "CF",
+      "timestamp": 1781522965041,
+      "n": 6588,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "109",
+        "733"
+      ],
+      "source": "fdb"
     },
     "6590": {
-      "status": "U",
-      "timestamp": 1781504008750,
+      "status": "C",
+      "timestamp": 1781522965516,
       "n": 6590
     },
     "6592": {
-      "status": "U",
-      "timestamp": 1781504009283,
-      "n": 6592
+      "status": "CF",
+      "timestamp": 1781522966001,
+      "n": 6592,
+      "factors": [
+        "5",
+        "17",
+        "31",
+        "47",
+        "1531",
+        "78347",
+        "33463063"
+      ],
+      "source": "fdb"
     },
     "6594": {
-      "status": "U",
-      "timestamp": 1781504009822,
+      "status": "C",
+      "timestamp": 1781522966476,
       "n": 6594
     },
     "6596": {
-      "status": "U",
-      "timestamp": 1781504010392,
-      "n": 6596
+      "status": "CF",
+      "timestamp": 1781522966943,
+      "n": 6596,
+      "factors": [
+        "5",
+        "311",
+        "389"
+      ],
+      "source": "fdb"
     },
     "6598": {
-      "status": "U",
-      "timestamp": 1781504010911,
-      "n": 6598
+      "status": "CF",
+      "timestamp": 1781522967403,
+      "n": 6598,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "6600": {
-      "status": "U",
-      "timestamp": 1781504011462,
-      "n": 6600
+      "status": "CF",
+      "timestamp": 1781522967879,
+      "n": 6600,
+      "factors": [
+        "5^3",
+        "13",
+        "41",
+        "61",
+        "89",
+        "101",
+        "601",
+        "661",
+        "1321",
+        "3301"
+      ],
+      "source": "fdb"
     },
     "6602": {
-      "status": "U",
-      "timestamp": 1781504012010,
-      "n": 6602
+      "status": "CF",
+      "timestamp": 1781522968232,
+      "n": 6602,
+      "factors": [
+        "193",
+        "2141",
+        "4349",
+        "63377"
+      ],
+      "source": "fdb"
     },
     "6604": {
-      "status": "U",
-      "timestamp": 1781504012535,
-      "n": 6604
+      "status": "CF",
+      "timestamp": 1781522969460,
+      "n": 6604,
+      "factors": [
+        "5",
+        "53"
+      ],
+      "source": "fdb"
     },
     "6606": {
-      "status": "U",
-      "timestamp": 1781504013093,
-      "n": 6606
+      "status": "CF",
+      "timestamp": 1781522970684,
+      "n": 6606,
+      "factors": [
+        "43",
+        "61"
+      ],
+      "source": "fdb"
     },
     "6608": {
-      "status": "U",
-      "timestamp": 1781504013627,
-      "n": 6608
+      "status": "CF",
+      "timestamp": 1781522971918,
+      "n": 6608,
+      "factors": [
+        "5",
+        "17",
+        "29",
+        "71",
+        "113",
+        "1019"
+      ],
+      "source": "fdb"
     },
     "6610": {
-      "status": "U",
-      "timestamp": 1781504014150,
-      "n": 6610
+      "status": "CF",
+      "timestamp": 1781522973164,
+      "n": 6610,
+      "factors": [
+        "862399"
+      ],
+      "source": "fdb"
     },
     "6612": {
-      "status": "U",
-      "timestamp": 1781504014680,
-      "n": 6612
+      "status": "CF",
+      "timestamp": 1781522974393,
+      "n": 6612,
+      "factors": [
+        "5",
+        "13",
+        "229",
+        "349",
+        "677"
+      ],
+      "source": "fdb"
     },
     "6614": {
-      "status": "U",
-      "timestamp": 1781504015215,
-      "n": 6614
+      "status": "CF",
+      "timestamp": 1781522975701,
+      "n": 6614,
+      "factors": [
+        "139"
+      ],
+      "source": "fdb"
     },
     "6616": {
-      "status": "U",
-      "timestamp": 1781504015761,
-      "n": 6616
+      "status": "CF",
+      "timestamp": 1781522976923,
+      "n": 6616,
+      "factors": [
+        "5",
+        "19",
+        "53051",
+        "379319"
+      ],
+      "source": "fdb"
     },
     "6618": {
-      "status": "U",
-      "timestamp": 1781504016305,
-      "n": 6618
+      "status": "CF",
+      "timestamp": 1781522978216,
+      "n": 6618,
+      "factors": [
+        "65599543"
+      ],
+      "source": "fdb"
     },
     "6620": {
-      "status": "U",
-      "timestamp": 1781504016861,
-      "n": 6620
+      "status": "CF",
+      "timestamp": 1781522979511,
+      "n": 6620,
+      "factors": [
+        "5^2"
+      ],
+      "source": "fdb"
     },
     "6622": {
-      "status": "U",
-      "timestamp": 1781504017383,
-      "n": 6622
+      "status": "CF",
+      "timestamp": 1781522980737,
+      "n": 6622,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "6624": {
-      "status": "U",
-      "timestamp": 1781504017928,
-      "n": 6624
+      "status": "CF",
+      "timestamp": 1781522981960,
+      "n": 6624,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "37",
+        "73",
+        "97",
+        "277",
+        "829",
+        "1657"
+      ],
+      "source": "fdb"
     },
     "6626": {
-      "status": "U",
-      "timestamp": 1781504018469,
-      "n": 6626
+      "status": "CF",
+      "timestamp": 1781522983194,
+      "n": 6626,
+      "factors": [
+        "67",
+        "251",
+        "4421",
+        "96329"
+      ],
+      "source": "fdb"
     },
     "6628": {
-      "status": "U",
-      "timestamp": 1781504019012,
-      "n": 6628
+      "status": "CF",
+      "timestamp": 1781522984711,
+      "n": 6628,
+      "factors": [
+        "5",
+        "8464811"
+      ],
+      "source": "fdb"
     },
     "6630": {
-      "status": "U",
-      "timestamp": 1781504019557,
-      "n": 6630
+      "status": "CF",
+      "timestamp": 1781522985980,
+      "n": 6630,
+      "factors": [
+        "349"
+      ],
+      "source": "fdb"
     },
     "6632": {
-      "status": "U",
-      "timestamp": 1781504020111,
-      "n": 6632
+      "status": "CF",
+      "timestamp": 1781522986946,
+      "n": 6632,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6634": {
-      "status": "U",
-      "timestamp": 1781504020676,
-      "n": 6634
+      "status": "CF",
+      "timestamp": 1781522988169,
+      "n": 6634,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "6636": {
-      "status": "U",
-      "timestamp": 1781504021242,
-      "n": 6636
+      "status": "CF",
+      "timestamp": 1781522989381,
+      "n": 6636,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "317",
+        "2213",
+        "6637"
+      ],
+      "source": "fdb"
     },
     "6638": {
-      "status": "U",
-      "timestamp": 1781504021800,
-      "n": 6638
+      "status": "CF",
+      "timestamp": 1781522990663,
+      "n": 6638,
+      "factors": [
+        "47"
+      ],
+      "source": "fdb"
     },
     "6640": {
-      "status": "U",
-      "timestamp": 1781504022337,
-      "n": 6640
+      "status": "CF",
+      "timestamp": 1781522991900,
+      "n": 6640,
+      "factors": [
+        "5^2",
+        "17",
+        "41"
+      ],
+      "source": "fdb"
     },
     "6642": {
-      "status": "U",
-      "timestamp": 1781504022847,
+      "status": "C",
+      "timestamp": 1781522993127,
       "n": 6642
     },
     "6644": {
-      "status": "U",
-      "timestamp": 1781504023394,
-      "n": 6644
+      "status": "CF",
+      "timestamp": 1781522994342,
+      "n": 6644,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6646": {
-      "status": "U",
-      "timestamp": 1781504023945,
+      "status": "C",
+      "timestamp": 1781522995574,
       "n": 6646
     },
     "6648": {
-      "status": "U",
-      "timestamp": 1781504024480,
-      "n": 6648
+      "status": "CF",
+      "timestamp": 1781522996810,
+      "n": 6648,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "79",
+        "1109",
+        "454859"
+      ],
+      "source": "fdb"
     },
     "6650": {
-      "status": "U",
-      "timestamp": 1781504025021,
-      "n": 6650
+      "status": "CF",
+      "timestamp": 1781522998073,
+      "n": 6650,
+      "factors": [
+        "1181777"
+      ],
+      "source": "fdb"
     },
     "6652": {
-      "status": "U",
-      "timestamp": 1781504025554,
-      "n": 6652
+      "status": "CF",
+      "timestamp": 1781522999370,
+      "n": 6652,
+      "factors": [
+        "5",
+        "19",
+        "31",
+        "6653"
+      ],
+      "source": "fdb"
     },
     "6654": {
-      "status": "U",
-      "timestamp": 1781504026077,
+      "status": "C",
+      "timestamp": 1781523000680,
       "n": 6654
     },
     "6656": {
-      "status": "U",
-      "timestamp": 1781504026629,
-      "n": 6656
+      "status": "CF",
+      "timestamp": 1781523001908,
+      "n": 6656,
+      "factors": [
+        "5",
+        "17",
+        "53",
+        "257"
+      ],
+      "source": "fdb"
     },
     "6658": {
-      "status": "U",
-      "timestamp": 1781504027170,
-      "n": 6658
+      "status": "FF",
+      "timestamp": 1781523003131,
+      "n": 6658,
+      "factors": [
+        "149",
+        "571",
+        "10233224750953710488086639153766773241596070813826661121843029082333153346483733965746563176713154731685804240639472969481133687210603474093719173494420645231704945018347321561374075405264250645665875351176053392624148781766632577449960035774826782781590268386292383214766763241561253128576392085937869537046666087428760763116614136225322423593769851569452141360456981144905056947149810598306865773104563693331854299850831097976434088236168098729358213565391879904838989584599616280029660651050550801137492183734626464704107908147368676806324141564617701441244570294425757562955071388483826489120984978479906506741578614139024709623315192770459872601273449562183053900175997762681876377243145367594208360975274763357421242959114261143371083229269840272995516120454831031050410999345805473074803933995091046973734319977533358898668299221668158173620855267134976986987866463041937657148574368039522185459907192541561067883121810942292342260098925041259095144759206612299150575703076494378607541223951665155028013480734588480020064900620281740938469297691775519305366599327345774581102822404157197968821950295062136906801150845433266479028976241054016905705963003826179644208000715522800030773422628687895749416655451153346988801518379142260971735964805206826898665350168386922706241754958198310928368865828241895043826761490546870971533045910472051367022883708409614693031671195898810946884283649111861645834820668371122559770713061227892623843370831932348209067905370907550350055173710795322184450662670473285417770930977197976028247927104898915234205819373558231673585262004454510476761041178975645706895639405367644708294856093667989601856422283186662966116594796895406074356272430005181577030937899410994729296904218846840723625379269122789667129528980424730603490356731713683567383803277576493284962820346532725930106811085750527440555763629470650175783557860436387005025667322448872321230079687833020032951557135198911511777145172441725794832305772540627947478315495160025276699051991061022350053115786253432211541324701210908793644861867887090972465447165290975130894927123932402416138159429512580435525812786241330253613646539043603338690753927063634228590260738874375679291592784805034494548479553791037648109477413800968054359301097654107579487978542594823453982762143481066538834319554349593432941260282087489998851559837045026391172750253009958978517895490238968367465078165479512366475960039572781673092978936005231729625475436304450223533804890878210710124307904698065406208288889350627775677153379240803143253811779343738746580497970109330627739568725672928170252929980063251541525294655673686569931180690610269950409004290921952685531812016027670363595786112268407283590133472575039461198051304476821547474014418056020268525141205363385695761769326642170954794876685504332658608249140204977707904842353764874820061662439442286129480598356130929682956885732893991127088629754273806291966088892399504145891782946777523767192957435095523509626183242134499349541096047671997050743655662996245332499384078744929264783804385450905041190589380186098568819139826179682572647318342722713442270504880294466707083269026932735642702268463967155293268333524705075014860617986684436429932314717387417985116387716131267469716279918506058918145886884045093115756368021520974057012894004722370981727871681725654062887459101270338430414258944887800558337463204239101368032403359456790362409653936943239270521164757236932000682195051617502128331526317158672679244158881682854566704971733401038445066592682776448487846479570613787737116843660768536842504145562555201599532449189918610193507074555283625807836614840476421726929433308423017145818670678134092663637055334645544918062994518443351952417603178134135973878856198334986876882252332667533645741244869193422474587691078038989596447013830614006262022683373550911869290538575412243955844556676224999415371602927458394486873484604363736239082357900935897655709483843259783638762057826376757320445198782630446147152429712203241414683868308507459803063109079105480073125484751794617207859919574213072771528444276070505614027524660082363487644271210365564924070905582421811759822975245287558758503749492423880883760387811313698132042160526867957788551449801097660438203583735245863934596472408057203644680455802401928815738639520096881300400349441446546609507939027591139819909168480027953264009702620885311041206192909084082988632600784240247535888198351799673401298281060497629051713778596380639521578053353809805108578777137360412524194354501558157680393143596769346670821711872715359862178311854150589990589540752399502948373619075312995230085772240810545407529178852445968995519626876100857437054176913819015910348299957808115331038340896267801532430707908971842015223842176704480028092347124397426741550688860072502047341563796059580102309149385379939903346434506422755370527503676357741638532564413412816933928258382576511737945153559982298403562028828084333952087124626430640542643507467488623819685571407326936927057295380599233384958809620776101195468777116337265213596847980554303552002821366967629889522591712353388757031795621396638972395356849878349952023138132250659822552346658616927939064871355164610821567134668658174673259018567316357823688181342971851242114273334462339737329927672145552858242303696106401447070064985270679838217546891443834199390451966718559884933799820881866514909726331301108382113344037818044492613937938064709695651579361980169647227524661147660723652847537376625748869516061262722107922444279507926946353262657912765753083157984728289347301489532578149706651228281402689928797917531534655517210851529364146419427508846156112990909483838814544555234853307679802231526843549061039042853201728768800116337161053407711515894610666559444188566916130320414369503723619859196239822354211740480019254887496208437094537441043632677806647537553754218719065272360507752514991322425717184666958226778291038394218344914817316917861719548963332086949850948619531866557495364937401809171342233922906899163793021748933244881243726573103066784063998918153624850074435046553467066952792224764414458801817405101212654380693047139575210144549681363637026805784866723683693769285799923888560170367668853434658785575359929208179440077703166694370138683371397532309566751849945377537496130215030714428876582668089748300078494584299505458865756185955137414151187700497192049818458685474564190418033248466226214573261066021969461762801977150019770115826372745020416998250474395130011764504411368889437248684739795327549781744811455963553030015785505675647634979709832781516614327426346051990727394843743161724150327097317981842057222322939736279874951543912663559552128444709051585701456829977796327129458894944202616551098539779601223424522223156574339270911686599302615450429178537957017593317207642958375540596503240319831110886521628633541510713296361729114042087612564295485757805592867835113289842070461514277031382605796236501832401122123567818951555027691067111772564096191305311974327010186096175208987152170806859681875917789607626483049233556400555219709630032224990128679479836852413482106691512966543714106240024668042067967851745747357819744728449968884132444846000949486946309295107482521786168519992639363238200796609390318772953919678739347977319162494763905805343271120451492181074354772656827795355878282505183435067749439777373466182604868192474710386832822309134986555848912291971936022138572581631776469929451810992695267827034388878540556486356116821657526844626094259436949118961371012342125368522190275658169970897967966230775907060367652088117816104300791547564724550805156279094432184668844752204160927789939153691685711048820997199043924118236512592647396859892332149696761439528050978832860463776558809827089962511705776020399707744466211037871602395858628940025655025545896663739158302858644603943502186230558675530378877958851661811804673975254209815343425651806632186229035827158726339451944308410807558425607589100886107785224865261190866109642829548489743322104439099125653384605588308144864733054244874564600848737493434692482549149770193724146791787039899439158363356210204484054329025573697950745161251507430204359086217440971901562575161095454426240242254348013091832524053931239588555319507628968232385382734459864620640182846093445253413286811028791075746759817223349645632110630729841656433373694458130771898367995946610834859670086405091627216876807776307442973960386619576468679056121454673913450775066532763672909997423710227048828937279886205583532702951994585196295838006989024389846511244906425533947011946363394036116470148552905982712579194892176368407502620240490513969282573191396802460404501775949541761869256178126536872034968389851098565002799383131564506110277320462048253647696775513647426766076879450597003625534796173601434195410446552078868162632894248885717809967562431845546300230560603069065551808932151384332626278288703914804250372013807440397260847107999816592934598377452565751920987821200812754820597907280241572983830649822716486151857790489048208614458892911520693831743363467867614896231537640029967949039092840555910517531860858978336524160806438703186815634030005852704344521841775369209057354393476116940388234098587257250959191720600035114735645565686951459692375297261407467297465514902885370720372996209279848043216041546071679021073593926485339186153597062381362335295400283579867356573612691632120288238322360914646683730521757623776222035365216813023284559127179323478229064064548899273230600532162536803590753404994098899640817695626629438738310082496006908023067904136537705855543914303484028679626150656796397287171388131349498850740352029285570096478671482142901730847354178436766753959223102175509953508674625547509915436765004988588762817783249832462242779753120469185379818342931157665988186423754689239814890326181360420814817010528825566366372931727934350884697278623177630720298939655621027002027743155554162948458114666361161465203406521786853981325894978947496354101337396386018539218709530335894872542825034530346327196233504155830245283349226423470908123243125766046848770705218810710462905239690831992163584831140092402485766052519610276515363868308998483381771173943936292437400235151053848529129150750313216942773188194876534425155199276707884444974243136321666829795134121950624103721712376056267380794624682459657439957312672375925458441430733497586269092233104361637349846617595803623136098075616754478939235405755033877269684860169662820387273883568146853756868713608297286832849179975451943683173158647450908851838020764266072900565800337003975086350661869008863191364301392364185773960853678923901901516494344249584194702214286982026097150545164083980747068518477020288170860941718234995562087732492627420141183605142157820643044606121478289872090717203012179389512141626118737568696101752756184761377773921387644758467242122654852889883350666023175501936344694101685001019435710178016449572041415996963450833558701141068048079023025105037885343218179165793050353504344171626894363889486695656031586527252384826138993620364589802957788966520241837621671564472008252215493154720542445271783847774808439099860274295948862672812593773886060085159519123931071159486784294523200381181264316334383678929550397951918591960812869006939763138771130216397055687450013913718228812966209320348084975077404345792995360564344888203454263113639664103006057324148909620819322907608114968043456218397954557383735810826474926110809221982425429239120523714177890607691593703694192173516382891953728945889893413304412025449927333400157737859856550808597958196706481948083212167187196881400132216747745953011268586173585455685800155800140297746527852194341403999977206346949730936723778028290879056419380650965340460891130504851580159347097408916680921051263834494983900569514416398203427216357091699780585910201718238356514093465201242558359815834017183407812441269038680234499494501130428287156437292059676779367483351676597645262201394486383689975506297338159917592175094922866175512389926625951751640125373569401594159640703129952622446387118023046596764344255157790531024050734824953829422918660934389169899073653978465724906039091709652166961319963210776078348187103923070326037101097800697354798087892001700315715713675332011509490652870016497471061281244534465868583101487869168713203554160433731209400361044667435595920941639187838448437818517618756723924180672510467532229222554561008994799452383030998342477215499148353824649537612054054960928680053844544834131804757737222659738252172006327474671730798548074125632506577331926418772620719187762410416045378967236568295167021941999237354025161477631105014272846287179462022837080334238836938879468991273088636831571215131520199003798593858250762226207343462638013173490250627833548485550297884604174593804137368935609448795670773635384537620570562011914673826666817502564971176426713758862943115549417724357677371818671256080708988396583063121858276725447851956618363487509609886953947872962026180902371788931212555240970501131808640596070360886517654018480551096619804560423577240286041735823760556467699717412640099057583000870886478184343323963360420378942409302631338904001819210173859253903750709991102605721188876732531886025920109863145656212229249523070379540613615817866291776562526684174709694679619077363903377736410990798003548422809268498056396053857928376231863406707627357599449633246445448868749927935424835815043286709064655037846554782436399775553754806510961164458869742616558198099334639288454335654372183826908701506611264426996926178621376041171764079136315835367748335149339777179844359920656481279819699622788720026294166655599141100389623096057027073062935238469307433428191521301074583986630903078650879952975653487123318351933278337347463693762301103462749635926311187016926575546138062089816121940105349184646646430640503187416629651813577196016899166093125085625093564830652800570121780361295782268979204865965946427095061684885782535876518075501249483054052972848035987548981832750735308677034088114495517681877772707419943285470655639692287254361715411748176655277862380724164531103572047771276056308605205122404964420070640155124636917280233890082469702146668475937012981645245063193423441025114794192234075182143593437668787553411081690222438512475885554707660438713008689257255003522584344012967166747447014200431903517021028474493545696258484322464291127557637171020683719661081260328529457499356761180194896911205352292848327295400572475881739541250275307003452956436851811017022583680853069481146824055475469101972732122957204178264246523319141533586725560389255669160655477116442201619142922348424046269063680085843768395839364763272176622222622609171691350782708743750027920414585695613974173197230870671946806849373743258171730475738589758891483911848771099688016540597151736912859821163921681857420706768494818348144604466202821999999608468757940015737494846432740604677574138425661517433401247926036352069741432156705393002187162352475801593735800262931263976326724587358190239511303336496111904566552513089272569803748241011748894125826507424595386155570375950442553412157800581646766215015376020647555073078597668606358933180429591136761830904900368661368070895731233975563164891994433380927733601541715986486423967094073989828196501594302408964087014823002672205431299132873496701221459681491983601192062820762562064081286784731028743036091551573867339449321545719119791776895137602649928323132227992520934162960496754946888544149613042343785970291596029638058984245560483662462858239804303301740121501531156142930308430661510725327887091697894274867680612722170146423243626383893876451455082919976891147017906840099203514979551385408302507017938655453156895358509328507572968170335067140304818175610367432695450285840688626836080192392268917452891724959641053274100174581260488486877086461979520335714483484433918789702605012463014498786555369208977534965107860849032845910056342785757312807589657873491661826856491871527306365923619305996858213635859883417308813667250432746658468565041956261533110005984686248095025680484963744363446269537070217130572252107522942298756273841408272692279537456838669247734020174728772257780454141481453110875271280531867540245241043881943918660931194275332741785665936612749722931735945072776890778520532941610646721599009477444108244338844157684461102063247994485386841672880341139827688023035171510680912069773869691192812987824006841882724795759246715591534090234100110649056677676249699151211328559654482316296303289093538800333560068125386636446154152118966408550793663942692671409325140978560155592143689901085551931173910187231913423499268446680850612345498947379109585022508543738295019258578444404475244823350537546959447954879392131769251581177740949712429660258115549096201811141203882460679573139795441886069300548103906445695675656694915429861896097499745179197126125990762500605201205949737362686147451540015526982945264956925372254521779471262920265324095294198741698709600330328754584273383484002033961389005580510142010334090181678900751404139962240374855696035761819735825345367551668345848908095724195297170206314279975623224147845172930868956438894933535005622085807957290450774634474919170260548548703722055328087840353663157958054408343951924036329227957940148979598635881503395446413699342369029207697664796965921496739723033133338307265060632929860303571581993869743472268020865539822333385474860472166062779645948144794870565342315963196641133863242885729179737144325650856367509279801076193637598761551375922531134984400488862349445581274210746861369030985641975166808024081168767769465711822565616438379461081229602880984120632719694051157208305323933150588828653150123521306411071012463860410155652270251620479137906627457689443968853652437571307621376952602311134960445410072849295005440227695868152568657631925627259578698581734015813710115940443233733529191795868609922678960547359526761717166359385319869775651153233907309087964260138112331960089377978173402179409454594657772550792597513642258666138114734614680417233002733081102995590235811172492661375675085645877127859985454498976094636843917044177615490552011504070067118976920718879151763115355288940982790028802321427275091219413081551181530239326676365199187760648192621460576713858555571944480722527109885289269926603693365426568393545087895963084461872486424491149959717506382885836833141567376093324789623657415064288233846488330623062506258585693276196472555589114603321131209806743665301445258219291103637540997358765639882733645744620808255373195188047655715637336438048924584994662350024377671264696657031556098049098281224344142659031967286931437279003244605768167185883534132196502113390372565871839423682901840754002967857356379287159041201614170818654797834622013515890665792223294575646243449326907846379421080792504718543603006182452000770545242809160796813759422728089620520601353663034975681392737451223416275199373832301493419158246279637123476460134389830657272978063114495818127957175800787584220427251090600898161621742050596190336036622517502058831983383807331522471122390815019423387169439716879156925089843010432841931022563297825871568554339703670911816816274789394355157393730873040900662599698442945839959004800050602895769925484480465195505577797245490686857908470167230909249464064479383178362737973701736622453507184067615632324612830647143504782517994400583864800546690961495394557031391116114203223640510736194346403939772345996766892355729567513083232187916692148868184638670696644713176209386265266486273339962545760586769917839709735978731179380539731652509058259363772641582332449127409988445577742733394917692001374594032445723051314260018179146791475663045277746136903722857206934010285245468701164444532408236354476007163147025517410247455347212956805711239768970903966566264984887607458681938602609524616650560241926597007030542469550203177306793547999745997351115723051761858862344708186892643826819276686720165373635872684213270191648868870767328466917993042786923750164438841734981397285721540531996056443398655571715542800657473534384196532494956642594123816449759342312983491222625870039356925539728910569966738969592126612529775772375670171559930572569960284934430348720400988269005998882916546670326331788988649891451708749281272289945951426638351479275265775546277132541354082714009302814242918298424220365715724947191717618486792407061205453641447231147649206109764652009819994627280317889718465747869626342792509235804015213458158442525494945371801256945269120456239090468995997892518608367761557362021557143280588239783904619008969036710048480066506558043227153241529665727341524349094942466593239090052857151063004089908798509413668309746484588506675792551941022414392377516284934245733447466022824944813389368250829284526835664579806448737276326614618715273314742991374004836077764815974148619482205230261495050662532600112039397994675225580828147887794900720262528103971846489829305985536518375244725817672955217839962516005959720586577646323484504260940821252205519907557179471943743380445030841479942734095673246003927288911200292254725355544911412597226329948667137861732773894697715518352737600440341316383250615652828833848713004669273551302457782167477421302150470581444524072187267608733305646518673745209369717615419666143380355200994203126370279130299249995231351235336299564075086198608032261365494939873490003721298279"
+      ],
+      "source": "fdb"
     },
     "6660": {
-      "status": "U",
-      "timestamp": 1781504027703,
-      "n": 6660
+      "status": "CF",
+      "timestamp": 1781523004379,
+      "n": 6660,
+      "factors": [
+        "5^2",
+        "13",
+        "37^2",
+        "61",
+        "149",
+        "181",
+        "907",
+        "1051",
+        "2221"
+      ],
+      "source": "fdb"
     },
     "6662": {
-      "status": "U",
-      "timestamp": 1781504028242,
-      "n": 6662
+      "status": "CF",
+      "timestamp": 1781523005650,
+      "n": 6662,
+      "factors": [
+        "101",
+        "2687",
+        "154753",
+        "194906863",
+        "576671377",
+        "21251288351"
+      ],
+      "source": "fdb"
     },
     "6664": {
-      "status": "U",
-      "timestamp": 1781504028772,
-      "n": 6664
+      "status": "CF",
+      "timestamp": 1781523006895,
+      "n": 6664,
+      "factors": [
+        "5",
+        "29",
+        "137",
+        "197",
+        "953"
+      ],
+      "source": "fdb"
     },
     "6666": {
-      "status": "U",
-      "timestamp": 1781504029288,
-      "n": 6666
+      "status": "CF",
+      "timestamp": 1781523008147,
+      "n": 6666,
+      "factors": [
+        "61"
+      ],
+      "source": "fdb"
     },
     "6668": {
-      "status": "U",
-      "timestamp": 1781504029816,
-      "n": 6668
+      "status": "CF",
+      "timestamp": 1781523009433,
+      "n": 6668,
+      "factors": [
+        "5",
+        "450451",
+        "1261643",
+        "60484727"
+      ],
+      "source": "fdb"
     },
     "6670": {
-      "status": "U",
-      "timestamp": 1781504030335,
-      "n": 6670
+      "status": "CF",
+      "timestamp": 1781523010685,
+      "n": 6670,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "6672": {
-      "status": "U",
-      "timestamp": 1781504030862,
-      "n": 6672
+      "status": "CF",
+      "timestamp": 1781523011932,
+      "n": 6672,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "557",
+        "1669"
+      ],
+      "source": "fdb"
     },
     "6674": {
-      "status": "U",
-      "timestamp": 1781504031398,
-      "n": 6674
+      "status": "CF",
+      "timestamp": 1781523013164,
+      "n": 6674,
+      "factors": [
+        "773",
+        "12517"
+      ],
+      "source": "fdb"
     },
     "6676": {
-      "status": "U",
-      "timestamp": 1781504031960,
-      "n": 6676
+      "status": "CF",
+      "timestamp": 1781523014402,
+      "n": 6676,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "6678": {
-      "status": "U",
-      "timestamp": 1781504032484,
-      "n": 6678
+      "status": "CF",
+      "timestamp": 1781523015617,
+      "n": 6678,
+      "factors": [
+        "71"
+      ],
+      "source": "fdb"
     },
     "6680": {
-      "status": "U",
-      "timestamp": 1781504033020,
-      "n": 6680
+      "status": "CF",
+      "timestamp": 1781523016854,
+      "n": 6680,
+      "factors": [
+        "5^2",
+        "41",
+        "1163"
+      ],
+      "source": "fdb"
     },
     "6682": {
-      "status": "U",
-      "timestamp": 1781504033576,
-      "n": 6682
+      "status": "CF",
+      "timestamp": 1781523018097,
+      "n": 6682,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "6684": {
-      "status": "U",
-      "timestamp": 1781504034107,
-      "n": 6684
+      "status": "CF",
+      "timestamp": 1781523019314,
+      "n": 6684,
+      "factors": [
+        "5",
+        "13",
+        "47",
+        "4259"
+      ],
+      "source": "fdb"
     },
     "6686": {
       "status": "CF",
@@ -29866,104 +31296,227 @@
       "n": 6946
     },
     "6948": {
-      "status": "U",
-      "timestamp": 1781504094575,
-      "n": 6948
+      "status": "CF",
+      "timestamp": 1781523020570,
+      "n": 6948,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "773"
+      ],
+      "source": "fdb"
     },
     "6950": {
-      "status": "U",
-      "timestamp": 1781504095112,
-      "n": 6950
+      "status": "CF",
+      "timestamp": 1781523021851,
+      "n": 6950,
+      "factors": [
+        "67493"
+      ],
+      "source": "fdb"
     },
     "6952": {
-      "status": "U",
-      "timestamp": 1781504095655,
-      "n": 6952
+      "status": "CF",
+      "timestamp": 1781523023135,
+      "n": 6952,
+      "factors": [
+        "5",
+        "31^2",
+        "89",
+        "317",
+        "1069"
+      ],
+      "source": "fdb"
     },
     "6954": {
-      "status": "U",
-      "timestamp": 1781504096163,
-      "n": 6954
+      "status": "CF",
+      "timestamp": 1781523024396,
+      "n": 6954,
+      "factors": [
+        "149",
+        "4271",
+        "9001"
+      ],
+      "source": "fdb"
     },
     "6956": {
-      "status": "U",
-      "timestamp": 1781504096683,
-      "n": 6956
+      "status": "CF",
+      "timestamp": 1781523025670,
+      "n": 6956,
+      "factors": [
+        "5",
+        "67",
+        "149",
+        "4006153",
+        "10408513",
+        "438637457"
+      ],
+      "source": "fdb"
     },
     "6958": {
-      "status": "U",
-      "timestamp": 1781504097246,
-      "n": 6958
+      "status": "CF",
+      "timestamp": 1781523026921,
+      "n": 6958,
+      "factors": [
+        "19",
+        "71",
+        "241",
+        "2560351"
+      ],
+      "source": "fdb"
     },
     "6960": {
-      "status": "U",
-      "timestamp": 1781504097786,
-      "n": 6960
+      "status": "CF",
+      "timestamp": 1781523028170,
+      "n": 6960,
+      "factors": [
+        "5^2",
+        "13",
+        "17",
+        "41",
+        "47",
+        "61",
+        "79",
+        "233",
+        "241",
+        "349",
+        "1741",
+        "6961"
+      ],
+      "source": "fdb"
     },
     "6962": {
-      "status": "U",
-      "timestamp": 1781504098313,
-      "n": 6962
+      "status": "CF",
+      "timestamp": 1781523029473,
+      "n": 6962,
+      "factors": [
+        "101",
+        "986563"
+      ],
+      "source": "fdb"
     },
     "6964": {
-      "status": "U",
-      "timestamp": 1781504098833,
-      "n": 6964
+      "status": "CF",
+      "timestamp": 1781523030728,
+      "n": 6964,
+      "factors": [
+        "5",
+        "11731193",
+        "17808572599"
+      ],
+      "source": "fdb"
     },
     "6966": {
-      "status": "U",
-      "timestamp": 1781504099362,
-      "n": 6966
+      "status": "CF",
+      "timestamp": 1781523031988,
+      "n": 6966,
+      "factors": [
+        "61",
+        "2039"
+      ],
+      "source": "fdb"
     },
     "6968": {
-      "status": "U",
-      "timestamp": 1781504099876,
-      "n": 6968
+      "status": "CF",
+      "timestamp": 1781523033224,
+      "n": 6968,
+      "factors": [
+        "5",
+        "53",
+        "269"
+      ],
+      "source": "fdb"
     },
     "6970": {
-      "status": "U",
-      "timestamp": 1781504100420,
+      "status": "C",
+      "timestamp": 1781523034449,
       "n": 6970
     },
     "6972": {
-      "status": "U",
-      "timestamp": 1781504100922,
-      "n": 6972
+      "status": "CF",
+      "timestamp": 1781523035711,
+      "n": 6972,
+      "factors": [
+        "5",
+        "13",
+        "29",
+        "997",
+        "61264789"
+      ],
+      "source": "fdb"
     },
     "6974": {
-      "status": "U",
-      "timestamp": 1781504101366,
-      "n": 6974
+      "status": "CF",
+      "timestamp": 1781523036937,
+      "n": 6974,
+      "factors": [
+        "5823971"
+      ],
+      "source": "fdb"
     },
     "6976": {
-      "status": "U",
-      "timestamp": 1781504101975,
-      "n": 6976
+      "status": "CF",
+      "timestamp": 1781523038169,
+      "n": 6976,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "6977"
+      ],
+      "source": "fdb"
     },
     "6978": {
-      "status": "U",
-      "timestamp": 1781504102504,
-      "n": 6978
+      "status": "CF",
+      "timestamp": 1781523039402,
+      "n": 6978,
+      "factors": [
+        "137",
+        "349"
+      ],
+      "source": "fdb"
     },
     "6980": {
-      "status": "U",
-      "timestamp": 1781504103065,
-      "n": 6980
+      "status": "CF",
+      "timestamp": 1781523040688,
+      "n": 6980,
+      "factors": [
+        "5^2"
+      ],
+      "source": "fdb"
     },
     "6982": {
-      "status": "U",
-      "timestamp": 1781504103571,
-      "n": 6982
+      "status": "CF",
+      "timestamp": 1781523042028,
+      "n": 6982,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "6984": {
-      "status": "U",
-      "timestamp": 1781504104100,
-      "n": 6984
+      "status": "CF",
+      "timestamp": 1781523043340,
+      "n": 6984,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "43",
+        "73",
+        "389"
+      ],
+      "source": "fdb"
     },
     "6986": {
-      "status": "U",
-      "timestamp": 1781504104635,
-      "n": 6986
+      "status": "CF",
+      "timestamp": 1781523044626,
+      "n": 6986,
+      "factors": [
+        "193"
+      ],
+      "source": "fdb"
     },
     "6988": {
       "status": "CF",
@@ -30365,7 +31918,7 @@
     },
     "7074": {
       "status": "C",
-      "timestamp": 1781520259341,
+      "timestamp": 1781523045689,
       "n": 7074
     },
     "7076": {
@@ -30379,7 +31932,7 @@
     },
     "7078": {
       "status": "C",
-      "timestamp": 1781520260274,
+      "timestamp": 1781523046838,
       "n": 7078
     },
     "7080": {
@@ -30578,7 +32131,7 @@
     },
     "7122": {
       "status": "C",
-      "timestamp": 1781520271391,
+      "timestamp": 1781523047897,
       "n": 7122
     },
     "7124": {
@@ -30617,7 +32170,7 @@
     },
     "7130": {
       "status": "C",
-      "timestamp": 1781520273339,
+      "timestamp": 1781523048954,
       "n": 7130
     },
     "7132": {
@@ -30657,9 +32210,21 @@
       "source": "fdb"
     },
     "7140": {
-      "status": "U",
-      "timestamp": 1781504146130,
-      "n": 7140
+      "status": "CF",
+      "timestamp": 1781523050201,
+      "n": 7140,
+      "factors": [
+        "5^2",
+        "13",
+        "29",
+        "61",
+        "421",
+        "1021",
+        "1429",
+        "2381",
+        "31397"
+      ],
+      "source": "fdb"
     },
     "7142": {
       "status": "CF",
@@ -31801,9 +33366,20 @@
       "source": "fdb"
     },
     "7400": {
-      "status": "U",
-      "timestamp": 1781504207805,
-      "n": 7400
+      "status": "CF",
+      "timestamp": 1781523051472,
+      "n": 7400,
+      "factors": [
+        "5^3",
+        "41",
+        "101",
+        "149",
+        "1481",
+        "3701",
+        "52817",
+        "65657"
+      ],
+      "source": "fdb"
     },
     "7402": {
       "status": "CF",
@@ -32108,7 +33684,7 @@
     },
     "7470": {
       "status": "C",
-      "timestamp": 1781520293993,
+      "timestamp": 1781523052544,
       "n": 7470
     },
     "7472": {
@@ -32247,394 +33823,841 @@
       "source": "fdb"
     },
     "7498": {
-      "status": "U",
-      "timestamp": 1781504232904,
-      "n": 7498
+      "status": "CF",
+      "timestamp": 1781523053839,
+      "n": 7498,
+      "factors": [
+        "19^2",
+        "379",
+        "4861",
+        "15743990089"
+      ],
+      "source": "fdb"
     },
     "7500": {
-      "status": "U",
-      "timestamp": 1781504233329,
-      "n": 7500
+      "status": "CF",
+      "timestamp": 1781523055137,
+      "n": 7500,
+      "factors": [
+        "5^5",
+        "13",
+        "61",
+        "101"
+      ],
+      "source": "fdb"
     },
     "7502": {
-      "status": "U",
-      "timestamp": 1781504233887,
+      "status": "C",
+      "timestamp": 1781523056411,
       "n": 7502
     },
     "7504": {
-      "status": "U",
-      "timestamp": 1781504234489,
-      "n": 7504
+      "status": "CF",
+      "timestamp": 1781523057710,
+      "n": 7504,
+      "factors": [
+        "5",
+        "17",
+        "29",
+        "113",
+        "269",
+        "1877",
+        "2797",
+        "2208209291"
+      ],
+      "source": "fdb"
     },
     "7506": {
-      "status": "U",
-      "timestamp": 1781504235086,
-      "n": 7506
+      "status": "CF",
+      "timestamp": 1781523058991,
+      "n": 7506,
+      "factors": [
+        "61",
+        "79",
+        "68177281"
+      ],
+      "source": "fdb"
     },
     "7508": {
-      "status": "U",
-      "timestamp": 1781504235654,
-      "n": 7508
+      "status": "CF",
+      "timestamp": 1781523060315,
+      "n": 7508,
+      "factors": [
+        "5",
+        "1381",
+        "25939",
+        "142547"
+      ],
+      "source": "fdb"
     },
     "7510": {
-      "status": "U",
-      "timestamp": 1781504236175,
+      "status": "C",
+      "timestamp": 1781523061597,
       "n": 7510
     },
     "7512": {
-      "status": "U",
-      "timestamp": 1781504236748,
-      "n": 7512
+      "status": "CF",
+      "timestamp": 1781523062907,
+      "n": 7512,
+      "factors": [
+        "5",
+        "13",
+        "47"
+      ],
+      "source": "fdb"
     },
     "7514": {
-      "status": "U",
-      "timestamp": 1781504237261,
+      "status": "C",
+      "timestamp": 1781523064246,
       "n": 7514
     },
     "7516": {
-      "status": "U",
-      "timestamp": 1781504237843,
-      "n": 7516
+      "status": "CF",
+      "timestamp": 1781523065562,
+      "n": 7516,
+      "factors": [
+        "5",
+        "19",
+        "7517"
+      ],
+      "source": "fdb"
     },
     "7518": {
-      "status": "U",
-      "timestamp": 1781504238384,
-      "n": 7518
+      "status": "CF",
+      "timestamp": 1781523066823,
+      "n": 7518,
+      "factors": [
+        "71",
+        "920561",
+        "90634757"
+      ],
+      "source": "fdb"
     },
     "7520": {
-      "status": "U",
-      "timestamp": 1781504238936,
-      "n": 7520
+      "status": "CF",
+      "timestamp": 1781523068167,
+      "n": 7520,
+      "factors": [
+        "5^2",
+        "17",
+        "41",
+        "941"
+      ],
+      "source": "fdb"
     },
     "7522": {
-      "status": "U",
-      "timestamp": 1781504239476,
-      "n": 7522
+      "status": "CF",
+      "timestamp": 1781523069388,
+      "n": 7522,
+      "factors": [
+        "31",
+        "137"
+      ],
+      "source": "fdb"
     },
     "7524": {
-      "status": "U",
-      "timestamp": 1781504240030,
-      "n": 7524
+      "status": "CF",
+      "timestamp": 1781523070641,
+      "n": 7524,
+      "factors": [
+        "5",
+        "13",
+        "37",
+        "229",
+        "397",
+        "33629"
+      ],
+      "source": "fdb"
     },
     "7526": {
-      "status": "U",
-      "timestamp": 1781504240570,
-      "n": 7526
+      "status": "CF",
+      "timestamp": 1781523071901,
+      "n": 7526,
+      "factors": [
+        "311",
+        "40829"
+      ],
+      "source": "fdb"
     },
     "7528": {
-      "status": "U",
-      "timestamp": 1781504241110,
-      "n": 7528
+      "status": "CF",
+      "timestamp": 1781523073161,
+      "n": 7528,
+      "factors": [
+        "5",
+        "2803",
+        "7529",
+        "1439693"
+      ],
+      "source": "fdb"
     },
     "7530": {
-      "status": "U",
-      "timestamp": 1781504241661,
-      "n": 7530
+      "status": "CF",
+      "timestamp": 1781523074458,
+      "n": 7530,
+      "factors": [
+        "43"
+      ],
+      "source": "fdb"
     },
     "7532": {
-      "status": "U",
-      "timestamp": 1781504242188,
-      "n": 7532
+      "status": "CF",
+      "timestamp": 1781523075851,
+      "n": 7532,
+      "factors": [
+        "5",
+        "29",
+        "2477",
+        "4871",
+        "9547"
+      ],
+      "source": "fdb"
     },
     "7534": {
-      "status": "U",
-      "timestamp": 1781504242697,
-      "n": 7534
+      "status": "CF",
+      "timestamp": 1781523077064,
+      "n": 7534,
+      "factors": [
+        "19",
+        "2963"
+      ],
+      "source": "fdb"
     },
     "7536": {
-      "status": "U",
-      "timestamp": 1781504243231,
-      "n": 7536
+      "status": "CF",
+      "timestamp": 1781523078304,
+      "n": 7536,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "2843",
+        "3769"
+      ],
+      "source": "fdb"
     },
     "7538": {
-      "status": "U",
-      "timestamp": 1781504243750,
+      "status": "C",
+      "timestamp": 1781523079545,
       "n": 7538
     },
     "7540": {
-      "status": "U",
-      "timestamp": 1781504244286,
-      "n": 7540
+      "status": "CF",
+      "timestamp": 1781523080806,
+      "n": 7540,
+      "factors": [
+        "5^2",
+        "53",
+        "1787",
+        "7541"
+      ],
+      "source": "fdb"
     },
     "7542": {
-      "status": "U",
-      "timestamp": 1781504244802,
+      "status": "C",
+      "timestamp": 1781523082058,
       "n": 7542
     },
     "7544": {
-      "status": "U",
-      "timestamp": 1781504245340,
-      "n": 7544
+      "status": "CF",
+      "timestamp": 1781523083328,
+      "n": 7544,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7546": {
-      "status": "U",
-      "timestamp": 1781504245909,
-      "n": 7546
+      "status": "CF",
+      "timestamp": 1781523084564,
+      "n": 7546,
+      "factors": [
+        "149",
+        "4051",
+        "12073"
+      ],
+      "source": "fdb"
     },
     "7548": {
-      "status": "U",
-      "timestamp": 1781504246478,
-      "n": 7548
+      "status": "CF",
+      "timestamp": 1781523085806,
+      "n": 7548,
+      "factors": [
+        "5",
+        "13",
+        "149",
+        "263",
+        "3673",
+        "7549"
+      ],
+      "source": "fdb"
     },
     "7550": {
-      "status": "U",
-      "timestamp": 1781504247030,
-      "n": 7550
+      "status": "CF",
+      "timestamp": 1781523087030,
+      "n": 7550,
+      "factors": [
+        "67"
+      ],
+      "source": "fdb"
     },
     "7552": {
-      "status": "U",
-      "timestamp": 1781504247585,
-      "n": 7552
+      "status": "CF",
+      "timestamp": 1781523088338,
+      "n": 7552,
+      "factors": [
+        "5",
+        "17",
+        "19",
+        "31",
+        "1889",
+        "1931",
+        "3169",
+        "9187"
+      ],
+      "source": "fdb"
     },
     "7554": {
-      "status": "U",
-      "timestamp": 1781504248110,
+      "status": "C",
+      "timestamp": 1781523089765,
       "n": 7554
     },
     "7556": {
-      "status": "U",
-      "timestamp": 1781504248546,
-      "n": 7556
+      "status": "CF",
+      "timestamp": 1781523090990,
+      "n": 7556,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7558": {
-      "status": "U",
-      "timestamp": 1781504249105,
-      "n": 7558
+      "status": "CF",
+      "timestamp": 1781523092231,
+      "n": 7558,
+      "factors": [
+        "47",
+        "433",
+        "1039",
+        "7043",
+        "12457"
+      ],
+      "source": "fdb"
     },
     "7560": {
-      "status": "U",
-      "timestamp": 1781504249645,
-      "n": 7560
+      "status": "CF",
+      "timestamp": 1781523093485,
+      "n": 7560,
+      "factors": [
+        "5^2",
+        "13",
+        "29",
+        "37",
+        "41",
+        "61",
+        "73",
+        "109",
+        "181",
+        "281",
+        "421",
+        "541",
+        "757",
+        "2521",
+        "3677",
+        "7561"
+      ],
+      "source": "fdb"
     },
     "7562": {
-      "status": "U",
-      "timestamp": 1781504250235,
-      "n": 7562
+      "status": "CF",
+      "timestamp": 1781523094742,
+      "n": 7562,
+      "factors": [
+        "101",
+        "193"
+      ],
+      "source": "fdb"
     },
     "7564": {
-      "status": "U",
-      "timestamp": 1781504250771,
-      "n": 7564
+      "status": "CF",
+      "timestamp": 1781523095994,
+      "n": 7564,
+      "factors": [
+        "5",
+        "349"
+      ],
+      "source": "fdb"
     },
     "7566": {
-      "status": "U",
-      "timestamp": 1781504251328,
-      "n": 7566
+      "status": "CF",
+      "timestamp": 1781523097335,
+      "n": 7566,
+      "factors": [
+        "61",
+        "563",
+        "907",
+        "3257"
+      ],
+      "source": "fdb"
     },
     "7568": {
-      "status": "U",
-      "timestamp": 1781504251882,
-      "n": 7568
+      "status": "CF",
+      "timestamp": 1781523098584,
+      "n": 7568,
+      "factors": [
+        "5",
+        "17",
+        "89",
+        "173"
+      ],
+      "source": "fdb"
     },
     "7570": {
-      "status": "U",
-      "timestamp": 1781504252476,
-      "n": 7570
+      "status": "CF",
+      "timestamp": 1781523099850,
+      "n": 7570,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "7572": {
-      "status": "U",
-      "timestamp": 1781504253034,
-      "n": 7572
+      "status": "CF",
+      "timestamp": 1781523101146,
+      "n": 7572,
+      "factors": [
+        "5",
+        "13",
+        "43",
+        "709",
+        "7573",
+        "21466559"
+      ],
+      "source": "fdb"
     },
     "7574": {
-      "status": "U",
-      "timestamp": 1781504253603,
-      "n": 7574
+      "status": "CF",
+      "timestamp": 1781523102372,
+      "n": 7574,
+      "factors": [
+        "118277",
+        "363989",
+        "423209"
+      ],
+      "source": "fdb"
     },
     "7576": {
-      "status": "U",
-      "timestamp": 1781504254130,
-      "n": 7576
+      "status": "CF",
+      "timestamp": 1781523103605,
+      "n": 7576,
+      "factors": [
+        "5",
+        "7577",
+        "1124301419"
+      ],
+      "source": "fdb"
     },
     "7578": {
-      "status": "U",
-      "timestamp": 1781504254685,
-      "n": 7578
+      "status": "CF",
+      "timestamp": 1781523104844,
+      "n": 7578,
+      "factors": [
+        "814309"
+      ],
+      "source": "fdb"
     },
     "7580": {
-      "status": "U",
-      "timestamp": 1781504255207,
-      "n": 7580
+      "status": "CF",
+      "timestamp": 1781523106082,
+      "n": 7580,
+      "factors": [
+        "5^2"
+      ],
+      "source": "fdb"
     },
     "7582": {
-      "status": "U",
-      "timestamp": 1781504255752,
-      "n": 7582
+      "status": "CF",
+      "timestamp": 1781523107304,
+      "n": 7582,
+      "factors": [
+        "31"
+      ],
+      "source": "fdb"
     },
     "7584": {
-      "status": "U",
-      "timestamp": 1781504256311,
-      "n": 7584
+      "status": "CF",
+      "timestamp": 1781523108549,
+      "n": 7584,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "79",
+        "97",
+        "317"
+      ],
+      "source": "fdb"
     },
     "7586": {
-      "status": "U",
-      "timestamp": 1781504256843,
-      "n": 7586
+      "status": "CF",
+      "timestamp": 1781523109799,
+      "n": 7586,
+      "factors": [
+        "31183"
+      ],
+      "source": "fdb"
     },
     "7588": {
-      "status": "U",
-      "timestamp": 1781504257370,
-      "n": 7588
+      "status": "CF",
+      "timestamp": 1781523111085,
+      "n": 7588,
+      "factors": [
+        "5",
+        "19",
+        "29",
+        "71"
+      ],
+      "source": "fdb"
     },
     "7590": {
-      "status": "U",
-      "timestamp": 1781504257911,
-      "n": 7590
+      "status": "CF",
+      "timestamp": 1781523112328,
+      "n": 7590,
+      "factors": [
+        "161265367"
+      ],
+      "source": "fdb"
     },
     "7592": {
-      "status": "U",
-      "timestamp": 1781504258468,
-      "n": 7592
+      "status": "CF",
+      "timestamp": 1781523113551,
+      "n": 7592,
+      "factors": [
+        "5",
+        "53",
+        "293",
+        "3797",
+        "26861"
+      ],
+      "source": "fdb"
     },
     "7594": {
-      "status": "U",
-      "timestamp": 1781504259027,
-      "n": 7594
+      "status": "CF",
+      "timestamp": 1781523114793,
+      "n": 7594,
+      "factors": [
+        "25111",
+        "187633"
+      ],
+      "source": "fdb"
     },
     "7596": {
-      "status": "U",
-      "timestamp": 1781504259602,
-      "n": 7596
+      "status": "CF",
+      "timestamp": 1781523116114,
+      "n": 7596,
+      "factors": [
+        "5",
+        "13",
+        "37"
+      ],
+      "source": "fdb"
     },
     "7598": {
-      "status": "U",
-      "timestamp": 1781504260144,
+      "status": "C",
+      "timestamp": 1781523117541,
       "n": 7598
     },
     "7600": {
-      "status": "U",
-      "timestamp": 1781504260688,
-      "n": 7600
+      "status": "CF",
+      "timestamp": 1781523118793,
+      "n": 7600,
+      "factors": [
+        "5^3",
+        "17",
+        "41",
+        "101",
+        "401",
+        "761",
+        "1307",
+        "1901"
+      ],
+      "source": "fdb"
     },
     "7602": {
-      "status": "U",
-      "timestamp": 1781504261234,
-      "n": 7602
+      "status": "CF",
+      "timestamp": 1781523120052,
+      "n": 7602,
+      "factors": [
+        "373",
+        "275711",
+        "5220043"
+      ],
+      "source": "fdb"
     },
     "7604": {
-      "status": "U",
-      "timestamp": 1781504261780,
-      "n": 7604
+      "status": "CF",
+      "timestamp": 1781523121388,
+      "n": 7604,
+      "factors": [
+        "5",
+        "47",
+        "2619413"
+      ],
+      "source": "fdb"
     },
     "7606": {
-      "status": "U",
-      "timestamp": 1781504262303,
-      "n": 7606
+      "status": "CF",
+      "timestamp": 1781523122640,
+      "n": 7606,
+      "factors": [
+        "19"
+      ],
+      "source": "fdb"
     },
     "7608": {
-      "status": "U",
-      "timestamp": 1781504262878,
-      "n": 7608
+      "status": "CF",
+      "timestamp": 1781523123921,
+      "n": 7608,
+      "factors": [
+        "5",
+        "13",
+        "5801",
+        "6269"
+      ],
+      "source": "fdb"
     },
     "7610": {
-      "status": "U",
-      "timestamp": 1781504263420,
-      "n": 7610
+      "status": "CF",
+      "timestamp": 1781523125160,
+      "n": 7610,
+      "factors": [
+        "16141"
+      ],
+      "source": "fdb"
     },
     "7612": {
-      "status": "U",
-      "timestamp": 1781504263969,
-      "n": 7612
+      "status": "CF",
+      "timestamp": 1781523126416,
+      "n": 7612,
+      "factors": [
+        "5",
+        "31"
+      ],
+      "source": "fdb"
     },
     "7614": {
-      "status": "U",
-      "timestamp": 1781504264476,
-      "n": 7614
+      "status": "CF",
+      "timestamp": 1781523127642,
+      "n": 7614,
+      "factors": [
+        "43",
+        "971"
+      ],
+      "source": "fdb"
     },
     "7616": {
-      "status": "U",
-      "timestamp": 1781504265026,
-      "n": 7616
+      "status": "CF",
+      "timestamp": 1781523128882,
+      "n": 7616,
+      "factors": [
+        "5",
+        "17^2",
+        "29",
+        "67",
+        "113",
+        "137",
+        "449"
+      ],
+      "source": "fdb"
     },
     "7618": {
-      "status": "U",
-      "timestamp": 1781504265556,
-      "n": 7618
+      "status": "CF",
+      "timestamp": 1781523130106,
+      "n": 7618,
+      "factors": [
+        "2633"
+      ],
+      "source": "fdb"
     },
     "7620": {
-      "status": "U",
-      "timestamp": 1781504266114,
-      "n": 7620
+      "status": "CF",
+      "timestamp": 1781523131347,
+      "n": 7620,
+      "factors": [
+        "5^2",
+        "13",
+        "61",
+        "463",
+        "509"
+      ],
+      "source": "fdb"
     },
     "7622": {
-      "status": "U",
-      "timestamp": 1781504266658,
-      "n": 7622
+      "status": "CF",
+      "timestamp": 1781523132651,
+      "n": 7622,
+      "factors": [
+        "6011519"
+      ],
+      "source": "fdb"
     },
     "7624": {
-      "status": "U",
-      "timestamp": 1781504267205,
-      "n": 7624
+      "status": "CF",
+      "timestamp": 1781523133898,
+      "n": 7624,
+      "factors": [
+        "5",
+        "19"
+      ],
+      "source": "fdb"
     },
     "7626": {
-      "status": "U",
-      "timestamp": 1781504267733,
-      "n": 7626
+      "status": "CF",
+      "timestamp": 1781523135128,
+      "n": 7626,
+      "factors": [
+        "61",
+        "251",
+        "1019"
+      ],
+      "source": "fdb"
     },
     "7628": {
-      "status": "U",
-      "timestamp": 1781504268288,
-      "n": 7628
+      "status": "CF",
+      "timestamp": 1781523136377,
+      "n": 7628,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7630": {
-      "status": "U",
-      "timestamp": 1781504268803,
-      "n": 7630
+      "status": "CF",
+      "timestamp": 1781523137630,
+      "n": 7630,
+      "factors": [
+        "2011",
+        "1217947"
+      ],
+      "source": "fdb"
     },
     "7632": {
-      "status": "U",
-      "timestamp": 1781504269346,
-      "n": 7632
+      "status": "CF",
+      "timestamp": 1781523138879,
+      "n": 7632,
+      "factors": [
+        "5",
+        "13",
+        "17",
+        "37",
+        "73",
+        "311",
+        "3163"
+      ],
+      "source": "fdb"
     },
     "7634": {
-      "status": "U",
-      "timestamp": 1781504269900,
-      "n": 7634
+      "status": "FF",
+      "timestamp": 1781523140088,
+      "n": 7634,
+      "factors": [
+        "1559",
+        "397442777187624011357428953557133121714623257828192314137119041353015196356253131243599379773476171252318289193100160203143091400756694877467602222893789593326731633531111385061517552274113218999704048115426988865867099655286553481937531644612637538127312346217037293656326088584056958603438008897569331562767653503974709854216978083005826206700982021992098247295383902788907164773713342415901485430473763058962750636986705686445424952567928151009340502708776713023446804140452157172003840474993344471923850326165363621917221026729574536164902875245074513778171207491135721978136288370069456033942985970507722845857071054665890007080736609822505616008311951482072415442044878466233053024828693559498959104556374970058753853400170286053386446206328818142167531310250915877863777563208424527084276047347481096333200479644882493824876544120269389246872644987410004217482457146977528287698013621446459179715847946653451545712103271147096718121270408480927584096880195541563852401571764330273279357013151268177551761975835117866047847819973996480431593210543396817221317681454916822375244487937629256109001196869763150379355374203765938759822929306717688488245557484499346165201304511644812281195576400221156658994919077368494518798126186772904666286423714416558370749908213220285566531515688148346421013495130263732933271412476498364438691234595310865740947600614619053101386767945356615947802466708317074719591491817600025184338032752599859319458158977858282196892969399181253940509329303108457004689595826834278290325540747853642445620565297224752422262404053643889500635227572051146949462077875191927394737952990061148939829433768774943548308792750768768808278859779964117127683133164590224738636033868864453906143351696604561763528322531425963402839185417836332010801362921917117162824224797899431842475474739971566894625588025410301806994927829082366433319989966383829289061911038194687492304111471538707339795569351936290740910649115737591468741601471743882559896229673418128666629483995837187133990427195765473764829025324217629418910084128965695406731452537628876824234465571050415666182973488209732844686641214231245226652986620333632393969962803491208087152877100443301447052567159792896991604989732334601207576738541120702375002304553760484811118427307200434307871440640611666437515843105751671847372172722604795435751925194208158226689867665130538518800648745774231470548179801028026460060790833073628779386126651369939912247880307390614403150306095375073465578155631561814468790407050614046109487240528846572319413959586998918628329230977258150432782780332599881370139906534415896057586349377283643018616897743199475568877309525445471638591537960557082540343538730497074727776539651217076217690821519166556946517000654904544910241657419199878500167806118589157788322089015438548163242458284721073978440680823097447084423819800230233071940908362749550506216304528664632374672951266752418301812156914737994213972235733266131430893440779930465584279430963850327072551024024456283977124031092287978217453889046533692171508988784247944664335071763007197447949747358772521567314273952445541728649369639523368771760537938032524663110793604094237935259047992327974416499416695713328909229752938014843125960611958816453955710858839824988626114769806971605654258649178980834091328685202480291488832306223640169752372774125468964465872777440545729909433695167304616586910443214915259541717644400674380262089233164508008514502344009018845621588001220093681749423626520460340127834962307792793386374223715163208055838243966768607824030491086713166526365085448518399938284699297060343890755940131020307043724157638840038002503034696966723901569590556591867721893976608767999041108720986503822827401988803966878012794415582839337902036949434591433303797762287104969780026403333860233713075180672572925406793514550067789958466109739638830018698193149583036284294616167596969377507312444842562134059144009482200946066164376492978221261099102624848788798832150213132003690460250487626472342257495428934695526857480364454397407773345548858875611265571471057884781565076789433572483813448754323729834934598812661191971594650281789994867710025584511187557623591046661990560304985573318443119924762760012239320553889147817686298530895707037300710716415799816090435611052473757578729922982676258896126804003124601334307591723291792358009333348181855004947784671489814038934326320419400235802940326583616392477505781134982107441746000781480825256355989252825005652113595384585490565544522348904369354652612115160135776517693233942633890917907201578378592357231913943460195014016652270058790004286655807062398785389868193661620975904469860227208952498560423924589887733937929215838529957962335111405058948243188814739400122324201121368944767220178888604881952362959226333241118993713182756404937457040018232236968134225049050858020868232477046100137978277358225614338582909011283986952916917842518683488022077823197241736523208563709201786049492155910168758633426338850450253480446664478680776939047701699442954734701349465943955974519167866192156090679028142373084047246781842150642174240832587488156618770646586570357864293246312536437130450949334761805292219556592926964963628134203517238570548761158933811247401104680075049093674185998568315583968350013988965275145687986170601302819382351334617069872261156711302343095817044433576099525695189328018346374575571703800816611953514968336490547670041368509203704615686884007990493769134460299911231097671819682368330404657742076295303091500298263000385819683979874678837019307073338154400168234866502536947921517754738405415057497814290342403635603212935803037584046910283302424024644399000196751522912510029465148107648399119332210367237228161875907065792301300178724010643532076893267885099001194246915967805638297676508044045198644246956752867720729991502981680849047341884707116925377865192607508161510419588097508106285009199177153721243856965302948168932430962787958494650861939828406263150705243612190519537877543516000993387467908139703174844801788441201453652463652813671420318518877912633181159983458176045364278902058999405391711682655866747832848141237267339786724504266897012387154290901858357835713243938032135630840255508446070074946300489058309510843365811684150542934899533340193674852108644822730306786697644477976941872181721387959485768319520326424729618458519994806119162040804378300174610359144999183922013030673828954911851768870915513668384289874371373306569611037307287125534919907364118741310553797062843547086592747820125182139103643960075163412110048780093566600197963713028025856166743725087925375360590947606860818341629779874016903251322837749368006697797526309400127398224940817264067172597013063770030614568031759850281527864246219927219378953003455528055585726342657122141685068228581976336687008548134053657878572224267899110011790581361991898223613705627721803828344501110888653718860639991584096518861901337898557634677889125295168091043018800682337893469615206475062845807260700816132584278324742991933931179754560761879692512911005915751564205347439534393486732589406379734068784011650107428674753517580979465747609653895958208581549543440699438157244132826634472490058221496747278227673912077609829179512028781011736213130814443567599873188948321928337823022398467198538967000307848851905102294474601276691058498705185388849323504089678003485770294681512462182849032082130249832370079504117758372654748630819223893258716307678486283459213323946590840320487473934463464961012099944310874691030518217265303433801946417952023194828031094661185693879621408502888924971746539003221431491460179258321079331625030926658612742648370566235055821719483291475204030108690223645235918366663589958443364179435168396922752458523551712283662641935694111456035472707375537888239826681180968036186354459158727207946023164200292017585089151408616002943267077505381387449229893019324411487080670765760787426557796798686660229248142709615512080532915978082233161376872401944994613054508193815307068236145991460130170172335978695089711052218467402972310988361974887428039469094273679786198095170643375830227249839882707814431042029030874009352655839844406642365047962350987238933242409219446768121889794453465481771201590906304784554915755791888852667411459215701579461734714311977332456913163525815570472625406117652905587625081243796239460773840616163743734199848244431113989058414115497920381585280200328895490177410203842147642019633320239367270537104830552617677788977866968527179071139232992157996789906100187573795371336591437384230691958244391638002111473168878780099324111433822309052908856348919342250037475347246092245478214024678355648549248891057134768082670095986027899858842452400616845501471767133068962272880133973880431536110621051003425913843827167842302576761848573526612719194655018298627312130000142519016658421070990587952377271863318709359272838516649612449682978699009061858611689374046776451382976413504064806640099543945107479568193386437766409771236469009689839467793861428764414883812105122195061092771241766507130612864041746167924575916668159354468910600011368328698196326239227170663672663401178466218736931464911009167712799201241535497653409553893878739547315455704739175231648283360372377289544887773474128824792416717008250680943471228807120714195495469491366031694777370820479279112375079496877301243555718231147195642264628979616590192273437987552521126280103917905553058017225421372917787059604567158544904011037262174147093475296533048442787784458564631012016302015559663799765926195124885209452755820672758822775828545579388136809906136175796577109784200868960643707308174575000530756631370242179237334084927753403470242516135020549109594791101060617741398062461936396889720636345379750806562758248631377397616290671890077754547202083524163841047498739458654539016823945877194651503149745444390021062561665505782122689468927172783840638828834114996289099078259596691902236072075061291069055917504714404958341785327270282315940617273912169463665424264801619238406611268126289430774940615830282453127172684383702029931553095850853725798702149313937675298826202131929902753564442840923376063260851118601473900364275882534069715068832187029710648590275308874037110598228148830823206273551026073418649916576976079582195665576601154069464813043269267638926564206063605397890649306721948243840014290314151582000498394424335292217270296090918881287935339207807793358329391107237958177049888055282529715448204334777671871923741926542805309166323927445587565607917217460819058661960024307356487753425450606489154151294469457013578951504295746847379779822135116721356257343156094703204795795127231575753819471433903679491655479376171258501946863036499224383416981454245968684839258475569848993391462016487362035443002869372017105496349329724402283483873944668162682434104865619572034314289937661153647240399374803562957456368442175286326806956084041409038730972376868250368261228877518719968709638467324264114829540620799388601714828013906496705268191756602767022582286383919364286770609263105129120561953775546814245270127466108482012992360036979976141652331344720384408603609954065859318505010959515228582242167460898118190275494981585313422304661464653617058592912864243251952271129195557480522241292894122329353989656573844207248767579356758688467492324979262205291271225193181733720550464825687530983133102496248321694806713752570214549905860855027420459076770957678810076668346597403737672248765745246386754993369711924444872115812409316919869503647519070574761396609648372514640593053645341589232093812540856077058427944507447156714281847575246958968692193703844719258895032306967395353466879424522654979940626384194498133502093560741504112286041820057535885657965858935811241849914180378981001887953721195318746794292056751845733940671711780423155104274571630366392856900289575156835492390255653122548460436658599111774338320936939045156864148683747755743102197071168433751849502011663050633970830677142597239214411149235017899548503941715696015534951631719364312731487222137442840210188248955326296760368306375030182243558259531992306536145947075870764622354305258243060658008162333453592427091923462404103070811986602933667435514654929547553421807937827518877111796917616023786925401959993633717871746324694010358224680713893754190143903750141229699049153543945970692879759905775661491641254959839851159310034885882040146572036252959399465629883318427445192083158214294641800425965378963279402410844716307636086752757393873810965612993925344374923666797975328488621864980390177713551066631281899494097182336268592496316246539740945318492049761093769032115337620800707281074459059658015283338846498785232128424572179884795872545756079015012854182977483734693464086030418310507279402999809877741968881883404981657168737214551023936735725075443957558448911284295100832075287117786028219652504128436517461289681409145840294632630927528214860059888140657810625202759934710129969182105047042808078291845516285349811162540669906428392873510016804322490448704276170702146051061834769031603044891772356937435682772616077572103515074163356389712791329045020387030655876211109784550663802649580574368453802674452659601334083502001293140888452086298405144792395891017542305468149395000883162182974205192324127931586864529020415507679131506557889909921527063844511619700211682848696800052643158913063012073070707339752200349471650827755687932731762965787642359072175699812936959527641665794093300890891082352437405433439410628199841319947422965613146822808151886716781346413283189234242296546203400128902885523698120724971034623060595116319103848962817508909363290918058309040755481132795843781687346881961536575571647381830448561215937081202157962902292390234071608198039679961343174243610742295962264337276949037389671003824819303965780921845303801943583689782176732033591445478062687793667510625191624643234929794327301448583252459028821382834768508722109428217930832580670553332450055743742927849755517673598628153756931066509058723303577493370003321000561084522419978248402879675042232839919031974035011502337532807119887253961116967072841435515946282744198654031592543619198567327452665422729564561708940102156282383335423932946470029365126701034223961653244238308908531110468731881842228830161850191694004174032989562537265231899798930095256669154313286608908243875396350947907205250069062201782935236261152099265758846259204054085976105018514230633600342698535398859155172994202272408484879175141944430848535503892657795624826400699649823980968619448129816147058027948029776187201581183405610256851247425206989217127179200526645904525729400465108073202751293965116423420161727831432311057210704943854793404750504541224358331600741582742393605812157548642729473072348470452211273968220985502437605053577655074733298025206052060980461223150266206943535845887721778860490006649713872311928396102541311623530161660006799090098089472863459903185858759658343589971675455875886331022239244117801668709950268487368457492915416075309245997532610087043060133726972312004415114676770226536013147124986360511993417442325343204801131979878831554728030383576359675031175249260371629302090867045928631100618006790645018729029594092196084780832687283324495811854343294700254476420292903992876440855400685973814838509012338425418389316600765230021542438245371681450045275054293263775821941403555420691986695865204780888083451286421000240696720783131374149862607920827593805509920026530338179928517396690959319135388641677653157228100720793466817307997817134742203722895111572202252464459945185471244630114501039328957360704131426881254017468960828642068106827352405163140340384987968797691541667324770426738868182043933213272619421855291424147374545127244694956746830779126157800140601296698410478997631582963743909855303382090848556786767399846678873669267026000917795813002074917310106365768560288277257223418308653387967259237279963645991854364848789542791610005937294763402403269218822716616842999692566260768023144465485819070664805127524268913836167832436295932753607139372458613281811470182547905118474549722034939942709539671896823384543514080340438645225002678761901984196832820143038363083602793476274319176902813972371245078054262104766143477720587110703989732029888405863910865144360374033771516608984315810696692759317953624303348506286407148962305063231407862525619321116289063024881536263176298009408865990567871373058060839436324690765780493338934679032586064568592034174250831258408149663022706284181723720217499260762233068019284315865903871165974295972792479249471623585213037336839600741248019409123279140626121005932897367368850602838789175765958881098632011096626092431045073578279870650070494372375824557183931034461376400865424066512022980153948399487769334513256893321443335105737830598629357753926355856247123643542963626661430072128778979187075857553273742942873868149829400985541564869684925036904873841640759834763742090658776308545008779092458503767450017662466599954377117820166376358200610967776898203882352164100940153321856034906161373030442363752225326713486081222443212543180798787199104870486105201464822117721641397874772478631797340366436950488393091793346180678132184794397040043054061124671751635461547634090128631153291377563653624223992307190918290992563127875700030912648778661017117798690124506452050033347696137505615187659651819982331373343856612259982467559121854677732029886354531520213990467366684230129892198423367679889510581186707871783488930619882746912997281252084678312614936122630508705740192940270754346899068793319428154628654563678543859892256926314977431119411310606304608514438751192751177935728742154319697580702006878119104495400743670072820561895455293006172916541733291145803703622479062086883435045892039595122458163152754526380805657893585904119208333304492440116446229618789667522532230321160883328392550774481999035918869246472891854960882304065205114675443362245172075382175903165587432381331775122817295961899856468025835994932596629037875931650837871300940449750533249512559160111889082140819301781568630752189016829316865715646248115095397439737163937304978613469185130397671743299599144968133557719401346270209587704745704009070039960525708920228347954156566636125628737528329098621158978994180351463821398060559196598388834443169671879470277804149220127250963868391757777037868641257375880972074234371677176556052899501004215494600501917680196488394705157383134989874507570843775172654599817226496483493701430055960586659678516504349178986446048317542334064423409032893661714707434449463730652412735172785730401552920435578898605262493481866584038622918529826417449290868815961042393555219300727734447260451767045792984837901393716392368327658206911103066723258156691488517567617097581468371751268649292131202682289851083692959934080978059820998244539961990262693001839553291468456701765876637875588298948278104408748784066102944707746285225195787688641498069301111492972652497192133710723699632599898677925417753697735666027911871372128237559619440718720465389992296175196290354193938721874420548895741708590961785739681924226804463158433961868464614482768001856568406745019677159290265561225112064191066432454579105912717366123063911313774066967158388252907081273274168146241324458662701857997217284878777746750840957106305773500520846257551099268896517016206115686407035399439423405328558670265256252199750626261900402075577056431379351418600929733163030555804095005841798452025226898438986776376951688233497974036277849657751480076033396414612508326531432414408030664903807147838119469587234347698797917963141929961723925602880421781182313751189508619306494367856820733352475066490039027206997973272689323231983115053241731816829281714888709296081405865327643599337488726431846302769282640680783050836179925864686379718350247053666811145264571055804225730999813259129305833120391313111129292039659059234219008670727737888498027435827950230704272255133146596964412469380911822511360056909817080987125376077609422053279409040443596450809974776431965418059819003851277779422762291966410999548995087079118699873131644276999197786348743773703357722373324463600406514259374417267716561593101616738277035643472046153211774409412282090881029645287320093558059497760541753783139877507518899764975438829195431663831005067110193252573029681911162475664369049461326059776719723761144252659006584157688437177152289635552765536001811549187508844499511544986121774922940877658585841787090134083454553182984292404232485256439428772028677353673998211677976454430332491827931832067934863585001914645935634350557289688488190372704403044315205495172254083528144320791992546081479916609650750112120281873932508967548536133734930291052711327849494586811030113750761451013175904955045302442345432608485310384356189128904341094213688713506307153771540170977632503855681195076435047509550960171602897513742727161843117600808746514028104511216597709674556654715764003720530491171275011704254375976802533512697793083479161452926232410646886768643110260519322258304832944463054006127748563163263732493783832134631645163188185199415573346482309124995802737080177363976638259165461559218150597857227493890664540696308260518046317228472813424897035596217870779782854949242946432437701530324159253892773734457614921158570632873912208551218947201755347681783975563157105480111941253407012707529423017705183695564432764652886471742210422822618171697537175876153922128135101465895389114227792318243531609974760881955253248579770652508401785848058133986972575059975327650409969188907498480794257232950627196499630162130496947296515436875683121233455393638591971161377000950505877340342522113297440006668241414893448647330523104222442426545345428885739083629000392291934730193495304600119340842485895135285065118236608265502455094339995412590351564507247987402465489812555591773292000770642581464665966935812922934391098825800401337964117492139839158077889259245157156765728772179964279459308151647273128869069461893937143408875737303665534711254371900362574416280933862713130875708780113020889637848412139770421160978056656343651465061045546831792055030887314915019470496919519713744604143283416019434438569794410716138180423257904332527657923044000391564262833708572867694780309184315049115613559080556863111613093613891843943529867738484459584328419094049300744144422689619934170555516124932479988556448446579980095838300165757684954370458387678123035804617860387766320748331359410527904530732839425794280092379861829575665576223245451674764723081145369732251570059283857153071259433476433174909229948978841314935650688437150910744353817609476296114147918172278017546198075583868264609216023245965877284370102094808391836454359684896114958904832625155219247469993754364944005631352911669624734777700221965921606471725978797094464200422820877297318054114096680008887975783425411719615426343919902121706765875904338437394426183483757625807591322619285601835232469027572929335574471196728791984173612270460987997618884848321345144761301431991561772742713585018888755423647494657196448393939330592412933553972789661512215685661791818634685673910991240781266657089471099521754895377778150943177990125284173635255738013021446332630048454860981810231096296919976533774806504258961344785113125689320722633489317383428314764925446273763451366963933619908226512228256373681266842059929366556693222919149835226280873639554653338533398372243070422094293802472382603261676149834267854260550058517672576776741103378962730791021303751950962661251264213661393874045402265445634430348309904447856328772874129695131515802888300251337758759200232373480209184886559878712181164743685247631297853041896495937593589916438941039377085825243263809003222122225791212018149516908590194436404598386886999063243782014224122827400479434337540543250864951192123836954017032172862885461148860878037719902844691641546752849757712824711549570073554278328806898914608555233711280386696089733166863587026087189223583085482709354655081837229806784591799237087783934959355983350112096647834304815487167034432596578860939221741452782359623366688979205755412361526876477657248954668794899587020788673839557893149437925387589249406139197924905565402512599556936539866990055728294920586398836456768946711198038343879911296398574204466234033858364235483079624796810415295720109627273823506121583285094648388815339416177376996462212173381406238613468468179502051849570334717136240887859739796660833792001176797405151152112277614127459824851166464635142075272024401136051236893401185128522832530068463506853162425947275176273650402033279202322962364001303100375767004374719812865495599687600268341878215782569162477586925312695435258156313306352306010687419471108475536690714165494478055801235304308896016189588267495962872006683953795048511993923563276248384368049785400763077065536681307239170649405385706827106325203669055107935946474295687138032207669024459784251267366203751043003809615700430038262175033799136645748861560795959104244129743970616759"
+      ],
+      "source": "fdb"
     },
     "7636": {
-      "status": "U",
-      "timestamp": 1781504270420,
-      "n": 7636
+      "status": "CF",
+      "timestamp": 1781523141324,
+      "n": 7636,
+      "factors": [
+        "5"
+      ],
+      "source": "fdb"
     },
     "7638": {
-      "status": "U",
-      "timestamp": 1781504270940,
+      "status": "C",
+      "timestamp": 1781523142743,
       "n": 7638
     },
     "7640": {
-      "status": "U",
-      "timestamp": 1781504271464,
-      "n": 7640
+      "status": "CF",
+      "timestamp": 1781523143998,
+      "n": 7640,
+      "factors": [
+        "5^2",
+        "41",
+        "3821"
+      ],
+      "source": "fdb"
     },
     "7642": {
-      "status": "U",
-      "timestamp": 1781504272004,
-      "n": 7642
+      "status": "CF",
+      "timestamp": 1781523145271,
+      "n": 7642,
+      "factors": [
+        "19",
+        "31"
+      ],
+      "source": "fdb"
     },
     "7644": {
-      "status": "U",
-      "timestamp": 1781504272565,
-      "n": 7644
+      "status": "CF",
+      "timestamp": 1781523146531,
+      "n": 7644,
+      "factors": [
+        "5",
+        "13^2",
+        "29",
+        "53",
+        "157",
+        "197",
+        "1093",
+        "2549"
+      ],
+      "source": "fdb"
     },
     "7646": {
-      "status": "U",
-      "timestamp": 1781504273114,
-      "n": 7646
+      "status": "CF",
+      "timestamp": 1781523147754,
+      "n": 7646,
+      "factors": [
+        "361328623"
+      ],
+      "source": "fdb"
     },
     "7648": {
-      "status": "U",
-      "timestamp": 1781504273688,
-      "n": 7648
+      "status": "CF",
+      "timestamp": 1781523149011,
+      "n": 7648,
+      "factors": [
+        "5",
+        "17",
+        "887",
+        "1913"
+      ],
+      "source": "fdb"
     },
     "7650": {
-      "status": "U",
-      "timestamp": 1781504274282,
-      "n": 7650
+      "status": "CF",
+      "timestamp": 1781523150251,
+      "n": 7650,
+      "factors": [
+        "47",
+        "241",
+        "1427047"
+      ],
+      "source": "fdb"
     },
     "7652": {
-      "status": "U",
-      "timestamp": 1781504274822,
-      "n": 7652
+      "status": "CF",
+      "timestamp": 1781523151501,
+      "n": 7652,
+      "factors": [
+        "5",
+        "428657"
+      ],
+      "source": "fdb"
     },
     "7654": {
       "status": "U",
@@ -74995,606 +77018,606 @@
   },
   "changelog": [
     {
-      "n": 3224,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781522542516
-    },
-    {
-      "n": 3222,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522542079
-    },
-    {
-      "n": 3220,
-      "type": "updated",
-      "detail": "FDB CF: 8 factor(s)",
-      "ts": 1781522541629
-    },
-    {
-      "n": 3218,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781522541173
-    },
-    {
-      "n": 3216,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781522540690
-    },
-    {
-      "n": 3214,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781522540256
-    },
-    {
-      "n": 3212,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522539762
-    },
-    {
-      "n": 3210,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522539321
-    },
-    {
-      "n": 3208,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522538878
-    },
-    {
-      "n": 3204,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781522537958
-    },
-    {
-      "n": 3202,
+      "n": 7652,
       "type": "updated",
       "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781522537539
+      "ts": 1781523151516
     },
     {
-      "n": 3200,
-      "type": "updated",
-      "detail": "FDB CF: 8 factor(s)",
-      "ts": 1781522537104
-    },
-    {
-      "n": 3196,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781522536230
-    },
-    {
-      "n": 3194,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522535801
-    },
-    {
-      "n": 3192,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781522535352
-    },
-    {
-      "n": 3190,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781522534885
-    },
-    {
-      "n": 3188,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781522534390
-    },
-    {
-      "n": 3186,
+      "n": 7650,
       "type": "updated",
       "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781522533939
+      "ts": 1781523150269
     },
     {
-      "n": 3184,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781522533467
-    },
-    {
-      "n": 3180,
+      "n": 7648,
       "type": "updated",
       "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781522532530
+      "ts": 1781523149030
     },
     {
-      "n": 3178,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781522532073
-    },
-    {
-      "n": 3176,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522531651
-    },
-    {
-      "n": 3172,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781522530781
-    },
-    {
-      "n": 3170,
+      "n": 7646,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781522530327
+      "ts": 1781523147773
     },
     {
-      "n": 3168,
-      "type": "updated",
-      "detail": "FDB CF: 11 factor(s)",
-      "ts": 1781522529870
-    },
-    {
-      "n": 3164,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781522528921
-    },
-    {
-      "n": 3162,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522528475
-    },
-    {
-      "n": 3160,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781522527942
-    },
-    {
-      "n": 3158,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781522527488
-    },
-    {
-      "n": 3156,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781522527016
-    },
-    {
-      "n": 3154,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781522526557
-    },
-    {
-      "n": 3152,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520879372
-    },
-    {
-      "n": 3150,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520878930
-    },
-    {
-      "n": 3148,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520878511
-    },
-    {
-      "n": 3146,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520878065
-    },
-    {
-      "n": 3144,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520877568
-    },
-    {
-      "n": 3142,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781520877114
-    },
-    {
-      "n": 3140,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520876690
-    },
-    {
-      "n": 3138,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520876267
-    },
-    {
-      "n": 3136,
-      "type": "updated",
-      "detail": "FDB CF: 11 factor(s)",
-      "ts": 1781520875842
-    },
-    {
-      "n": 3132,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781520875018
-    },
-    {
-      "n": 3130,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520874584
-    },
-    {
-      "n": 3128,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781520874163
-    },
-    {
-      "n": 3126,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520873699
-    },
-    {
-      "n": 3124,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520873276
-    },
-    {
-      "n": 3120,
-      "type": "updated",
-      "detail": "FDB CF: 14 factor(s)",
-      "ts": 1781520872365
-    },
-    {
-      "n": 3118,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781520871908
-    },
-    {
-      "n": 3116,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520871420
-    },
-    {
-      "n": 3114,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520870892
-    },
-    {
-      "n": 3112,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520870431
-    },
-    {
-      "n": 3110,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520869971
-    },
-    {
-      "n": 3108,
-      "type": "updated",
-      "detail": "FDB CF: 8 factor(s)",
-      "ts": 1781520869567
-    },
-    {
-      "n": 3106,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520869141
-    },
-    {
-      "n": 3104,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520868685
-    },
-    {
-      "n": 3102,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520868239
-    },
-    {
-      "n": 3100,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520867785
-    },
-    {
-      "n": 3098,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520867376
-    },
-    {
-      "n": 3096,
+      "n": 7644,
       "type": "updated",
       "detail": "FDB CF: 9 factor(s)",
-      "ts": 1781520866928
+      "ts": 1781523146547
     },
     {
-      "n": 3094,
+      "n": 7642,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523145287
+    },
+    {
+      "n": 7640,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523144014
+    },
+    {
+      "n": 7636,
       "type": "updated",
       "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520866469
+      "ts": 1781523141341
     },
     {
-      "n": 3092,
-      "type": "updated",
-      "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781520866035
+      "n": 7634,
+      "type": "promoted",
+      "detail": "Full value resolved via FactorDB (Fully Factored)",
+      "ts": 1781523140105
     },
     {
-      "n": 3090,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520865573
-    },
-    {
-      "n": 3088,
+      "n": 7632,
       "type": "updated",
       "detail": "FDB CF: 8 factor(s)",
-      "ts": 1781520865124
+      "ts": 1781523138896
     },
     {
-      "n": 3086,
+      "n": 7630,
       "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520864652
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523137645
     },
     {
-      "n": 3084,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520864201
-    },
-    {
-      "n": 3082,
+      "n": 7628,
       "type": "updated",
       "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520863730
+      "ts": 1781523136392
     },
     {
-      "n": 3080,
+      "n": 7626,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523135144
+    },
+    {
+      "n": 7624,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523133916
+    },
+    {
+      "n": 7622,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523132666
+    },
+    {
+      "n": 7620,
       "type": "updated",
       "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781520863285
+      "ts": 1781523131362
     },
     {
-      "n": 3078,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520862839
-    },
-    {
-      "n": 3076,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520785162
-    },
-    {
-      "n": 3074,
+      "n": 7618,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520784714
+      "ts": 1781523130123
     },
     {
-      "n": 3072,
+      "n": 7616,
+      "type": "updated",
+      "detail": "FDB CF: 8 factor(s)",
+      "ts": 1781523128905
+    },
+    {
+      "n": 7614,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523127657
+    },
+    {
+      "n": 7612,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523126433
+    },
+    {
+      "n": 7610,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523125176
+    },
+    {
+      "n": 7608,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523123937
+    },
+    {
+      "n": 7606,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523122659
+    },
+    {
+      "n": 7604,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523121404
+    },
+    {
+      "n": 7602,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523120069
+    },
+    {
+      "n": 7600,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523118807
+    },
+    {
+      "n": 7596,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523116131
+    },
+    {
+      "n": 7594,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523114809
+    },
+    {
+      "n": 7592,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523113566
+    },
+    {
+      "n": 7590,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523112344
+    },
+    {
+      "n": 7588,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523111101
+    },
+    {
+      "n": 7586,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523109814
+    },
+    {
+      "n": 7584,
       "type": "updated",
       "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781520784280
+      "ts": 1781523108564
     },
     {
-      "n": 3070,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520783860
-    },
-    {
-      "n": 3068,
+      "n": 7582,
       "type": "updated",
       "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520783352
+      "ts": 1781523107320
     },
     {
-      "n": 3066,
+      "n": 7580,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523106100
+    },
+    {
+      "n": 7578,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523104861
+    },
+    {
+      "n": 7576,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523103624
+    },
+    {
+      "n": 7574,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523102390
+    },
+    {
+      "n": 7572,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523101163
+    },
+    {
+      "n": 7570,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520782939
+      "ts": 1781523099867
     },
     {
-      "n": 3064,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520782543
-    },
-    {
-      "n": 3062,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520781627
-    },
-    {
-      "n": 3060,
-      "type": "updated",
-      "detail": "FDB CF: 13 factor(s)",
-      "ts": 1781520781205
-    },
-    {
-      "n": 3058,
+      "n": 7568,
       "type": "updated",
       "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781520780706
+      "ts": 1781523098602
     },
     {
-      "n": 3056,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520780289
-    },
-    {
-      "n": 3052,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520779391
-    },
-    {
-      "n": 3050,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520778967
-    },
-    {
-      "n": 3048,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520778531
-    },
-    {
-      "n": 3044,
+      "n": 7566,
       "type": "updated",
       "detail": "FDB CF: 5 factor(s)",
-      "ts": 1781520777660
+      "ts": 1781523097351
     },
     {
-      "n": 3040,
+      "n": 7564,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523096011
+    },
+    {
+      "n": 7562,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523094759
+    },
+    {
+      "n": 7560,
+      "type": "updated",
+      "detail": "FDB CF: 17 factor(s)",
+      "ts": 1781523093501
+    },
+    {
+      "n": 7558,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523092250
+    },
+    {
+      "n": 7556,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523091007
+    },
+    {
+      "n": 7552,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523088355
+    },
+    {
+      "n": 7550,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523087047
+    },
+    {
+      "n": 7548,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523085824
+    },
+    {
+      "n": 7546,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523084579
+    },
+    {
+      "n": 7544,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523083345
+    },
+    {
+      "n": 7540,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523080823
+    },
+    {
+      "n": 7536,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523078320
+    },
+    {
+      "n": 7534,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523077085
+    },
+    {
+      "n": 7532,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523075865
+    },
+    {
+      "n": 7530,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523074474
+    },
+    {
+      "n": 7528,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523073178
+    },
+    {
+      "n": 7526,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523071917
+    },
+    {
+      "n": 7524,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523070656
+    },
+    {
+      "n": 7522,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523069405
+    },
+    {
+      "n": 7520,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523068182
+    },
+    {
+      "n": 7518,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523066840
+    },
+    {
+      "n": 7516,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523065581
+    },
+    {
+      "n": 7512,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523062927
+    },
+    {
+      "n": 7508,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523060334
+    },
+    {
+      "n": 7506,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523059010
+    },
+    {
+      "n": 7504,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523057727
+    },
+    {
+      "n": 7500,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523055154
+    },
+    {
+      "n": 7498,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523053854
+    },
+    {
+      "n": 7400,
+      "type": "updated",
+      "detail": "FDB CF: 9 factor(s)",
+      "ts": 1781523051488
+    },
+    {
+      "n": 7140,
       "type": "updated",
       "detail": "FDB CF: 10 factor(s)",
-      "ts": 1781520776818
+      "ts": 1781523050217
     },
     {
-      "n": 3038,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520776355
-    },
-    {
-      "n": 3036,
-      "type": "updated",
-      "detail": "FDB CF: 7 factor(s)",
-      "ts": 1781520775929
-    },
-    {
-      "n": 3034,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520775498
-    },
-    {
-      "n": 3032,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520775049
-    },
-    {
-      "n": 3028,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520774157
-    },
-    {
-      "n": 3026,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520773689
-    },
-    {
-      "n": 3024,
-      "type": "updated",
-      "detail": "FDB CF: 12 factor(s)",
-      "ts": 1781520773258
-    },
-    {
-      "n": 3022,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520772799
-    },
-    {
-      "n": 3020,
+      "n": 6986,
       "type": "updated",
       "detail": "FDB CF: 2 factor(s)",
-      "ts": 1781520772308
+      "ts": 1781523044642
     },
     {
-      "n": 3018,
+      "n": 6984,
       "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520771840
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523043357
     },
     {
-      "n": 3016,
-      "type": "updated",
-      "detail": "FDB CF: 4 factor(s)",
-      "ts": 1781520771403
-    },
-    {
-      "n": 3014,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520770781
-    },
-    {
-      "n": 3012,
-      "type": "updated",
-      "detail": "FDB CF: 6 factor(s)",
-      "ts": 1781520770334
-    },
-    {
-      "n": 3010,
+      "n": 6982,
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781520769837
+      "ts": 1781523042048
     },
     {
-      "n": 3008,
+      "n": 6980,
       "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520769424
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523040711
     },
     {
-      "n": 3006,
+      "n": 6978,
       "type": "updated",
       "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520768929
+      "ts": 1781523039418
     },
     {
-      "n": 3004,
+      "n": 6976,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523038183
+    },
+    {
+      "n": 6974,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523036946
+    },
+    {
+      "n": 6972,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523035727
+    },
+    {
+      "n": 6968,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523033240
+    },
+    {
+      "n": 6966,
       "type": "updated",
       "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781520768484
+      "ts": 1781523032004
+    },
+    {
+      "n": 6964,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523030744
+    },
+    {
+      "n": 6962,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523029490
+    },
+    {
+      "n": 6960,
+      "type": "updated",
+      "detail": "FDB CF: 13 factor(s)",
+      "ts": 1781523028195
+    },
+    {
+      "n": 6958,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523026938
+    },
+    {
+      "n": 6956,
+      "type": "updated",
+      "detail": "FDB CF: 7 factor(s)",
+      "ts": 1781523025687
+    },
+    {
+      "n": 6954,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523024416
+    },
+    {
+      "n": 6952,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523023151
+    },
+    {
+      "n": 6950,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523021867
+    },
+    {
+      "n": 6948,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523020586
+    },
+    {
+      "n": 6684,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523019329
+    },
+    {
+      "n": 6682,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523018119
+    },
+    {
+      "n": 6680,
+      "type": "updated",
+      "detail": "FDB CF: 4 factor(s)",
+      "ts": 1781523016870
+    },
+    {
+      "n": 6678,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523015632
+    },
+    {
+      "n": 6676,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781523014420
+    },
+    {
+      "n": 6674,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781523013183
+    },
+    {
+      "n": 6672,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781523011948
+    },
+    {
+      "n": 6670,
+      "type": "updated",
+      "detail": "FDB CF: 1 factor(s)",
+      "ts": 1781523010702
+    },
+    {
+      "n": 6668,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781523009449
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-15T11:22:23.150Z"
+  "updatedAt": "2026-06-15T11:32:32.971Z"
 }
