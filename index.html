@@ -1098,7 +1098,7 @@ function replayFDBCache() {
     }
 
     // Partial resolution: FDB CF for full value or cofactor
-    if (status === 'CF' && ((factors && factors.length >= 1) || cached.cofactorLen)) {
+    if (status === 'CF' && factors && factors.length >= 1) {
       const allFDB = (factors || []).filter(f => f && f !== '1');
       const cofactorLen = cached.cofactorLen || null;
       // If we have cofactorLen, we know prime factors are all but the implied cofactor
@@ -1109,7 +1109,7 @@ function replayFDBCache() {
         // Strip any old large composite "factors" (>500 digits) — these are stale cofactors
         const cleanExisting = (entry.factors || []).filter(f => f.length <= 500);
         entry.factors  = [...new Set([...cleanExisting, ...knownFactors])];
-        entry.cofactor = cofactorNum; // may be a placeholder string like "(~1247d cofactor)"
+        entry.cofactor = null;
         if (entry.status !== 'full') entry.status = 'partial';
         entry._fdbVerified = true;
         restored++;
@@ -2322,7 +2322,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           addChangelogEntry(target.n, 'promoted', 'Cofactor resolved via FactorDB (' + fdbStatusLabel(status) + ')');
 
         // Path 2: full value lookup resolved (unknown → full)
-        } else if (entry.val === target.number && (entry.status === 'unknown' || entry.status === 'composite') && resolved) {
+        } else if (entry.val === target.number && entry.status !== 'full' && resolved) {
           const fdbFactors = primeFactors.filter(f => f && f !== '1');
           entry.factors = fdbFactors;
           entry.cofactor = null;
@@ -2336,25 +2336,16 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           entry.status = 'composite';
           addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
 
-        // Path 3b: partial factors found (CF) — update known factors + set cofactor
-        } else if (status === 'CF' && primeFactors.length >= 1) {
-          const allFDB = primeFactors.filter(f => f && f !== '1');
-          if (allFDB.length > 0) {
-            // Heuristic: last factor is the unfactored remainder if it's much larger than others
-            const sorted = [...allFDB].sort((a,b) => a.length - b.length);
-            const lastF  = allFDB[allFDB.length - 1];
-            const isLastBig = lastF.length > 15 && allFDB.length > 1;
-            const knownFactors = isLastBig ? allFDB.slice(0, -1) : allFDB;
-            const cofactorNum  = isLastBig ? lastF : null;
-
-            entry.factors  = [...new Set([...(entry.factors || []), ...knownFactors])];
-            entry.cofactor    = cofactorNum;
-    
-            entry.status          = 'partial';
-            entry._fdbVerified = true;
-            const logMsg = `E(${target.n}) partial: ${knownFactors.join(' × ')}${cofactorNum ? ' × [cofactor '+cofactorNum.length+'d]' : ''}`;
-            addLog(logMsg, 'ok');
-            addChangelogEntry(target.n, 'updated', 'FDB CF: ' + knownFactors.length + ' factor(s) known, cofactor ' + (cofactorNum ? cofactorNum.length + 'd' : 'none'));
+        // Path 3b: partial factors (CF) — primeFactors already stripped of cofactor
+        } else if (status === 'CF') {
+          const knownFactors = primeFactors.filter(f => f && f !== '1');
+          entry.factors      = [...new Set([...(entry.factors || []), ...knownFactors])];
+          entry.cofactor     = null;
+          entry.status       = entry.status === 'full' ? 'full' : 'partial';
+          entry._fdbVerified = true;
+          if (knownFactors.length) {
+            addLog(`E(${target.n}) partial: ${knownFactors.slice(0,3).join(' × ')}${knownFactors.length > 3 ? ' …' : ''}`, 'ok');
+            addChangelogEntry(target.n, 'updated', 'FDB CF: ' + knownFactors.length + ' factor(s)');
           }
         }
       }
@@ -2376,16 +2367,26 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         // unchanged — skip logging to keep the log clean
       }
     } catch(err) {
-      errors++;
-      addLog(`E(${target.n}) query failed → fdb-unknown: ${err.message || err}`, 'warn');
-      // Any failure → mark as fdb-unknown (tried and failed = unknown via FDB)
-      const failEntry = allEntries.find(e => e.n === target.n);
-      if (failEntry && (failEntry.status === 'unknown')) {
-        failEntry.status = 'fdb-unknown';
-        fdbCache[target.number] = { status: 'U', timestamp: Date.now(), n: target.n };
-        saveFDBCache(fdbCache);
-        addFdbUnknown(target.n);
+      // Only count as error if it's a genuine query failure (not a JS bug in processing)
+      const isQueryError = err instanceof TypeError || err.message?.includes('fetch') ||
+        err.message?.includes('Failed') || err.message?.includes('HTTP') ||
+        err.message?.includes('timeout') || err.message?.includes('abort') ||
+        err.message?.includes('Non-numeric') || err.message?.includes('too large');
+      if (isQueryError) {
+        errors++;
+        const failEntry = allEntries.find(e => e.n === target.n);
+        if (failEntry && failEntry.status === 'unknown') {
+          failEntry.status = 'fdb-unknown';
+          fdbCache[target.number] = { status: 'U', timestamp: Date.now(), n: target.n };
+          saveFDBCache(fdbCache);
+          addFdbUnknown(target.n);
+        }
+      } else {
+        // JS processing error — still count as updated if entry changed
+        updated++;
+        console.error('Processing error for E(' + target.n + '):', err);
       }
+      addLog(`E(${target.n}) ${isQueryError ? 'query failed' : 'processing error'}: ${err.message || err}`, 'warn');
     }
 
     // Remove fetching highlight
