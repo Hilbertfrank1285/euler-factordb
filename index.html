@@ -619,11 +619,6 @@
       onchange="MAX_PER_SESSION = Math.max(1, parseInt(this.value)||500)"
       style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
   </div>
-  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
-    <span class="poll-icon">↻</span>
-    <span class="spinner">◌</span>
-    Check unknowns
-  </button>
   <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
     <span class="poll-icon">↻</span>
     <span class="spinner">◌</span>
@@ -632,13 +627,18 @@
   <button class="poll-btn" id="pollFdbUnknownBtn" onclick="startFdbUnknownPoll()">
     <span class="poll-icon">↻</span>
     <span class="spinner">◌</span>
-    Re-check FDB unknown
+    Check FDB unknown
+  </button>
+  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Check unknown
   </button>
   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
     <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
       <span class="poll-icon">↻</span>
       <span class="spinner">◌</span>
-      Check stale (&gt;
+      Check old records (&gt;
     </button><input type="number" id="staleDaysInput" value="7" min="1" max="365"
       style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
     days)
@@ -665,9 +665,9 @@
     <button class="filter-btn active" data-filter="all">ALL</button>
     <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
-    <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
-    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown">FDB UNKNOWN</button>
     <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
+    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown">FDB UNKNOWN</button>
+    <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
@@ -2646,16 +2646,18 @@ function startStalePoll() {
 
 function startFdbUnknownPoll() {
   if (polling) return;
+  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
   const targets = allEntries
     .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
+    .filter(t => t.number)
+    .slice(0, cap);
   if (!targets.length) {
     setStatus('No FDB-unknown entries to re-check', 'warn');
     return;
   }
-  addLog('Re-checking ' + targets.length + ' FDB-unknown entries', '');
-  runPollQueue(targets, true, document.getElementById('pollFdbUnknownBtn'), false, true);
+  addLog('Re-checking ' + targets.length + ' FDB-unknown entries (cap: ' + cap + ')', '');
+  runPollQueue(targets, true, document.getElementById('pollFdbUnknownBtn'), false, false);
 }
 
 function startCompositePoll() {
