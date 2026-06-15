@@ -1701,9 +1701,9 @@ async function githubPush() {
   try {
     // Helper to get current SHA
     async function getCurrentSha() {
-      // Cache-buster + no-store to always get the LIVE sha (avoids stale 409 loops)
+      // Cache-buster query param avoids stale 409 loops (no custom headers — they break CORS)
       const url = ghApiBase() + '?ref=' + (s.branch||'main') + '&_=' + Date.now();
-      const r = await fetch(url, { headers: { ...ghHeaders(), 'Cache-Control': 'no-cache' }, cache: 'no-store' });
+      const r = await fetch(url, { headers: ghHeaders(), cache: 'no-store' });
       if (r.ok) { const d = await r.json(); return d.sha || null; }
       if (r.status === 404) return null; // file doesn't exist yet
       return null;
