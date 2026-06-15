@@ -629,6 +629,11 @@
     <span class="spinner">◌</span>
     Check no known factors
   </button>
+  <button class="poll-btn" id="pollFdbUnknownBtn" onclick="startFdbUnknownPoll()">
+    <span class="poll-icon">↻</span>
+    <span class="spinner">◌</span>
+    Re-check FDB unknown
+  </button>
   <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
     <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
       <span class="poll-icon">↻</span>
@@ -2059,9 +2064,9 @@ function clearAllLocalData() {
   ];
   keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
 
-  // Also wipe any other eulerFDB_ keys that might exist
+  // Also wipe any other eulerFDB_ keys — but PRESERVE GitHub settings (token) and theme
   Object.keys(localStorage)
-    .filter(k => k.startsWith('eulerFDB_'))
+    .filter(k => k.startsWith('eulerFDB_') && k !== GH_SETTINGS_KEY && k !== 'eulerFDB_theme')
     .forEach(k => localStorage.removeItem(k));
 
   addLog('All local data cleared — reload to start fresh', 'warn');
@@ -2210,8 +2215,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   const unknownBtn   = document.getElementById('pollUnknownBtn');
   const compositeBtn = document.getElementById('pollCompositeBtn');
   const staleBtn     = document.getElementById('pollStaleBtn');
+  const fdbUnkBtn    = document.getElementById('pollFdbUnknownBtn');
   const btn = activeBtn || mainBtn;
-  [mainBtn, unknownBtn, compositeBtn, staleBtn].forEach(b => { if (b) b.disabled = true; });
+  [mainBtn, unknownBtn, compositeBtn, staleBtn, fdbUnkBtn].forEach(b => { if (b) b.disabled = true; });
   btn.classList.add('polling');
 
   const progress   = document.getElementById('pollProgress');
@@ -2403,6 +2409,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (unknownBtn) unknownBtn.disabled = false;
   if (compositeBtn) compositeBtn.disabled = false;
   const _sb = document.getElementById('pollStaleBtn'); if (_sb) _sb.disabled = false;
+  const _fu = document.getElementById('pollFdbUnknownBtn'); if (_fu) _fu.disabled = false;
   polling = false;
   cancelRequested = false;
   clearInterval(titleInterval);
@@ -2635,6 +2642,20 @@ function startStalePoll() {
   }
   addLog(`Checking ${targets.length} stale entries (>${days}d old)`, '');
   runPollQueue(targets, true, document.getElementById('pollStaleBtn'), true);
+}
+
+function startFdbUnknownPoll() {
+  if (polling) return;
+  const targets = allEntries
+    .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number);
+  if (!targets.length) {
+    setStatus('No FDB-unknown entries to re-check', 'warn');
+    return;
+  }
+  addLog('Re-checking ' + targets.length + ' FDB-unknown entries', '');
+  runPollQueue(targets, true, document.getElementById('pollFdbUnknownBtn'), false, true);
 }
 
 function startCompositePoll() {
