@@ -1026,8 +1026,14 @@ function loadFDBCache() {
       const n   = parseInt(nStr);
       const num = eulerValues[n] || v.numKey || '';
       if (!num) continue;
+      // Restore factors: prefer in-memory fdbFactors, fall back to slim-persisted factors
+      const memFactors  = fdbFactors[num]?.factors;
+      const slimFactors = v.factors;
+      const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
       full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null, n,
-                    ...(fdbFactors[num] || {}) };
+                    ...(factors ? { factors } : {}) };
+      // Also repopulate fdbFactors so replay + display work
+      if (factors && factors.length) fdbFactors[num] = { factors };
     }
     return full;
   } catch { return {}; }
@@ -1039,7 +1045,11 @@ function saveFDBCache(c) {
   for (const [k, v] of Object.entries(c)) {
     if (v.n == null) continue; // skip entries without n index
     const key = String(v.n);  // key by n, not by number string
-    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20), source: v.source || null };
+    // Persist prime factors too (only ≤100 digit ones — keeps localStorage small)
+    const slimFactors = (v.factors || []).filter(f => String(f).length <= 100);
+    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20),
+                  source: v.source || null,
+                  factors: slimFactors.length ? slimFactors : undefined };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
@@ -1586,16 +1596,15 @@ function buildSyncPayload() {
     // FDB returns the full Euler number as its own "factor" for C — useless KB
     if (status === 'C') { full[nStr] = entry; continue; }
 
-    // CF/FF/P/PRP — include prime factors + cofactor metadata
+    // CF/FF/P/PRP — include prime factors
+    // fdbFactors is ALREADY clean (cofactor stripped at FDB-response time) — do NOT re-strip
+    // Prefer in-memory fdbFactors, fall back to slim-persisted factors
     const fd = num ? (fdbFactors[num] || {}) : {};
-    const allFactors = (fd.factors || []).filter(f => f && f !== '1');
-    let primeFactors = allFactors;
-    // For CF entries: all but last factor are prime; last is cofactor — skip it
-    if (v.status === 'CF' && allFactors.length > 1) {
-      primeFactors = allFactors.slice(0, -1);
-    }
+    const memFactors  = (fd.factors || []);
+    const slimFactors = (v.factors || []);
+    const primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
     if (primeFactors.length) entry.factors = primeFactors;
-    if (v.source)            entry.source  = v.source; // preserve fdb/seed flag
+    if (v.source)            entry.source  = v.source;
     full[nStr] = entry;
   }
   return {
