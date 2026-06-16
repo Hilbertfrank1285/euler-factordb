@@ -2331,10 +2331,15 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         // Path 3b: partial factors (CF) — primeFactors already stripped of cofactor
         } else if (status === 'CF') {
           const knownFactors = primeFactors.filter(f => f && f !== '1');
-          entry.factors      = [...new Set([...(entry.factors || []), ...knownFactors])];
+          const merged       = [...new Set([...(entry.factors || []), ...knownFactors])];
+          entry.factors      = merged;
           entry.cofactor     = null;
           entry.status       = entry.status === 'full' ? 'full' : 'partial';
           entry._fdbVerified = true;
+          // Persist the MERGED factors back to fdbCache so they survive reload
+          fdbCache[target.number] = { ...fdbCache[target.number], factors: merged, status: 'CF', n: target.n };
+          fdbFactors[target.number] = { factors: merged };
+          saveFDBCache(fdbCache);
           if (knownFactors.length) {
             addLog(`E(${target.n}) partial: ${knownFactors.slice(0,3).join(' × ')}${knownFactors.length > 3 ? ' …' : ''}`, 'ok');
             addChangelogEntry(target.n, 'updated', 'FDB CF: ' + knownFactors.length + ' factor(s)');
