@@ -1107,11 +1107,9 @@ function replayFDBCache() {
   for (const key of Object.keys(fdbCache)) {
     const entry = fdbCache[key];
     if (entry.factors && Array.isArray(entry.factors)) {
+      // Only strip ^1 suffixes — do NOT strip CF last factor (data is already clean,
+      // cofactor stripping happens at FDB-response time, not on every load)
       let cleaned = entry.factors.map(f => typeof f === 'string' ? f.replace(/\^1$/,'') : f);
-      // CF: last factor is always the composite cofactor — strip it
-      if (entry.status === 'CF' && cleaned.length > 1) {
-        cleaned = cleaned.slice(0, -1);
-      }
       if (cleaned.join() !== entry.factors.join()) {
         fdbCache[key] = { ...entry, factors: cleaned };
         if (cleaned.length) fdbFactors[key] = { factors: cleaned };
@@ -1635,10 +1633,17 @@ function mergeSyncPayload(remote) {
       merged[k] = v;
       mergeStats.remoteWins++;
     } else {
-      // Local wins on timestamp — but copy factors from remote if local has none
-      // (local slim cache loses factors on reload; remote results.json has them)
-      if (!merged[k].factors && v.factors && v.factors.length) {
-        merged[k] = { ...merged[k], factors: v.factors };
+      // Local wins on timestamp — but reconcile factors with remote
+      // Take the UNION of both factor lists (more complete wins, fixes truncated local data)
+      const localF  = merged[k].factors || [];
+      const remoteF = v.factors || [];
+      if (remoteF.length) {
+        const union = [...new Set([...localF, ...remoteF].map(String))];
+        merged[k] = { ...merged[k], factors: union };
+        // If remote is FF/CF and has more factors, prefer remote status too
+        if (remoteF.length > localF.length && ['FF','CF','P','PRP'].includes(v.status)) {
+          merged[k].status = v.status;
+        }
       }
       mergeStats.localWins++;
     }
