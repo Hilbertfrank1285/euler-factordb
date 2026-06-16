@@ -2005,6 +2005,7 @@ async function importFactorsSeed() {
     const seed = await r.json();
 
     let added = 0, skipped = 0, nonPrimeSkipped = 0;
+    let factorsAddedTotal = 0, newPartials = 0, newFulls = 0;
     const toVerify = []; // built BEFORE fdbCache is updated
 
     for (const [nStr, data] of Object.entries(seed)) {
@@ -2061,6 +2062,11 @@ async function importFactorsSeed() {
       // If FDB had no factors at all but seed provides some, that's also "new from seed"
       if (fdbConfirmed.length === 0 && seedPrimes.length > 0) seedAddedNew = true;
 
+      // Count newly added factors + status transitions
+      const priorFactorCount = (entry.factors || []).length;
+      const priorStatus      = entry.status;
+      factorsAddedTotal += Math.max(0, combined.length - priorFactorCount);
+
       entry.factors         = combined;
       entry.cofactor        = null;
       entry._seedAddedNew   = seedAddedNew;
@@ -2068,6 +2074,10 @@ async function importFactorsSeed() {
 
       if (['unknown', 'fdb-unknown'].includes(entry.status)) entry.status = 'partial';
       if (['FF','P','PRP','UN'].includes(cached.status))     entry.status = 'full';
+      if (priorStatus !== entry.status) {
+        if (entry.status === 'partial') newPartials++;
+        else if (entry.status === 'full') newFulls++;
+      }
 
       const cacheStatus = ['FF','P','PRP','UN'].includes(cached.status) ? cached.status : 'CF';
       fdbCache[entry.val] = {
@@ -2088,8 +2098,15 @@ async function importFactorsSeed() {
     for (const [nStr] of Object.entries(seed)) s.delete(parseInt(nStr));
     saveFdbUnknownSet(s);
 
-    addLog('Factors imported: ' + added + ' entries, ' + skipped + ' skipped, ' + nonPrimeSkipped + ' non-prime factors rejected', 'ok');
-    setStatus('Factors import done — ' + added + ' added.', 'ok');
+    const importDetails = [];
+    if (factorsAddedTotal > 0) importDetails.push(factorsAddedTotal + ' factors added');
+    if (newPartials > 0)       importDetails.push(newPartials + ' → partial');
+    if (newFulls > 0)          importDetails.push(newFulls + ' → fully factored');
+    if (nonPrimeSkipped > 0)   importDetails.push(nonPrimeSkipped + ' non-prime rejected');
+    const importDetailStr = importDetails.length ? ' (' + importDetails.join(', ') + ')' : '';
+    const importMsg = 'Factors imported: ' + added + ' entries' + importDetailStr + ', ' + skipped + ' skipped';
+    addLog(importMsg, 'ok');
+    setStatus(importMsg, 'ok');
     applyFilters(); renderStats();
     scheduleECMPush();
     if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; } }, 3000); }
@@ -2365,9 +2382,11 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   addLog(`Poll started — ${total} targets`, '');
 
   let done = 0, updated = 0, errors = 0;
+  let factorsAdded = 0;        // total new prime factors discovered
+  let nowFull = 0, nowPartial = 0, nowComposite = 0, nowFdbUnknown = 0; // status transitions
 
-  // Snapshot entry statuses before poll — used to detect meaningful changes
-  for (const e of allEntries) e._statusBeforePoll = e.status;
+  // Snapshot entry statuses + factor counts before poll
+  for (const e of allEntries) { e._statusBeforePoll = e.status; e._priorFactorCount = (e.factors || []).length; }
 
   cancelRequested = false;
   for (const target of (noCap ? queue : queue.slice(0, MAX_PER_SESSION))) {
@@ -2479,9 +2498,20 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         }
       }
 
-      // Count as updated if FDB status changed OR entry status changed OR new factors added
-      const prevEntryStatus = allEntries.find(x => x.n === target.n)?._prevStatus;
+      // Tally detailed stats per entry
       const entryNow = allEntries.find(x => x.n === target.n);
+      if (entryNow) {
+        const newFactorCount = (entryNow.factors || []).length;
+        const priorCount     = entryNow._priorFactorCount || 0;
+        if (newFactorCount > priorCount) factorsAdded += (newFactorCount - priorCount);
+        // Status transitions (only count if actually changed)
+        if (entryNow._statusBeforePoll !== entryNow.status) {
+          if (entryNow.status === 'full')        nowFull++;
+          else if (entryNow.status === 'partial')   nowPartial++;
+          else if (entryNow.status === 'composite') nowComposite++;
+          else if (entryNow.status === 'fdb-unknown') nowFdbUnknown++;
+        }
+      }
       const factorsChanged = primeFactors.length > 0 &&
         JSON.stringify((prev?.factors || []).sort()) !== JSON.stringify(primeFactors.slice().sort());
       const changed = !prev || prev.status !== status
@@ -2533,10 +2563,20 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   progressIn.style.width = '0%';
 
   const leftover = queue.length - total;
+
+  // Build detailed breakdown
+  const details = [];
+  if (factorsAdded > 0)   details.push(`${factorsAdded} factor${factorsAdded===1?'':'s'} added`);
+  if (nowFull > 0)        details.push(`${nowFull} → fully factored`);
+  if (nowPartial > 0)     details.push(`${nowPartial} → partial`);
+  if (nowComposite > 0)   details.push(`${nowComposite} → no factors`);
+  if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB unknown`);
+  const detailStr = details.length ? ' (' + details.join(', ') + ')' : '';
+
   let msg = cancelRequested
-    ? `Cancelled — ${updated} updated · ${errors} errors · ${done} checked · ${total - done} not checked`
-    : `Done — ${updated} updated, ${errors} errors`;
-  if (!cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (session cap)`;
+    ? `Cancelled — ${done} checked, ${updated} updated${detailStr} · ${errors} errors · ${total - done} not checked`
+    : `Done — ${done} checked, ${updated} updated${detailStr}${errors ? ' · ' + errors + ' errors' : ''}`;
+  if (!cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (cap)`;
 
   setStatus(msg, updated > 0 ? 'ok' : '');
   addLog(msg, updated > 0 ? 'ok' : '');
