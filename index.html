@@ -858,6 +858,48 @@ function isPrime(n) {
     if (n % i === 0n || n % (i + 2n) === 0n) return false;
   return true;
 }
+
+// Miller-Rabin primality test — fast for large numbers (deterministic witnesses for <3.3e24, then random)
+function isProbablePrime(n, rounds = 20) {
+  if (n < 2n) return false;
+  for (const p of [2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n]) {
+    if (n === p) return true;
+    if (n % p === 0n) return false;
+  }
+  // write n-1 as d * 2^r
+  let d = n - 1n, r = 0n;
+  while (d % 2n === 0n) { d /= 2n; r++; }
+
+  const modpow = (base, exp, mod) => {
+    let result = 1n; base %= mod;
+    while (exp > 0n) {
+      if (exp & 1n) result = (result * base) % mod;
+      exp >>= 1n; base = (base * base) % mod;
+    }
+    return result;
+  };
+
+  // Deterministic witnesses cover all n < 3.3 * 10^24; add random for larger
+  const witnesses = [2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n];
+  const extra = [];
+  for (let i = 0; i < rounds; i++) {
+    // pseudo-random witness in [2, n-2]
+    let a = 2n + BigInt(Math.floor(Math.random() * 1e15)) % (n - 4n);
+    extra.push(a);
+  }
+  for (const a of [...witnesses, ...extra]) {
+    if (a >= n) continue;
+    let x = modpow(a, d, n);
+    if (x === 1n || x === n - 1n) continue;
+    let composite = true;
+    for (let i = 0n; i < r - 1n; i++) {
+      x = (x * x) % n;
+      if (x === n - 1n) { composite = false; break; }
+    }
+    if (composite) return false;
+  }
+  return true;
+}
 function labelFactor(f) {
   try {
     const big = BigInt(f);
@@ -1919,7 +1961,7 @@ async function importFactorsSeed() {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' — upload factors_seed.json to repo root');
     const seed = await r.json();
 
-    let added = 0, skipped = 0;
+    let added = 0, skipped = 0, nonPrimeSkipped = 0;
     const toVerify = []; // built BEFORE fdbCache is updated
 
     for (const [nStr, data] of Object.entries(seed)) {
@@ -1928,7 +1970,27 @@ async function importFactorsSeed() {
       if (!entry || !entry.val) { skipped++; continue; }
       if (entry.status === 'full') { skipped++; continue; }
 
-      const seedPrimes = (Array.isArray(data) ? data : []).filter(f => f && f !== '1');
+      const rawSeed = (Array.isArray(data) ? data : []).filter(f => f && f !== '1');
+      // Verify each factor is actually prime — only import confirmed primes
+      const seedPrimes = [];
+      for (const f of rawSeed) {
+        try {
+          // Evaluate expressions like 5^5 to their value
+          let val;
+          if (/^\d+\^\d+$/.test(f)) {
+            const [b, e] = f.split('^'); val = BigInt(b) ** BigInt(e);
+          } else {
+            val = BigInt(f);
+          }
+          // For expressions (5^5), the base must be prime; for plain, the number
+          if (/^\d+\^\d+$/.test(f)) {
+            const base = BigInt(f.split('^')[0]);
+            if (isProbablePrime(base)) seedPrimes.push(f); else nonPrimeSkipped++;
+          } else {
+            if (isProbablePrime(val)) seedPrimes.push(f); else nonPrimeSkipped++;
+          }
+        } catch { nonPrimeSkipped++; }
+      }
       if (!seedPrimes.length) { skipped++; continue; }
 
       const cached       = fdbCache[entry.val] || {};
@@ -1983,7 +2045,7 @@ async function importFactorsSeed() {
     for (const [nStr] of Object.entries(seed)) s.delete(parseInt(nStr));
     saveFdbUnknownSet(s);
 
-    addLog('Factors imported: ' + added + ' entries, ' + skipped + ' skipped', 'ok');
+    addLog('Factors imported: ' + added + ' entries, ' + skipped + ' skipped, ' + nonPrimeSkipped + ' non-prime factors rejected', 'ok');
     setStatus('Factors import done — ' + added + ' added.', 'ok');
     applyFilters(); renderStats();
     scheduleECMPush();
@@ -2049,19 +2111,47 @@ async function importECMSeed() {
 }
 
 function clearAllLocalData() {
-  const confirmed = confirm(
-    'This will permanently delete ALL local data:\n\n' +
-    '  • FDB cache (all query results)\n' +
-    '  • ECM logs\n' +
-    '  • Changelog\n' +
-    '  • Activity log\n' +
-    '  • FDB-unknown set\n\n' +
-    'GitHub settings (token) are kept.\n' +
-    'You will need to re-import ECM seed and factors seed.\n\n' +
-    'Continue?'
-  );
-  if (!confirmed) return;
+  // Custom in-page confirm (native confirm() can be permanently blocked by Chrome)
+  const existing = document.getElementById('clearConfirmOverlay');
+  if (existing) existing.remove();
 
+  const overlay = document.createElement('div');
+  overlay.id = 'clearConfirmOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--red);padding:24px;max-width:420px;font-size:13px;color:var(--text)">
+      <div style="font-size:15px;font-weight:600;color:var(--red);margin-bottom:12px">⚠ Clear all local data?</div>
+      <div style="margin-bottom:8px">This permanently deletes:</div>
+      <div style="color:var(--text-muted);margin-bottom:12px;line-height:1.6">
+        • FDB cache (all query results)<br>
+        • ECM logs<br>
+        • Changelog &amp; activity log<br>
+        • FDB-unknown &amp; seed-new sets
+      </div>
+      <div style="margin-bottom:16px;color:var(--text-muted)">GitHub token is kept. You'll need to re-import the seeds.</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button id="clearCancelBtn" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);cursor:pointer">Cancel</button>
+        <button id="clearConfirmBtn" style="padding:7px 16px;background:var(--red-dim);border:1px solid var(--red);color:var(--red);cursor:pointer;font-weight:600">Delete everything</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const removeOverlay = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', escHandler);
+  };
+  const escHandler = (e) => { if (e.key === 'Escape') removeOverlay(); };
+  document.addEventListener('keydown', escHandler);
+
+  document.getElementById('clearCancelBtn').onclick = removeOverlay;
+  overlay.onclick = (e) => { if (e.target === overlay) removeOverlay(); };
+  document.getElementById('clearConfirmBtn').onclick = () => {
+    removeOverlay();
+    doClearAllLocalData();
+  };
+}
+
+function doClearAllLocalData() {
   // Clear every key we own
   const keysToRemove = [
     STORAGE_KEY, ECM_KEY, CHANGELOG_KEY, LOG_KEY,
@@ -2076,9 +2166,8 @@ function clearAllLocalData() {
     .filter(k => k.startsWith('eulerFDB_') && k !== GH_SETTINGS_KEY && k !== 'eulerFDB_theme')
     .forEach(k => localStorage.removeItem(k));
 
-  addLog('All local data cleared — reload to start fresh', 'warn');
-  alert('Done. Reloading now…');
-  location.reload();
+  addLog('All local data cleared — reloading…', 'warn');
+  setTimeout(() => location.reload(), 300);
 }
 
 function exportCSV() {
