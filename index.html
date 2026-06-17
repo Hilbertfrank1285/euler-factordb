@@ -771,7 +771,7 @@
 
   <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
   <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
-  <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push</button>
+  <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push<span id="dirtyDot" title="You have unsaved changes not yet pushed" style="display:none;width:7px;height:7px;border-radius:50%;background:var(--yellow);margin-left:6px;vertical-align:middle"></span></button>
   <button class="github-btn" onclick="toggleGithubSettings()" title="GitHub settings">⚙</button>
 </div>
 <div class="github-settings-panel" id="githubSettingsPanel">
@@ -971,6 +971,7 @@ function saveECM(d) {
   _ecmCache = d; // update cache immediately
   try {
     localStorage.setItem(ECM_KEY, JSON.stringify(d));
+    markDirty();
   } catch(e) {
     console.error('saveECM failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
@@ -997,6 +998,7 @@ function loadChangelog() {
 function saveChangelog(c) {
   try {
     localStorage.setItem(CHANGELOG_KEY, JSON.stringify(c));
+    markDirty();
   } catch(e) {
     console.error('saveChangelog failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
@@ -1061,6 +1063,7 @@ function saveFDBCache(c) {
   }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    markDirty();
   } catch(e) {
     console.error('saveFDBCache failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
@@ -1111,6 +1114,48 @@ let fdbCache = {};
 let activityLog  = loadLog();
 let logOpen      = false;
 let polling      = false;
+
+// ── Unsaved-changes tracking ─────────────────────────────────────────────────
+// _dirty = there are local changes not yet pushed to GitHub. Set by markDirty()
+// from the save functions, cleared on a successful push. Drives the beforeunload
+// warning and the optional auto-push timer.
+let _dirty = false;
+let _autoPushTimer = null;
+function markDirty() {
+  _dirty = true;
+  updateDirtyIndicator();
+  scheduleAutoPush();
+}
+function markClean() {
+  _dirty = false;
+  updateDirtyIndicator();
+}
+function updateDirtyIndicator() {
+  const el = document.getElementById('dirtyDot');
+  if (el) el.style.display = _dirty ? 'inline-block' : 'none';
+}
+// Auto-push: 45s after the last change, push if GitHub is configured.
+// Disabled when AUTO_PUSH is off (user can toggle via localStorage flag).
+function autoPushEnabled() {
+  return localStorage.getItem('eulerFDB_autoPush') !== 'off';
+}
+function scheduleAutoPush() {
+  if (!autoPushEnabled()) return;
+  if (_autoPushTimer) clearTimeout(_autoPushTimer);
+  _autoPushTimer = setTimeout(() => {
+    _autoPushTimer = null;
+    if (!_dirty) return;
+    const s = loadGHSettings();
+    if (s && s.token && s.user && s.repo && navigator.onLine && !polling) {
+      addLog('Auto-pushing unsaved changes…', '');
+      githubPush();
+    }
+  }, 45000);
+}
+// Warn before leaving the page with unpushed changes.
+window.addEventListener('beforeunload', (e) => {
+  if (_dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+});
 let cancelRequested = false;
 let sortMode     = 'default'; // 'default' | 'diff-asc' | 'diff-desc'
 
@@ -1449,6 +1494,9 @@ function toggleChangelog() {
 
 const GH_SETTINGS_KEY = 'eulerFDB_ghSettings';
 const GH_DATA_FILE    = 'results.json';
+// results.json schema version. Bump when the on-disk format changes so old
+// files can be detected and (if needed) migrated or flagged on pull.
+const SCHEMA_VERSION  = 3;
 
 function loadGHSettings() {
   try { return JSON.parse(localStorage.getItem(GH_SETTINGS_KEY) || '{}'); } catch { return {}; }
@@ -1668,6 +1716,7 @@ function buildSyncPayload() {
     full[nStr] = entry;
   }
   return {
+    version:   SCHEMA_VERSION,
     fdbCache:  full,
     changelog: loadChangelog(),
     ecm:       loadECM(),
@@ -1677,6 +1726,14 @@ function buildSyncPayload() {
 
 // Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
 function mergeSyncPayload(remote) {
+  // Schema version check — warn (don't crash) if the remote file predates the
+  // current format. Missing version = legacy file (pre-v3); treat as v1.
+  const remoteVersion = remote.version || 1;
+  if (remoteVersion > SCHEMA_VERSION) {
+    addLog(`⚠ results.json is schema v${remoteVersion} but this app expects v${SCHEMA_VERSION}. Update the app — pulling anyway, some fields may be ignored.`, 'warn');
+  } else if (remoteVersion < SCHEMA_VERSION) {
+    addLog(`Note: results.json is schema v${remoteVersion} (current is v${SCHEMA_VERSION}). Pulling and upgrading on next push.`, '');
+  }
   // FDB cache: both local and remote are number-string keyed
   // Remote (results.json) is now n-keyed — convert to number-string keys using eulerValues
   const localCache  = loadFDBCache();
@@ -1790,6 +1847,7 @@ async function githubPull() {
     fetchLastUpdateTime();
     const pulledCount = Object.keys(fdbCache || {}).length;
     setGHStatus('✓ Pulled from GitHub — ' + pulledCount + ' entries merged', 'ok');
+    markClean(); // just synced with remote — nothing unsaved
   } catch(e) {
     setGHStatus(`Pull failed: ${e.message}`, 'err');
     addLog(`GitHub pull error: ${e.message}`, 'err');
@@ -1902,6 +1960,7 @@ async function githubPush() {
     }
     const pushTime = new Date();
     addLog('GitHub push complete', 'ok');
+    markClean(); // changes are now safely on GitHub
     const payloadStats = buildSyncPayload();
     const entryCount = Object.keys(payloadStats.fdbCache || {}).length;
     setGHStatus('✓ Pushed ' + entryCount + ' entries to GitHub @ ' + pushTime.toLocaleTimeString(), 'ok');
@@ -2514,6 +2573,98 @@ function cancelPoll() {
   if (cbEl) cbEl.textContent = '⊘ Cancelling…';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CANONICAL FactorDB result handler — used by ALL query paths (poll, quick, modal)
+// Parses the FDB response, merges with existing factors, computes source by coverage,
+// updates the entry + fdbCache + fdbFactors, and persists. Returns a summary object.
+//
+//   data       : parsed JSON from queryFactorDB
+//   n          : euler index
+//   numberStr  : the queried number string (entry.val)
+//
+// Returns: { status, factors, source, entryStatus, factorsAddedToEntry,
+//            statusChanged, priorEntryStatus }
+// ─────────────────────────────────────────────────────────────────────────────
+function applyFdbResult(data, n, numberStr) {
+  const rawStatus = data.status || 'U';
+  const status    = rawStatus === 'UN' ? 'FF' : rawStatus;
+
+  // Parse factors: arrays come as [base, exp]; collapse exp===1
+  const allFdbFactors = (data.factors || [])
+    .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
+    .filter(f => f && f !== '1');
+
+  // CF: the LAST factor is always the composite cofactor — strip it. Others are prime.
+  const fdbPrimes = (status === 'CF' && allFdbFactors.length > 1)
+    ? allFdbFactors.slice(0, -1)
+    : allFdbFactors;
+
+  const entry = allEntries.find(x => x.n === n);
+  const priorEntryStatus = entry ? entry.status : null;
+  const priorOwn = (entry?.factors || []).filter(f => f && f !== '1');
+  const priorCount = priorOwn.length;
+
+  // Merge: keep everything we already had + anything new from FDB
+  const merged = [...new Set([...priorOwn, ...fdbPrimes])];
+
+  // Source: 'fdb' only if FDB returned EVERYTHING we hold; else 'import'
+  const fdbSet = new Set(fdbPrimes.map(String));
+  const source = merged.every(f => fdbSet.has(String(f))) ? 'fdb' : 'import';
+
+  // --- Update the cache entry ---
+  const cacheEntry = { status, factors: merged, timestamp: Date.now(), source, n };
+  if (numberStr) {
+    fdbCache[numberStr] = cacheEntry;
+    if (merged.length) fdbFactors[numberStr] = { factors: merged };
+  }
+
+  // --- Update the display entry status ---
+  let statusChanged = false;
+  if (entry) {
+    const resolved = ['FF','P','PRP'].includes(status);
+    if (resolved) {
+      // Fully factored
+      entry.factors  = merged;
+      entry.cofactor = null;
+      if (entry.status !== 'full') { entry.status = 'full'; statusChanged = true; }
+      entry._fdbVerified = true;
+    } else if (status === 'CF') {
+      entry.factors  = merged;
+      entry.cofactor = null;
+      if (entry.status !== 'full' && entry.status !== 'partial') statusChanged = true;
+      if (entry.status !== 'full') entry.status = 'partial';
+      entry._fdbVerified = true;
+    } else if (status === 'C') {
+      // Composite, no factors — only downgrade if we have nothing of our own
+      if (entry.status !== 'full' && entry.status !== 'partial' && priorCount === 0) {
+        if (entry.status !== 'composite') { entry.status = 'composite'; statusChanged = true; }
+      }
+    } else if (status === 'U') {
+      if (entry.status === 'unknown' || entry.status === 'fdb-unknown') {
+        if (entry.status !== 'fdb-unknown') statusChanged = true;
+        entry.status = 'fdb-unknown';
+        addFdbUnknown(n);
+      }
+    }
+  }
+
+  // Clear seed-new flag if FDB now fully covers the entry
+  if (source === 'fdb' && merged.length > 0) {
+    const sn = loadSeedNewSet();
+    if (sn.has(n)) { if (entry) entry._seedAddedNew = false; sn.delete(n); saveSeedNewSet(sn); }
+  }
+
+  if (numberStr) saveFDBCache(fdbCache);
+
+  return {
+    status, factors: merged, source,
+    entryStatus: entry ? entry.status : null,
+    factorsAddedToEntry: merged.length - priorCount,
+    statusChanged,
+    priorEntryStatus,
+  };
+}
+
 async function runPollQueue(targets, isManual = false, activeBtn = null, forceU = false, noCap = false) {
   if (polling) return;
   polling = true;
@@ -2578,107 +2729,19 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
     try {
       const data = await queryFactorDB(target.number);
-      const rawStatus = data.status || 'U';
-      const status    = rawStatus === 'UN' ? 'FF' : rawStatus;
-
-      // Parse all factors from FDB response
-      const allFdbFactors = (data.factors || [])
-        .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
-        .filter(f => f && f !== '1');
-
-      // For CF: last factor is always the composite cofactor, all preceding are prime
-      // For FF/P/PRP: all factors are prime (the number itself if it's prime)
-      // For CF: last factor is the composite cofactor — skip it, keep only primes
-      const primeFactors = (status === 'CF' && allFdbFactors.length > 1)
-        ? allFdbFactors.slice(0, -1)
-        : allFdbFactors;
-
-      // Determine source: 'fdb' only if FDB's factors cover everything we already had.
-      // If we hold a factor FDB didn't return (our seed/manual contribution), keep 'import'
-      // so it stays in the FDB-submission export until FDB ingests it.
-      const fdbSet0      = new Set(primeFactors.map(String));
-      const priorEntry0  = allEntries.find(x => x.n === target.n);
-      const priorOwn0    = (priorEntry0?.factors || []).filter(f => f && f !== '1');
-      const wasImport0   = (fdbCache[target.number]?.source === 'import' || fdbCache[target.number]?.source === 'seed' || fdbCache[target.number]?.source === 'manual');
-      const haveExtra0   = priorOwn0.some(f => !fdbSet0.has(String(f))) || (wasImport0 && priorOwn0.length > primeFactors.length);
-      const entrySource  = haveExtra0 ? 'import' : 'fdb';
-
-      const fullEntry = {
-        status,
-        factors:   primeFactors,
-        timestamp: Date.now(),
-        source:    entrySource,
-        n:         target.n
-      };
-      if (primeFactors.length > 0 && entrySource === 'fdb') {
-        // FDB fully covers this entry — clear seed-new flag
-        const sn = loadSeedNewSet();
-        if (sn.has(target.n)) {
-          const e2 = allEntries.find(x => x.n === target.n);
-          if (e2) e2._seedAddedNew = false;
-          sn.delete(target.n); saveSeedNewSet(sn);
-        }
-      }
-      fdbCache[target.number] = fullEntry;
-      if (primeFactors.length) fdbFactors[target.number] = { factors: primeFactors };
-      saveFDBCache(fdbCache);
-
-      // U → fdb-unknown
-      if (status === 'U') {
-        const uEntry = allEntries.find(e => e.n === target.n);
-        if (uEntry && (uEntry.status === 'unknown' || uEntry.status === 'fdb-unknown')) {
-          uEntry.status = 'fdb-unknown';
-          addFdbUnknown(target.n);
-        }
-      }
-
-      const resolved = ['FF', 'P', 'PRP'].includes(status);
+      const r = applyFdbResult(data, target.n, target.number);
+      const status = r.status;
+      const primeFactors = r.factors;
       const entry = allEntries.find(x => x.n === target.n);
 
-      // Always log what FDB returned
+      // Log what FDB returned
       addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${primeFactors.length} factor(s)${primeFactors.length ? ': '+primeFactors.slice(0,3).join(' × ')+(primeFactors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
 
-      if (entry) {
-        // Full value resolved (any non-full → full)
-        if (entry.val === target.number && entry.status !== 'full' && resolved) {
-          const fdbFactors = primeFactors.filter(f => f && f !== '1');
-          entry.factors = fdbFactors;
-          entry.cofactor = null;
-          entry.status   = 'full';
-          entry._fdbVerified = true;
-          addLog(`E(${target.n}) promoted to FULLY FACTORED — full value resolved`, 'ok');
-          addChangelogEntry(target.n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
-
-        // Path 3a: FDB says composite, no factors (C status)
-        // Don't downgrade entries that already have known factors (partial)
-        } else if (status === 'C') {
-          if (entry.status !== 'full' && entry.status !== 'partial' && !(entry.factors && entry.factors.length)) {
-            entry.status = 'composite';
-            addLog(`E(${target.n}) confirmed composite — no factors found yet`, 'warn');
-          } else {
-            addLog(`E(${target.n}) FDB shows C but we have local factors — keeping ${entry.status}`, '');
-          }
-
-        // Path 3b: partial factors (CF) — primeFactors already stripped of cofactor
-        } else if (status === 'CF') {
-          const knownFactors = primeFactors.filter(f => f && f !== '1');
-          const merged       = [...new Set([...(entry.factors || []), ...knownFactors])];
-          entry.factors      = merged;
-          entry.cofactor     = null;
-          entry.status       = entry.status === 'full' ? 'full' : 'partial';
-          entry._fdbVerified = true;
-          // Source: 'fdb' only if FDB returned everything we have; else 'import'
-          // (we hold factors FDB doesn't → keep exporting them until FDB has them)
-          const fdbHas = new Set(knownFactors.map(String));
-          const mergedSource = merged.every(f => fdbHas.has(String(f))) ? 'fdb' : 'import';
-          fdbCache[target.number] = { ...fdbCache[target.number], factors: merged, status: 'CF', source: mergedSource, n: target.n };
-          fdbFactors[target.number] = { factors: merged };
-          saveFDBCache(fdbCache);
-          if (knownFactors.length) {
-            addLog(`E(${target.n}) partial: ${knownFactors.slice(0,3).join(' × ')}${knownFactors.length > 3 ? ' …' : ''}`, 'ok');
-            addChangelogEntry(target.n, 'updated', 'FDB CF: ' + knownFactors.length + ' factor(s)');
-          }
-        }
+      // Changelog for meaningful transitions
+      if (r.statusChanged && r.entryStatus === 'full') {
+        addChangelogEntry(target.n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
+      } else if (status === 'CF' && r.factorsAddedToEntry > 0) {
+        addChangelogEntry(target.n, 'updated', 'FDB CF: ' + primeFactors.length + ' factor(s)');
       }
 
       // Tally detailed stats per entry
@@ -2826,34 +2889,16 @@ async function quickCheckFDB(n, btn) {
   if (!e || !e.val) return;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    const data      = await queryFactorDB(e.val);
-    const rawSt     = data.status || 'U';
-    const status    = rawSt === 'UN' ? 'FF' : rawSt;
-    const allF      = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
-    const primes    = (status === 'CF' && allF.length > 1) ? allF.slice(0,-1) : allF;
-    // Merge FDB factors with any we already hold; keep ours that FDB didn't return
-    const priorOwn  = (e.factors || []).filter(f => f && f !== '1');
-    const mergedQ   = [...new Set([...priorOwn, ...primes])];
-    const fdbHasQ   = new Set(primes.map(String));
-    // source 'fdb' only if FDB covers everything we have
-    const srcQ      = mergedQ.every(f => fdbHasQ.has(String(f))) ? 'fdb' : 'import';
-    fdbCache[e.val] = { status, factors: mergedQ, timestamp: Date.now(), source: srcQ, n };
-    if (mergedQ.length) fdbFactors[e.val] = { factors: mergedQ };
-    saveFDBCache(fdbCache);
-    if (['FF','P','PRP'].includes(status)) { e.factors = mergedQ; e.cofactor = null; e.status = 'full'; }
-    else if (status === 'CF' && mergedQ.length)  { e.status = 'partial'; e.factors = mergedQ; }
-    else if (status === 'C') { if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'composite'; }
-    else if (status === 'U') { if (e.status === 'unknown') e.status = 'fdb-unknown'; }
-    addLog('E(' + n + ') ↻ ' + fdbStatusLabel(status), 'ok');
+    const data = await queryFactorDB(e.val);
+    const r = applyFdbResult(data, n, e.val);   // canonical handler
+    addLog('E(' + n + ') ↻ ' + fdbStatusLabel(r.status), 'ok');
     applyFilters();
     renderStats();
     scheduleECMPush();
   } catch(err) {
-
-    const qfEntry = allEntries.find(x => x.n === n);
-    if (qfEntry && qfEntry.status === 'unknown') {
-      qfEntry.status = 'fdb-unknown';
-      fdbCache[qfEntry.val] = { status: 'U', timestamp: Date.now(), n };
+    if (e.status === 'unknown') {
+      e.status = 'fdb-unknown';
+      fdbCache[e.val] = { status: 'U', timestamp: Date.now(), n };
       saveFDBCache(fdbCache);
       addFdbUnknown(n);
       applyFilters(); renderStats();
@@ -3561,48 +3606,12 @@ async function modalCheckFull(n) {
   if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
 
   try {
-    const data      = await queryFactorDB(e.val);
-    const rawSt     = data.status || 'U';
-    const status    = (rawSt === 'UN') ? 'FF' : rawSt;
-    const allMF     = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
-    const primesMF  = (status === 'CF' && allMF.length > 1) ? allMF.slice(0,-1) : allMF;
-    // Merge FDB factors with any we already hold
-    const priorOwnMF = (e.factors || []).filter(f => f && f !== '1');
-    const mergedMF   = [...new Set([...priorOwnMF, ...primesMF])];
-    const fdbHasMF   = new Set(primesMF.map(String));
-    const srcMF      = mergedMF.every(f => fdbHasMF.has(String(f))) ? 'fdb' : 'import';
-    fdbCache[e.val] = { status, factors: mergedMF, timestamp: Date.now(), source: srcMF, n };
-    if (mergedMF.length) fdbFactors[e.val] = { factors: mergedMF };
-    saveFDBCache(fdbCache);
-
-    // Promote entry immediately
-    if (['FF','P','PRP'].includes(status)) {
-      e.factors  = mergedMF;
-      e.cofactor = null;
-      e.status   = 'full';
-      e._fdbVerified = true;
-      addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
-    } else if (status === 'CF' && mergedMF.length >= 1) {
-      // primesMF already had the cofactor stripped at parse time; use the merged list
-      e.factors  = mergedMF;
-      e.cofactor = null;
-      e.status   = (e.status === 'full') ? 'full' : 'partial';
-      e._fdbVerified = true;
+    const data = await queryFactorDB(e.val);
+    const r = applyFdbResult(data, n, e.val);   // canonical handler
+    if (r.statusChanged && r.entryStatus === 'full') {
+      addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(r.status) + ')');
     }
-
-    // U (FDB Unknown) → mark as fdb-unknown
-    if (status === 'U') {
-      if (e.status === 'unknown' || e.status === 'fdb-unknown') {
-        e.status = 'fdb-unknown';
-        addFdbUnknown(n);
-      }
-    }
-    // C (Composite, no factors) → composite
-    if (status === 'C') {
-      if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'composite';
-    }
-
-    addLog(`E(${n}) queried → ${fdbStatusLabel(status)}`, 'ok');
+    addLog(`E(${n}) queried → ${fdbStatusLabel(r.status)}`, 'ok');
     applyFilters();
     renderStats();
     const backdrop = document.getElementById('modalBackdrop');
@@ -3622,8 +3631,6 @@ async function modalCheckFull(n) {
       btn.disabled = false;
       btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
     }
-
-    // Make error persistent — store in a data attribute so it survives re-renders
     const errEl = document.getElementById('fdbQueryStatus_' + n);
     if (errEl) {
       const isLarge = e && e.val && e.val.length > 49999;
@@ -4828,6 +4835,8 @@ setTimeout(async () => {
   setStatus('');
   // One-time cleanup: re-save changelog without large strings (trims old stored data)
   try { saveChangelog(loadChangelog()); } catch(e) {}
+  // Loading/replaying data during init is not an unsaved user change — start clean.
+  markClean();
 }, 0);
 </script>
 </body>
