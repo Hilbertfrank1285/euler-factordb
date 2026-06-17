@@ -1534,6 +1534,60 @@ function ghHeaders() {
   };
 }
 
+// Generic: push any JSON file to the repo (used for new_factors.json)
+async function pushFileToGitHub(filename, dataObj, commitMsg) {
+  const s = loadGHSettings();
+  if (!s.token || !s.user || !s.repo) {
+    addLog('Cannot push ' + filename + ' — GitHub not configured', 'warn');
+    return false;
+  }
+  const apiUrl = `https://api.github.com/repos/${s.user}/${s.repo}/contents/${filename}`;
+  const jsonStr = JSON.stringify(dataObj, null, 2);
+  const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+
+  // Get current SHA (file may already exist) — cache-busted
+  let sha = null;
+  try {
+    const r = await fetch(apiUrl + '?ref=' + (s.branch||'main') + '&_=' + Date.now(),
+      { headers: ghHeaders(), cache: 'no-store' });
+    if (r.ok) { const d = await r.json(); sha = d.sha || null; }
+  } catch(e) {}
+
+  const body = {
+    message: commitMsg || ('Update ' + filename),
+    content: encoded,
+    branch:  s.branch || 'main',
+  };
+  if (sha) body.sha = sha;
+
+  try {
+    const r = await fetch(apiUrl, { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
+    if (r.ok) {
+      addLog('✓ Pushed ' + filename + ' (' + Object.keys(dataObj).length + ' entries)', 'ok');
+      return true;
+    } else {
+      const err = await r.json().catch(() => ({}));
+      addLog('Failed to push ' + filename + ': ' + (err.message || r.status), 'err');
+      return false;
+    }
+  } catch(e) {
+    addLog('Error pushing ' + filename + ': ' + e.message, 'err');
+    return false;
+  }
+}
+
+// Pull existing new_factors.json so we accumulate rather than overwrite
+async function pullNewFactorsFile() {
+  const s = loadGHSettings();
+  if (!s.user || !s.repo) return {};
+  try {
+    const url = `https://raw.githubusercontent.com/${s.user}/${s.repo}/${s.branch||'main'}/new_factors.json?_=` + Date.now();
+    const r = await fetch(url, { cache: 'no-store' });
+    if (r.ok) return await r.json();
+  } catch(e) {}
+  return {};
+}
+
 function setGHStatus(msg, cls = '') {
   try {
     const el = document.getElementById('githubStatus');
@@ -2006,6 +2060,7 @@ async function importFactorsSeed() {
 
     let added = 0, skipped = 0, nonPrimeSkipped = 0;
     let factorsAddedTotal = 0, newPartials = 0, newFulls = 0;
+    const newFactorsLog = {}; // n → [factors that were newly added by this import]
     const toVerify = []; // built BEFORE fdbCache is updated
 
     for (const [nStr, data] of Object.entries(seed)) {
@@ -2063,9 +2118,14 @@ async function importFactorsSeed() {
       if (fdbConfirmed.length === 0 && seedPrimes.length > 0) seedAddedNew = true;
 
       // Count newly added factors + status transitions
-      const priorFactorCount = (entry.factors || []).length;
+      const priorFactors     = (entry.factors || []).map(String);
+      const priorFactorCount = priorFactors.length;
       const priorStatus      = entry.status;
-      factorsAddedTotal += Math.max(0, combined.length - priorFactorCount);
+      const priorSet         = new Set(priorFactors);
+      // Which combined factors are genuinely new (weren't on the entry before)?
+      const trulyNew = combined.filter(f => !priorSet.has(String(f)));
+      factorsAddedTotal += trulyNew.length;
+      if (trulyNew.length) newFactorsLog[n] = trulyNew;
 
       entry.factors         = combined;
       entry.cofactor        = null;
@@ -2109,6 +2169,25 @@ async function importFactorsSeed() {
     setStatus(importMsg, 'ok');
     applyFilters(); renderStats();
     scheduleECMPush();
+
+    // Record newly-added prime factors to new_factors.json on GitHub (accumulate with existing)
+    if (Object.keys(newFactorsLog).length > 0) {
+      addLog('Recording ' + Object.keys(newFactorsLog).length + ' entries with new factors → new_factors.json', '');
+      (async () => {
+        try {
+          const existing = await pullNewFactorsFile();
+          // Merge: union of factor lists per n
+          for (const [nStr, facs] of Object.entries(newFactorsLog)) {
+            const prev = existing[nStr] || [];
+            existing[nStr] = [...new Set([...prev.map(String), ...facs.map(String)])];
+          }
+          await pushFileToGitHub('new_factors.json', existing,
+            'Add ' + Object.keys(newFactorsLog).length + ' newly-factored entries');
+        } catch(e) {
+          addLog('new_factors.json push failed: ' + e.message, 'err');
+        }
+      })();
+    }
     if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; } }, 3000); }
 
     if (toVerify.length > 0) {
@@ -2512,11 +2591,11 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           else if (entryNow.status === 'fdb-unknown') nowFdbUnknown++;
         }
       }
-      const factorsChanged = primeFactors.length > 0 &&
-        JSON.stringify((prev?.factors || []).sort()) !== JSON.stringify(primeFactors.slice().sort());
-      const changed = !prev || prev.status !== status
-        || (entryNow && entryNow._statusBeforePoll !== entryNow.status)
-        || factorsChanged;
+      // "Updated" = a MEANINGFUL change only: entry status transition OR new factors added.
+      // A refreshed FDB timestamp or unchanged re-query does NOT count.
+      const statusTransitioned = entryNow && entryNow._statusBeforePoll !== entryNow.status;
+      const gotNewFactors      = entryNow && (entryNow.factors || []).length > (entryNow._priorFactorCount || 0);
+      const changed = statusTransitioned || gotNewFactors;
       if (changed) {
         updated++;
         // Flash the card
