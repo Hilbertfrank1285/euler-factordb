@@ -1588,59 +1588,6 @@ function ghHeaders() {
   };
 }
 
-// Generic: push any JSON file to the repo (used for new_factors.json)
-async function pushFileToGitHub(filename, dataObj, commitMsg) {
-  const s = loadGHSettings();
-  if (!s.token || !s.user || !s.repo) {
-    addLog('Cannot push ' + filename + ' — GitHub not configured', 'warn');
-    return false;
-  }
-  const apiUrl = `https://api.github.com/repos/${s.user}/${s.repo}/contents/${filename}`;
-  const jsonStr = JSON.stringify(dataObj, null, 2);
-  const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
-
-  // Get current SHA (file may already exist) — cache-busted
-  let sha = null;
-  try {
-    const r = await fetch(apiUrl + '?ref=' + (s.branch||'main') + '&_=' + Date.now(),
-      { headers: ghHeaders(), cache: 'no-store' });
-    if (r.ok) { const d = await r.json(); sha = d.sha || null; }
-  } catch(e) {}
-
-  const body = {
-    message: commitMsg || ('Update ' + filename),
-    content: encoded,
-    branch:  s.branch || 'main',
-  };
-  if (sha) body.sha = sha;
-
-  try {
-    const r = await fetch(apiUrl, { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
-    if (r.ok) {
-      addLog('✓ Pushed ' + filename + ' (' + Object.keys(dataObj).length + ' entries)', 'ok');
-      return true;
-    } else {
-      const err = await r.json().catch(() => ({}));
-      addLog('Failed to push ' + filename + ': ' + (err.message || r.status), 'err');
-      return false;
-    }
-  } catch(e) {
-    addLog('Error pushing ' + filename + ': ' + e.message, 'err');
-    return false;
-  }
-}
-
-// Pull existing new_factors.json so we accumulate rather than overwrite
-async function pullNewFactorsFile() {
-  const s = loadGHSettings();
-  if (!s.user || !s.repo) return {};
-  try {
-    const url = `https://raw.githubusercontent.com/${s.user}/${s.repo}/${s.branch||'main'}/new_factors.json?_=` + Date.now();
-    const r = await fetch(url, { cache: 'no-store' });
-    if (r.ok) return await r.json();
-  } catch(e) {}
-  return {};
-}
 
 function setGHStatus(msg, cls = '') {
   try {
@@ -2126,7 +2073,6 @@ async function importFactorsSeed() {
 
     let added = 0, skipped = 0, nonPrimeSkipped = 0;
     let factorsAddedTotal = 0, newPartials = 0, newFulls = 0;
-    const newFactorsLog = {}; // n → [factors that were newly added by this import]
     const toVerify = []; // built BEFORE fdbCache is updated
 
     for (const [nStr, data] of Object.entries(seed)) {
@@ -2199,14 +2145,12 @@ async function importFactorsSeed() {
       const priorStatus      = entry.status;
       const priorSet         = new Set(priorFactors);
       // SEED factors that are genuinely new — not previously on the entry,
-      // not already in FDB's confirmed list. These are what we contribute.
+      // not already in FDB's confirmed list.
       const fdbConfirmedSet = new Set(fdbConfirmed.map(String));
       const seedNewFactors  = seedPrimes
         .map(String)
         .filter(f => !priorSet.has(f) && !fdbConfirmedSet.has(f));
       factorsAddedTotal += seedNewFactors.length;
-      // Only log to new_factors.json if the seed genuinely added a new prime
-      if (seedNewFactors.length) newFactorsLog[n] = seedNewFactors;
 
       entry.factors         = combined;
       entry.cofactor        = null;
@@ -2258,24 +2202,6 @@ async function importFactorsSeed() {
     applyFilters(); renderStats();
     scheduleECMPush();
 
-    // Record newly-added prime factors to new_factors.json on GitHub (accumulate with existing)
-    if (Object.keys(newFactorsLog).length > 0) {
-      addLog('Recording ' + Object.keys(newFactorsLog).length + ' entries with new factors → new_factors.json', '');
-      (async () => {
-        try {
-          const existing = await pullNewFactorsFile();
-          // Merge: union of factor lists per n
-          for (const [nStr, facs] of Object.entries(newFactorsLog)) {
-            const prev = existing[nStr] || [];
-            existing[nStr] = [...new Set([...prev.map(String), ...facs.map(String)])];
-          }
-          await pushFileToGitHub('new_factors.json', existing,
-            'Add ' + Object.keys(newFactorsLog).length + ' newly-factored entries');
-        } catch(e) {
-          addLog('new_factors.json push failed: ' + e.message, 'err');
-        }
-      })();
-    }
     if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; } }, 3000); }
 
     if (toVerify.length > 0) {
