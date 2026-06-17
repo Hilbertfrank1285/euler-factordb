@@ -2344,14 +2344,23 @@ function exportFDBSubmission() {
   const lines = [];
   let count = 0, skippedNoVal = 0, skippedTooBig = 0;
 
+  let skippedFdb = 0;
   for (const e of allEntries) {
     const factors = (e.factors || []).filter(f => f && f !== '1');
-    if (!factors.length) continue;                 // nothing to submit
-    if (!e.val) { skippedNoVal++; continue; }       // need the full number value
-    // FactorDB report URL/POST has practical size limits — skip enormous numbers
+    if (!factors.length) continue;
+    if (!e.val) { skippedNoVal++; continue; }
+
+    // If FDB has fully confirmed this entry (source 'fdb' AND fully factored),
+    // it's already complete in FactorDB — nothing to contribute.
+    const cached = fdbCache[e.val];
+    if (cached && cached.source === 'fdb' && ['FF','P','PRP'].includes(cached.status)) {
+      skippedFdb++;
+      continue;
+    }
+
     if (e.val.length > 10000) { skippedTooBig++; continue; }
 
-    // Expand expressions like 5^3 → 5*5*5 for FDB (it accepts ^ too, but * is safest)
+    // Expand expressions like 5^3 → 5*5*5
     const expanded = [];
     for (const f of factors) {
       const m = /^(\d+)\^(\d+)$/.exec(f);
@@ -2381,9 +2390,10 @@ function exportFDBSubmission() {
   a.click();
   URL.revokeObjectURL(url);
 
-  let msg = 'Exported ' + count + ' numbers to factordb_submission.txt';
+  let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
+  if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
   if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>10000 digits)';
-  if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value loaded)';
+  if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
 }
