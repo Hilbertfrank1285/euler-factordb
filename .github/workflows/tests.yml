@@ -1,0 +1,30 @@
+name: Run tests
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write          # allow committing test-results.json back
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run tests
+        run: node tests.js
+        continue-on-error: true   # don't abort before we save results
+
+      - name: Commit test results
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "actions@github.com"
+          git add test-results.json
+          git diff --staged --quiet || git commit -m "Update test-results.json [skip ci]"
+          git push
