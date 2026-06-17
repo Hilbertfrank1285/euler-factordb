@@ -1127,7 +1127,7 @@
     },
     "174": {
       "status": "CF",
-      "timestamp": 1781615492660,
+      "timestamp": 1781673630392,
       "n": 174,
       "factors": [
         "79",
@@ -1138,7 +1138,7 @@
     },
     "176": {
       "status": "CF",
-      "timestamp": 1781615492970,
+      "timestamp": 1781673631007,
       "n": 176,
       "factors": [
         "5",
@@ -1181,7 +1181,7 @@
     },
     "182": {
       "status": "CF",
-      "timestamp": 1781615493267,
+      "timestamp": 1781673631662,
       "n": 182,
       "factors": [
         "2141",
@@ -1192,7 +1192,7 @@
     },
     "184": {
       "status": "CF",
-      "timestamp": 1781615493564,
+      "timestamp": 1781673632322,
       "n": 184,
       "factors": [
         "5",
@@ -1202,7 +1202,7 @@
     },
     "186": {
       "status": "CF",
-      "timestamp": 1781615493864,
+      "timestamp": 1781673633024,
       "n": 186,
       "factors": [
         "61",
@@ -86960,6 +86960,36 @@
   },
   "changelog": [
     {
+      "n": 186,
+      "type": "updated",
+      "detail": "FDB CF: 6 factor(s)",
+      "ts": 1781673633047
+    },
+    {
+      "n": 184,
+      "type": "updated",
+      "detail": "FDB CF: 2 factor(s)",
+      "ts": 1781673632346
+    },
+    {
+      "n": 182,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781673631691
+    },
+    {
+      "n": 176,
+      "type": "updated",
+      "detail": "FDB CF: 5 factor(s)",
+      "ts": 1781673631033
+    },
+    {
+      "n": 174,
+      "type": "updated",
+      "detail": "FDB CF: 3 factor(s)",
+      "ts": 1781673630427
+    },
+    {
       "n": 7940,
       "type": "updated",
       "detail": "FDB CF: 3 factor(s)",
@@ -87528,38 +87558,8 @@
       "type": "updated",
       "detail": "FDB CF: 2 factor(s)",
       "ts": 1781618152546
-    },
-    {
-      "n": 7732,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781618152023
-    },
-    {
-      "n": 7730,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781618151352
-    },
-    {
-      "n": 7728,
-      "type": "updated",
-      "detail": "FDB CF: 14 factor(s)",
-      "ts": 1781618150844
-    },
-    {
-      "n": 7726,
-      "type": "updated",
-      "detail": "FDB CF: 3 factor(s)",
-      "ts": 1781618150362
-    },
-    {
-      "n": 7724,
-      "type": "updated",
-      "detail": "FDB CF: 1 factor(s)",
-      "ts": 1781618149843
     }
   ],
   "ecm": {},
-  "updatedAt": "2026-06-16T13:56:49.407Z"
+  "updatedAt": "2026-06-17T05:20:33.829Z"
 }
