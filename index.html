@@ -1036,7 +1036,9 @@ function loadFDBCache() {
       full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null, n,
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
-      if (factors && factors.length) fdbFactors[num] = { factors };
+      if (factors && factors.length) {
+        fdbFactors[num] = { factors };
+      }
     }
     return full;
   } catch { return {}; }
@@ -1103,6 +1105,7 @@ let searchQuery  = '';
 // fdbFactors: in-memory only (factors/cofactors) — NOT in localStorage
 // Populated from results.json pull and from live FDB queries
 const fdbFactors = {};
+
 // fdbCache starts empty — loaded AFTER eulerValues so number-string keys can be rebuilt
 let fdbCache = {};
 let activityLog  = loadLog();
@@ -1715,11 +1718,12 @@ function mergeSyncPayload(remote) {
     }
   }
   console.log('FDB merge:', mergeStats);
-  // Populate fdbFactors and restore cofactorPreview/cofactorLen onto allEntries
+  // Populate fdbFactors and record per-factor FDB provenance from pulled data
   for (const [k, v] of Object.entries(merged)) {
-    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    if (v.factors && v.factors.length) {
+      fdbFactors[k] = { factors: v.factors };
+    }
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
-
   }
   saveFDBCache(merged); // saves slim (n-keyed) to localStorage
   fdbCache = merged;    // in-memory: number-string keyed with full data
@@ -2339,6 +2343,7 @@ function exportFDBSubmission() {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
+
   // Build FactorDB submission lines: <number>=<f1>*<f2>*...
   // Only for entries that have known prime factors (partial or full)
   const lines = [];
@@ -2350,15 +2355,12 @@ function exportFDBSubmission() {
     if (!factors.length) continue;
     if (!e.val) { skippedNoVal++; continue; }
 
-    // If FDB has fully confirmed this entry (source 'fdb' AND fully factored),
-    // it's already complete in FactorDB — nothing to contribute.
-    const cached = fdbCache[e.val];
-    if (cached && cached.source === 'fdb' && ['FF','P','PRP'].includes(cached.status)) {
-      skippedFdb++;
-      continue;
-    }
-
     if (e.val.length > 10000) { skippedTooBig++; continue; }
+
+    // Skip entries fully covered by FactorDB (source 'fdb').
+    // Entries with ANY of our own factors stay tagged 'import' and ARE exported.
+    const cached = fdbCache[e.val];
+    if (cached && cached.source === 'fdb') { skippedFdb++; continue; }
 
     // Expand expressions like 5^3 → 5*5*5
     const expanded = [];
@@ -2591,15 +2593,25 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         ? allFdbFactors.slice(0, -1)
         : allFdbFactors;
 
+      // Determine source: 'fdb' only if FDB's factors cover everything we already had.
+      // If we hold a factor FDB didn't return (our seed/manual contribution), keep 'import'
+      // so it stays in the FDB-submission export until FDB ingests it.
+      const fdbSet0      = new Set(primeFactors.map(String));
+      const priorEntry0  = allEntries.find(x => x.n === target.n);
+      const priorOwn0    = (priorEntry0?.factors || []).filter(f => f && f !== '1');
+      const wasImport0   = (fdbCache[target.number]?.source === 'import' || fdbCache[target.number]?.source === 'seed' || fdbCache[target.number]?.source === 'manual');
+      const haveExtra0   = priorOwn0.some(f => !fdbSet0.has(String(f))) || (wasImport0 && priorOwn0.length > primeFactors.length);
+      const entrySource  = haveExtra0 ? 'import' : 'fdb';
+
       const fullEntry = {
         status,
         factors:   primeFactors,
         timestamp: Date.now(),
-        source:    'fdb',
+        source:    entrySource,
         n:         target.n
       };
-      // FDB now confirms — clear seed-new flag if FDB has these factors
-      if (primeFactors.length > 0) {
+      if (primeFactors.length > 0 && entrySource === 'fdb') {
+        // FDB fully covers this entry — clear seed-new flag
         const sn = loadSeedNewSet();
         if (sn.has(target.n)) {
           const e2 = allEntries.find(x => x.n === target.n);
@@ -2655,8 +2667,11 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
           entry.cofactor     = null;
           entry.status       = entry.status === 'full' ? 'full' : 'partial';
           entry._fdbVerified = true;
-          // Persist the MERGED factors back to fdbCache so they survive reload
-          fdbCache[target.number] = { ...fdbCache[target.number], factors: merged, status: 'CF', n: target.n };
+          // Source: 'fdb' only if FDB returned everything we have; else 'import'
+          // (we hold factors FDB doesn't → keep exporting them until FDB has them)
+          const fdbHas = new Set(knownFactors.map(String));
+          const mergedSource = merged.every(f => fdbHas.has(String(f))) ? 'fdb' : 'import';
+          fdbCache[target.number] = { ...fdbCache[target.number], factors: merged, status: 'CF', source: mergedSource, n: target.n };
           fdbFactors[target.number] = { factors: merged };
           saveFDBCache(fdbCache);
           if (knownFactors.length) {
@@ -2816,11 +2831,17 @@ async function quickCheckFDB(n, btn) {
     const status    = rawSt === 'UN' ? 'FF' : rawSt;
     const allF      = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
     const primes    = (status === 'CF' && allF.length > 1) ? allF.slice(0,-1) : allF;
-    fdbCache[e.val] = { status, factors: primes, timestamp: Date.now(), source: 'fdb', n };
-    if (primes.length) fdbFactors[e.val] = { factors: primes };
+    // Merge FDB factors with any we already hold; keep ours that FDB didn't return
+    const priorOwn  = (e.factors || []).filter(f => f && f !== '1');
+    const mergedQ   = [...new Set([...priorOwn, ...primes])];
+    const fdbHasQ   = new Set(primes.map(String));
+    // source 'fdb' only if FDB covers everything we have
+    const srcQ      = mergedQ.every(f => fdbHasQ.has(String(f))) ? 'fdb' : 'import';
+    fdbCache[e.val] = { status, factors: mergedQ, timestamp: Date.now(), source: srcQ, n };
+    if (mergedQ.length) fdbFactors[e.val] = { factors: mergedQ };
     saveFDBCache(fdbCache);
-    if (['FF','P','PRP'].includes(status)) { e.factors = primes; e.cofactor = null; e.status = 'full'; }
-    else if (status === 'CF' && primes.length)  { e.status = 'partial'; e.factors = primes; }
+    if (['FF','P','PRP'].includes(status)) { e.factors = mergedQ; e.cofactor = null; e.status = 'full'; }
+    else if (status === 'CF' && mergedQ.length)  { e.status = 'partial'; e.factors = mergedQ; }
     else if (status === 'C') { if (e.status === 'unknown' || e.status === 'fdb-unknown') e.status = 'composite'; }
     else if (status === 'U') { if (e.status === 'unknown') e.status = 'fdb-unknown'; }
     addLog('E(' + n + ') ↻ ' + fdbStatusLabel(status), 'ok');
@@ -3545,24 +3566,27 @@ async function modalCheckFull(n) {
     const status    = (rawSt === 'UN') ? 'FF' : rawSt;
     const allMF     = (data.factors||[]).map(f=>Array.isArray(f)?(f[1]===1?String(f[0]):`${f[0]}^${f[1]}`):String(f)).filter(f=>f&&f!=='1');
     const primesMF  = (status === 'CF' && allMF.length > 1) ? allMF.slice(0,-1) : allMF;
-    fdbCache[e.val] = { status, factors: primesMF, timestamp: Date.now(), source: 'fdb', n };
-    if (primesMF.length) fdbFactors[e.val] = { factors: primesMF };
+    // Merge FDB factors with any we already hold
+    const priorOwnMF = (e.factors || []).filter(f => f && f !== '1');
+    const mergedMF   = [...new Set([...priorOwnMF, ...primesMF])];
+    const fdbHasMF   = new Set(primesMF.map(String));
+    const srcMF      = mergedMF.every(f => fdbHasMF.has(String(f))) ? 'fdb' : 'import';
+    fdbCache[e.val] = { status, factors: mergedMF, timestamp: Date.now(), source: srcMF, n };
+    if (mergedMF.length) fdbFactors[e.val] = { factors: mergedMF };
     saveFDBCache(fdbCache);
 
     // Promote entry immediately
     if (['FF','P','PRP'].includes(status)) {
-      e.factors  = primesMF;
+      e.factors  = mergedMF;
       e.cofactor = null;
       e.status   = 'full';
       e._fdbVerified = true;
       addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
-    } else if (status === 'CF' && primesMF.length >= 1) {
-      const allFDB = primesMF.filter(f => f && f !== '1');
-      const lastF  = allFDB[allFDB.length - 1];
-      const isLastBig = lastF && lastF.length > 15 && allFDB.length > 1;
-      e.factors  = [...new Set([...(e.factors||[]), ...(isLastBig ? allFDB.slice(0,-1) : allFDB)])];
-      e.cofactor = isLastBig ? lastF : null;
-      e.status   = 'partial';
+    } else if (status === 'CF' && mergedMF.length >= 1) {
+      // primesMF already had the cofactor stripped at parse time; use the merged list
+      e.factors  = mergedMF;
+      e.cofactor = null;
+      e.status   = (e.status === 'full') ? 'full' : 'partial';
       e._fdbVerified = true;
     }
 
