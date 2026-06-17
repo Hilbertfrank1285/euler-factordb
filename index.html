@@ -2122,10 +2122,15 @@ async function importFactorsSeed() {
       const priorFactorCount = priorFactors.length;
       const priorStatus      = entry.status;
       const priorSet         = new Set(priorFactors);
-      // Which combined factors are genuinely new (weren't on the entry before)?
-      const trulyNew = combined.filter(f => !priorSet.has(String(f)));
-      factorsAddedTotal += trulyNew.length;
-      if (trulyNew.length) newFactorsLog[n] = trulyNew;
+      // SEED factors that are genuinely new — not previously on the entry,
+      // not already in FDB's confirmed list. These are what we contribute.
+      const fdbConfirmedSet = new Set(fdbConfirmed.map(String));
+      const seedNewFactors  = seedPrimes
+        .map(String)
+        .filter(f => !priorSet.has(f) && !fdbConfirmedSet.has(f));
+      factorsAddedTotal += seedNewFactors.length;
+      // Only log to new_factors.json if the seed genuinely added a new prime
+      if (seedNewFactors.length) newFactorsLog[n] = seedNewFactors;
 
       entry.factors         = combined;
       entry.cofactor        = null;
