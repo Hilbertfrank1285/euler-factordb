@@ -2533,9 +2533,17 @@ function applyFdbResult(data, n, numberStr) {
   // Merge: keep everything we already had + anything new from FDB
   const merged = [...new Set([...priorOwn, ...fdbPrimes])];
 
-  // Source: 'fdb' only if FDB returned EVERYTHING we hold; else 'import'
-  const fdbSet = new Set(fdbPrimes.map(String));
-  const source = merged.every(f => fdbSet.has(String(f))) ? 'fdb' : 'import';
+  // Source: 'fdb' only if FDB returned EVERYTHING we hold; else 'import'.
+  // Compare by NUMERIC VALUE (not string) so "5", "5^1", and ["5",1] all match —
+  // expressions like "5^2" are expanded to their integer value before comparison.
+  const toVal = (f) => {
+    const s = String(f);
+    const m = /^(\d+)\^(\d+)$/.exec(s);
+    try { return m ? (BigInt(m[1]) ** BigInt(m[2])).toString() : BigInt(s).toString(); }
+    catch { return s; }
+  };
+  const fdbValSet = new Set(fdbPrimes.map(toVal));
+  const source = merged.every(f => fdbValSet.has(toVal(f))) ? 'fdb' : 'import';
 
   // --- Update the cache entry ---
   const cacheEntry = { status, factors: merged, timestamp: Date.now(), source, n };
