@@ -2139,6 +2139,20 @@ async function importFactorsSeed() {
       // If FDB had no factors at all but seed provides some, that's also "new from seed"
       if (fdbConfirmed.length === 0 && seedPrimes.length > 0) seedAddedNew = true;
 
+      // Collapse same-prime powers, keeping the highest exponent (5 + 5^2 → 5^2)
+      const _parsePow = (f) => {
+        const m = /^(\d+)\^(\d+)$/.exec(String(f));
+        return m ? { base: m[1], exp: parseInt(m[2]) } : { base: String(f), exp: 1 };
+      };
+      const _maxExp = new Map();
+      for (const f of combined) {
+        const { base, exp } = _parsePow(f);
+        if (!_maxExp.has(base) || exp > _maxExp.get(base)) _maxExp.set(base, exp);
+      }
+      const combinedCollapsed = [..._maxExp.entries()].map(([b, e]) => e === 1 ? b : `${b}^${e}`);
+      combined.length = 0;
+      combined.push(...combinedCollapsed);
+
       // Count newly added factors + status transitions
       const priorFactors     = (entry.factors || []).map(String);
       const priorFactorCount = priorFactors.length;
@@ -2530,20 +2544,40 @@ function applyFdbResult(data, n, numberStr) {
   const priorOwn = (entry?.factors || []).filter(f => f && f !== '1');
   const priorCount = priorOwn.length;
 
-  // Merge: keep everything we already had + anything new from FDB
-  const merged = [...new Set([...priorOwn, ...fdbPrimes])];
-
-  // Source: 'fdb' only if FDB returned EVERYTHING we hold; else 'import'.
-  // Compare by NUMERIC VALUE (not string) so "5", "5^1", and ["5",1] all match —
-  // expressions like "5^2" are expanded to their integer value before comparison.
-  const toVal = (f) => {
+  // Parse a factor string into { base, exp }. "5" → {5,1}; "5^2" → {5,2}.
+  const parsePow = (f) => {
     const s = String(f);
     const m = /^(\d+)\^(\d+)$/.exec(s);
-    try { return m ? (BigInt(m[1]) ** BigInt(m[2])).toString() : BigInt(s).toString(); }
-    catch { return s; }
+    if (m) return { base: m[1], exp: parseInt(m[2]) };
+    return { base: s, exp: 1 };
   };
-  const fdbValSet = new Set(fdbPrimes.map(toVal));
-  const source = merged.every(f => fdbValSet.has(toVal(f))) ? 'fdb' : 'import';
+  // Collapse a factor list so each prime base appears once at its HIGHEST power.
+  // e.g. ["5","5^2","53"] → ["5^2","53"]. "5" and "5^2" are the same prime;
+  // FactorDB's higher-power form wins (more informative, and avoids a false
+  // "we have a factor FDB lacks" that would pin source to 'import').
+  const collapsePowers = (list) => {
+    const maxExp = new Map();
+    for (const f of list) {
+      const { base, exp } = parsePow(f);
+      if (!maxExp.has(base) || exp > maxExp.get(base)) maxExp.set(base, exp);
+    }
+    return [...maxExp.entries()].map(([base, exp]) => exp === 1 ? base : `${base}^${exp}`);
+  };
+
+  // Merge: everything we had + anything new from FDB, then collapse prime powers
+  const merged = collapsePowers([...priorOwn, ...fdbPrimes]);
+
+  // Source: 'fdb' only if FDB covers every prime base we hold, at >= the power
+  // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
+  const fdbMaxExp = new Map();
+  for (const f of fdbPrimes) {
+    const { base, exp } = parsePow(f);
+    if (!fdbMaxExp.has(base) || exp > fdbMaxExp.get(base)) fdbMaxExp.set(base, exp);
+  }
+  const source = merged.every(f => {
+    const { base, exp } = parsePow(f);
+    return fdbMaxExp.has(base) && fdbMaxExp.get(base) >= exp;
+  }) ? 'fdb' : 'import';
 
   // --- Update the cache entry ---
   const cacheEntry = { status, factors: merged, timestamp: Date.now(), source, n };
@@ -3469,8 +3503,7 @@ function openModal(n) {
       unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
     }
     const qTimeout = e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120;
-    unknownFdbHtml += `<button class="fdb-check-btn" style="margin-top:8px" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Query FactorDB for |E(${n})| <span style="font-size:9px;opacity:0.7">(${e.val ? e.val.length+'d · up to '+qTimeout+'s' : ''})</span></button>
-    <div id="fdbQueryStatus_${n}" style="font-size:11px;color:var(--yellow);margin-top:6px;min-height:16px;padding:4px 0"></div>`;
+    // (Recheck button now lives in the dedicated FactorDB section below — no duplicate here)
   }
 
   document.getElementById('modalBody').innerHTML = `
@@ -3503,6 +3536,12 @@ function openModal(n) {
         </button>
       </div>
       <div id="factorVerifyMsg_${n}" style="font-size:11px;margin-top:8px;min-height:16px"></div>
+    </div>` : ''}
+    ${e.val ? `
+    <div class="modal-section">
+      <div class="modal-section-label">FactorDB</div>
+      <button class="fdb-check-btn" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Recheck FactorDB for |E(${n})|<span style="font-size:9px;opacity:0.7;margin-left:6px">(${e.val.length}d · up to ${e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120}s)</span></button>
+      <div id="fdbQueryStatus_${n}" style="font-size:11px;color:var(--yellow);margin-top:6px;min-height:16px;padding:4px 0"></div>
     </div>` : ''}
     ${valueHtml}
     <div class="modal-section">
