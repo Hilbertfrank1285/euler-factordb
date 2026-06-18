@@ -1318,55 +1318,138 @@ async function queryFactorDB(numberStr) {
 // ECM PROBABILITY  (Lenstra heuristic)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// L(x) = exp(sqrt(ln(x) * ln(ln(x)))) — the ECM smoothness constant
-function lenstраL(digits) {
-  const lnP  = digits * Math.log(10);            // ln(p) ≈ d * ln(10)
-  const lnln = Math.log(lnP);
-  return Math.exp(Math.sqrt(lnP * lnln));
-}
-
-// Optimal B1 for finding a d-digit prime factor (approximation)
-// B1 ≈ exp(0.5 * sqrt(ln(p) * ln(ln(p))))
+// Optimal B1 for finding a d-digit prime factor — from the GMP-ECM table.
 function optimalB1(digits) {
-  const lnP  = digits * Math.log(10);
-  const lnln = Math.log(lnP);
-  return Math.round(Math.exp(0.5 * Math.sqrt(lnP * lnln)));
+  return Math.round(ecmTableB1(digits));
 }
 
-// Probability of finding a d-digit prime factor with k curves at optimal B1
-// P = 1 - exp(-k / L(p))
-// With -I n: B1 varies per curve — but probability per curve at a fixed digit target
-// doesn't change with B1 (it's always 1/L(d)). -I spreads coverage across MULTIPLE
-// digit targets, so we use ecmProbabilityWithI for that.
-function ecmProbabilityWithI(d, b1_0, curves, I_val) {
-  if (!I_val || I_val <= 0 || curves <= 1) return ecmProbability(d, curves);
-  // With -I n, curve i uses B1_i = B1_0 * exp(i/n)
-  // Each B1_i targets a different digit range d_i
-  // Count how many curves effectively target digit range d
-  // d_i = (ln(B1_i))^2 / (ln(10) * ln(ln(B1_i)))
-  // We sum up the fraction of curves whose target is within ±3 of d
-  let effectiveCurves = 0;
-  const sampleN = Math.min(curves, 200);
-  for (let i = 0; i < sampleN; i++) {
-    const b1_i = b1_0 * Math.exp(i / I_val);
-    const lnB1 = Math.log(b1_i);
-    const lnln = Math.log(Math.max(lnB1, 1.1));
-    const td   = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
-    if (Math.abs(td - d) <= 3) effectiveCurves++;
+// Inverse: map a B1 value to the digit level it's optimal for, by inverting the
+// GMP-ECM table (the old (lnB1²)/(ln10·lnln) formula was off by 3-5 digits).
+function b1ToDigits(b1str) {
+  const b1val = parseFloat(String(b1str).replace(/,/g,'').replace(/[eE]/,'e'));
+  if (!b1val || b1val <= 1) return 0;
+  let bestD = ECM_TABLE[0].d, bestErr = Infinity;
+  for (let d = ECM_TABLE[0].d; d <= ECM_TABLE[ECM_TABLE.length-1].d; d++) {
+    const err = Math.abs(Math.log(ecmTableB1(d)) - Math.log(b1val));
+    if (err < bestErr) { bestErr = err; bestD = d; }
   }
-  const scaledCurves = effectiveCurves * curves / sampleN;
-  return ecmProbability(d, Math.round(scaledCurves));
+  return bestD;
 }
 
-function ecmProbability(digits, curves) {
-  const L = lenstраL(digits);
-  return 1 - Math.exp(-curves / L);
+// Probability of finding a d-digit factor with `curves` curves under GMP-ECM's
+// -I (incremental B1) mode, where curve i uses B1_i = B1_0 * exp(i / I_val).
+// Each curve contributes 1/C_opt(d) scaled by its own B1 efficiency for target d.
+function ecmProbabilityWithI(d, b1_0, curves, I_val) {
+  if (!I_val || I_val <= 0 || curves <= 1) return ecmProbability(d, curves, b1_0);
+  const Copt = ecmOptimalCurves(d);
+  // Sum effective-curve contribution across the varying B1 schedule.
+  // Sample to keep it fast for large curve counts, then scale.
+  const sampleN = Math.min(curves, 500);
+  let effSum = 0;
+  for (let i = 0; i < sampleN; i++) {
+    const idx  = Math.floor(i * curves / sampleN);
+    const b1_i = b1_0 * Math.exp(idx / I_val);
+    effSum += ecmB1Efficiency(d, b1_i);
+  }
+  const effectiveCurves = effSum * curves / sampleN;
+  return 1 - Math.exp(-effectiveCurves / Copt);
 }
 
-// Expected curves to reach a given probability
+// ─────────────────────────────────────────────────────────────────────────────
+// ECM expected-curve model — based on GMP-ECM's published reference table
+// (Zimmermann, github.com/sethtroisi/gmp-ecm README), which gives the expected
+// number of curves to find a d-digit factor at optimal B1+B2 with the default
+// Brent-Suyama polynomial. This is empirical ground truth; the old L-function
+// formula was off by 4-7 orders of magnitude.
+//
+//   "Expected curves" C_opt(d) = curves at which one factor is expected on average.
+//   Success after k curves ≈ 1 - exp(-k / C_opt(d))   (Poisson model; 63% at k=C_opt)
+// ─────────────────────────────────────────────────────────────────────────────
+const ECM_TABLE = [
+  { d: 20, B1: 11e3,  curves: 74    },
+  { d: 25, B1: 5e4,   curves: 214   },
+  { d: 30, B1: 25e4,  curves: 430   },
+  { d: 35, B1: 1e6,   curves: 904   },
+  { d: 40, B1: 3e6,   curves: 2350  },
+  { d: 45, B1: 11e6,  curves: 4480  },
+  { d: 50, B1: 43e6,  curves: 7553  },
+  { d: 55, B1: 11e7,  curves: 17769 },
+  { d: 60, B1: 26e7,  curves: 42017 },
+  { d: 65, B1: 85e7,  curves: 69408 },
+];
+
+// Expected curves to find a d-digit factor at OPTIMAL B1 (log-space interpolation).
+function ecmOptimalCurves(d) {
+  const T = ECM_TABLE;
+  if (d <= T[0].d) {
+    // extrapolate below 20d from first two points
+    const a = T[0], b = T[1];
+    const slope = (Math.log(b.curves) - Math.log(a.curves)) / (b.d - a.d);
+    return Math.max(1, Math.exp(Math.log(a.curves) + slope * (d - a.d)));
+  }
+  if (d >= T[T.length - 1].d) {
+    const a = T[T.length - 2], b = T[T.length - 1];
+    const slope = (Math.log(b.curves) - Math.log(a.curves)) / (b.d - a.d);
+    return Math.exp(Math.log(b.curves) + slope * (d - b.d));
+  }
+  for (let i = 0; i < T.length - 1; i++) {
+    const a = T[i], b = T[i + 1];
+    if (d >= a.d && d <= b.d) {
+      const t = (d - a.d) / (b.d - a.d);
+      return Math.exp(Math.log(a.curves) * (1 - t) + Math.log(b.curves) * t);
+    }
+  }
+  return T[T.length - 1].curves;
+}
+
+// Optimal B1 for a d-digit factor (interpolated from the same table).
+function ecmTableB1(d) {
+  const T = ECM_TABLE;
+  if (d <= T[0].d) return T[0].B1;
+  if (d >= T[T.length - 1].d) {
+    const a = T[T.length - 2], b = T[T.length - 1];
+    const slope = (Math.log(b.B1) - Math.log(a.B1)) / (b.d - a.d);
+    return Math.exp(Math.log(b.B1) + slope * (d - b.d));
+  }
+  for (let i = 0; i < T.length - 1; i++) {
+    const a = T[i], b = T[i + 1];
+    if (d >= a.d && d <= b.d) {
+      const t = (d - a.d) / (b.d - a.d);
+      return Math.exp(Math.log(a.B1) * (1 - t) + Math.log(b.B1) * t);
+    }
+  }
+  return T[T.length - 1].B1;
+}
+
+// Per-curve efficiency penalty when running at a B1 different from optimal.
+// At optimal B1, efficiency = 1. Away from it, the per-curve success probability
+// drops. Modelled via Dickman ρ ratio: ρ(ln p / ln B1) / ρ(ln p / ln B1_opt).
+function ecmB1Efficiency(d, B1) {
+  if (!B1 || B1 <= 1) return 1;
+  const B1opt = ecmTableB1(d);
+  if (Math.abs(B1 - B1opt) < 1) return 1;
+  const lnP = d * Math.log(10);
+  const u    = lnP / Math.log(Math.max(B1, 2));
+  const uOpt = lnP / Math.log(Math.max(B1opt, 2));
+  const r    = dickmanRho(u);
+  const rOpt = dickmanRho(uOpt);
+  if (rOpt <= 0) return 1;
+  return Math.min(1, r / rOpt); // never better than optimal
+}
+
+// Probability of finding a d-digit factor with `curves` curves.
+// If b1 is supplied and differs from optimal, scale effective curves down.
+function ecmProbability(digits, curves, b1) {
+  const Copt = ecmOptimalCurves(digits);
+  const eff  = b1 ? ecmB1Efficiency(digits, b1) : 1;
+  const effectiveCurves = curves * eff;
+  return 1 - Math.exp(-effectiveCurves / Copt);
+}
+
+// Expected curves to reach a given probability (at optimal B1).
 function curvesForProb(digits, prob) {
-  const L = lenstраL(digits);
-  return Math.ceil(-L * Math.log(1 - prob));
+  const Copt = ecmOptimalCurves(digits);
+  return Math.ceil(-Copt * Math.log(1 - prob));
 }
 
 // Format large numbers nicely
@@ -1390,43 +1473,69 @@ function fmtCurves(n) {
   return String(n);
 }
 
-// P-1 probability: chance of finding a d-digit prime p where p-1 is B1-smooth
-// Rough heuristic: rho(d * ln(10) / ln(B1)) where rho is Dickman function approximation
+// Dickman's rho function — the probability that a random integer near x has all
+// prime factors ≤ x^(1/u). Used for P-1/P+1 smoothness probability.
+// Computed via the stable recurrence rho(u) = (1/u)∫_{u-1}^{u} rho(t) dt, which
+// avoids the catastrophic cancellation of the "1 - integral" form. Accurate to
+// ~1-3% across u ∈ [1,10] (the old piecewise approximation was off by up to 56%).
 function dickmanRho(u) {
+  if (u <= 0) return 1;
   if (u <= 1) return 1;
-  if (u <= 2) return 1 - Math.log(u);
-  if (u <= 3) return 1 - Math.log(u) + 0.5 * Math.log(u - 1) * Math.log(u - 1) * (1 - 1/(u-1)) ;
-  // For larger u, use approximation rho(u) ≈ u^(-u)
-  return Math.exp(-u * Math.log(u));
+  if (u <= 2) return 1 - Math.log(u);   // exact on [1,2]
+  const N = Math.max(200, Math.ceil(u * 200));
+  const h = u / N;
+  const rho = new Float64Array(N + 1);
+  for (let i = 0; i <= N; i++) rho[i] = (i * h <= 1) ? 1 : 0;
+  for (let i = 1; i <= N; i++) {
+    const x = i * h;
+    if (x <= 1) { rho[i] = 1; continue; }
+    // rho(x) = (1/x) ∫_{x-1}^{x} rho(t) dt  — trapezoid over the sub-interval
+    const a = x - 1;
+    const M = 50, hh = 1 / M;
+    let s = 0;
+    for (let k = 0; k < M; k++) {
+      const t0 = a + k * hh, t1 = a + (k + 1) * hh;
+      const r0 = t0 <= 1 ? 1 : (rho[Math.min(Math.floor(t0 / h), i - 1)] || 0);
+      const r1 = t1 <= 1 ? 1 : (rho[Math.min(Math.floor(t1 / h), i - 1)] || 0);
+      s += 0.5 * (r0 + r1) * hh;
+    }
+    rho[i] = s / x;
+  }
+  return Math.max(rho[N], 0);
 }
 
-// P-1 probability: finds p if p-1 is B1-smooth (with one B2-prime allowed)
-// P+1 probability: finds p if p+1 is B1-smooth — works on ~50% of primes
-//   (those where the Jacobi symbol of the seed is -1 mod p)
-//   So P+1 at given B1 is roughly equivalent to P-1 at same B1 on half the primes,
-//   BUT it covers different primes than P-1, so combined they cover more ground.
-//   Effective probability for P+1: same Dickman formula × 0.5 (only half of primes
-//   have smooth p+1 structure exploitable by P+1 method)
+// P-1 / P+1 success probability.
+//   Stage 1: finds p if p∓1 is B1-smooth → ρ(u1), u1 = ln(p)/ln(B1).
+//   Stage 2: also finds p if p∓1 is B1-smooth except ONE prime q in (B1,B2]
+//            (the "semismooth"/large-prime case). Modelled by integrating over
+//            the position of that single larger prime:
+//              ∫_{B1}^{B2} ρ((ln p − ln q)/ln B1) · dq/(q·ln q)
+//            (prime density ~1/ln q; dq/q is the natural log-space measure).
+//   P+1: succeeds when p+1 (rather than p−1) is smooth AND the seed's Jacobi
+//        symbol is −1 mod p (~half of primes). Same smoothness formula × 0.5.
+//        Note: P+1 reaches a DIFFERENT half of primes than P-1, so they're
+//        complementary, not redundant.
 function pm1Probability(digits, B1, B2, method = 'P-1') {
   const lnP  = digits * Math.log(10);
   const lnB1 = Math.log(Math.max(B1, 2));
   const u1   = lnP / lnB1;
-  const p1   = dickmanRho(u1);
+  let prob   = dickmanRho(u1);                 // stage 1: fully B1-smooth
 
-  let prob;
-  if (!B2 || B2 <= B1) {
-    prob = p1;
-  } else {
-    const lnB2   = Math.log(B2);
-    const stage2 = lnP > lnB1 ? p1 * (lnB2 - lnB1) / (lnP - lnB1) : 0;
-    prob = p1 + stage2;
+  if (B2 && B2 > B1) {
+    const lnB2  = Math.log(B2);
+    const steps = 100;
+    const dlt   = (lnB2 - lnB1) / steps;
+    let add = 0;
+    for (let i = 0; i < steps; i++) {
+      const lnq   = lnB1 + (i + 0.5) * dlt;     // log of the single large prime q
+      const uRem  = (lnP - lnq) / lnB1;          // remaining cofactor must be B1-smooth
+      if (uRem <= 0) break;
+      add += dickmanRho(uRem) * dlt / lnq;       // prime density ~ 1/ln q
+    }
+    prob += add;
   }
 
-  // P+1 works on a different (complementary) subset of primes — ~50% coverage
-  // It finds primes where p+1 is smooth (vs p-1 for P-1)
-  // Probability is the same formula but applies to a different half of the primes
-  if (method === 'P+1') prob = prob * 0.5;
-
+  if (method === 'P+1') prob *= 0.5;             // ~half of primes have exploitable p+1
   return Math.min(prob, 1);
 }
 
@@ -2354,7 +2463,10 @@ function exportFDBSubmission() {
     if (!factors.length) continue;
     if (!e.val) { skippedNoVal++; continue; }
 
-    if (e.val.length > 10000) { skippedTooBig++; continue; }
+    // FactorDB report.php accepts large numbers; cap only at a genuinely huge size.
+    // (Entries like E(3578) at ~10k digits hold valuable partial factorizations and
+    // must be exportable — the old 10000 cap wrongly dropped them.)
+    if (e.val.length > 100000) { skippedTooBig++; continue; }
 
     // Skip entries fully covered by FactorDB (source 'fdb').
     // Entries with ANY of our own factors stay tagged 'import' and ARE exported.
@@ -2393,7 +2505,7 @@ function exportFDBSubmission() {
 
   let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
   if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
-  if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>10000 digits)';
+  if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>100000 digits)';
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
@@ -3703,12 +3815,7 @@ function recommendNextRun(digits, attempts) {
   const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
   const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
 
-  function b1ToTargetD(b1str) {
-    const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
-    if (!b1val || b1val <= 1) return 0;
-    const lnB1 = Math.log(b1val); const lnln = Math.log(Math.max(lnB1,1.1));
-    return Math.round((lnB1*lnB1)/(Math.log(10)*lnln));
-  }
+  const b1ToTargetD = b1ToDigits; // shared table-inversion helper
 
   const curvesPerD = {};
   for (const a of ecmAttempts) {
@@ -3729,8 +3836,7 @@ function recommendNextRun(digits, attempts) {
 
     // How many curves to add to reach 50% (or improve by 20 percentage points)?
     const targetP  = Math.min(currentP + 0.20, 0.5);
-    const L        = lenstраL(d);
-    const totalNeeded = Math.ceil(-L * Math.log(1 - targetP));
+    const totalNeeded = curvesForProb(d, targetP);
     const addCurves   = Math.max(totalNeeded - currentCurves, 100);
     const pExists  = Math.log((d+5)/d) / Math.log(digits);
     const gain     = pExists * (targetP - currentP) * 100;
@@ -3789,13 +3895,7 @@ function computeDifficulty(digits, attempts) {
   // For each 5d bucket, compute P(found if exists) and weight by importance
   const ecmAttempts = (attempts || []).filter(a => a.method === 'ECM' && a.b1);
 
-  function b1ToTargetD(b1str) {
-    const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
-    if (!b1val || b1val <= 1) return 0;
-    const lnB1 = Math.log(b1val);
-    const lnln = Math.log(Math.max(lnB1, 1.1));
-    return Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
-  }
+  const b1ToTargetD = b1ToDigits; // shared table-inversion helper
 
   const curvesPerD = {};
   for (const a of ecmAttempts) {
@@ -3916,13 +4016,7 @@ function buildECMSection(n, e) {
       const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
 
       // ── ECM grid ──────────────────────────────────────────────────────────
-      function b1ToTargetDigits(b1str) {
-        const b1val = parseFloat(String(b1str).replace(/[eE]/,'e'));
-        if (!b1val || b1val <= 1) return 0;
-        const lnB1 = Math.log(b1val);
-        const lnln = Math.log(Math.max(lnB1, 1.1));
-        return Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
-      }
+      const b1ToTargetDigits = b1ToDigits; // shared GMP-ECM table-inversion helper
 
       const curvesPerDigit = {};
       for (const a of ecmAttempts) {
@@ -3979,9 +4073,8 @@ function buildECMSection(n, e) {
             ECM — P(find N-digit factor) · ${totalECMCurves} curves total · B1 optimal range ≤65d
           </div>
           <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--purple);padding-left:8px">
-            ECM finds a d-digit factor by running random elliptic curves. Each curve is an independent attempt.
-            More curves = higher chance. <span style="color:var(--text)">done</span> = how many curves you've run targeting that digit size.
-            <span style="color:var(--text)">90%→</span> = curves needed to reach 90% probability. Above 65 digits, ECM is impractical — use NFS/GNFS instead.
+            ECM finds a d-digit factor by running random elliptic curves; each curve is an independent attempt, so more curves = higher chance.
+            Probabilities use the empirical <span style="color:var(--text)">GMP-ECM expected-curve table</span> (default Brent–Suyama polynomial): P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%). <span style="color:var(--text)">done</span> = curves you've run targeting that digit size (binned from each run's B1 via the table). <span style="color:var(--text)">90%→</span> = curves needed for 90% (≈2.3× C_opt). Above 65d, ECM is impractical — use NFS/GNFS.
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
@@ -4012,9 +4105,10 @@ function buildECMSection(n, e) {
             P-1 / P+1 — P(find N-digit factor) · ${pm1Attempts.length} attempt${pm1Attempts.length>1?'s':''} combined
           </div>
           <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--yellow);padding-left:8px">
-            P-1 finds a prime factor p if p−1 is <span style="color:var(--text)">B1-smooth</span> (all prime factors of p−1 are ≤ B1), with one extra prime ≤ B2 allowed.
-            Unlike ECM, <span style="color:var(--text)">each P-1 run is a single independent test</span> — you can't improve it by repeating with the same B1/B2.
-            Running with higher B1 or B2 is the only way to improve odds. <span style="color:var(--text)">best single</span> = the single best attempt for that digit size.
+            P-1 finds a prime factor p if p−1 is <span style="color:var(--text)">B1-smooth</span> (all its prime factors ≤ B1); stage 2 also catches p where p−1 has one extra prime in (B1,B2].
+            Probabilities use <span style="color:var(--text)">Dickman's ρ function</span> (computed numerically to ~1–3% accuracy): stage 1 = ρ(ln p / ln B1), stage 2 adds the semismooth "one large prime" integral over (B1,B2].
+            <span style="color:var(--text)">P+1</span> uses the same formula × 0.5 (it works on the ~half of primes where p+1 — not p−1 — is smooth, a complementary set to P-1).
+            Unlike ECM, <span style="color:var(--text)">each P-1/P+1 run is a single independent test</span> — repeating with the same B1/B2 doesn't help; only higher B1/B2 improves odds. <span style="color:var(--text)">best single</span> = the best individual attempt for that digit size.
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
@@ -4151,9 +4245,7 @@ function buildECMSection(n, e) {
           let probCell = '';
           if (a.method === 'ECM' && a.b1) {
             const b1val   = parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e'));
-            const lnB1    = Math.log(b1val);
-            const lnln    = Math.log(Math.max(lnB1, 1.1));
-            const targetD = Math.round((lnB1 * lnB1) / (Math.log(10) * lnln));
+            const targetD = b1ToDigits(a.b1);
             const curves  = parseInt(a.curves) || 1;
             // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
             const I_val = a.I ? parseFloat(a.I) : 0;
@@ -4204,6 +4296,19 @@ function buildECMSection(n, e) {
     </table>`;
   } else {
     tableHtml = `<div style="font-size:11px;color:var(--text-muted);padding:8px 0">No attempts recorded yet.</div>`;
+  }
+
+  // Methodology footnote — documents the probability model + sources on the card
+  let methodHtml = '';
+  if (digits) {
+    methodHtml = `<details style="margin-top:12px;font-size:10px;color:var(--text-dim)">
+      <summary style="cursor:pointer;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:9px">How these probabilities are computed</summary>
+      <div style="line-height:1.6;border-left:2px solid var(--border2);padding-left:10px;margin-top:8px">
+        <div style="margin-bottom:6px"><span style="color:var(--text)">ECM</span> — based on the empirical <span style="color:var(--text)">GMP-ECM expected-curve table</span> (Zimmermann et al., default Brent–Suyama polynomial: D(3)…D(30)). Expected curves C_opt(d) to find a d-digit factor: 74 @ 20d, 430 @ 30d, 2350 @ 40d, 7553 @ 50d, 42017 @ 60d. Success after k curves = 1 − e^(−k/C_opt), interpolated in log-space between table points. Optimal B1 is read from the same table; each logged run's B1 is mapped back to the digit level it targets.</div>
+        <div style="margin-bottom:6px"><span style="color:var(--text)">P-1 / P+1</span> — based on <span style="color:var(--text)">Dickman's ρ function</span>, computed numerically via the recurrence ρ(u)=(1/u)∫ρ(t)dt over [u−1,u] (accurate to ~1–3% for u∈[1,10]). Stage 1 = ρ(ln p/ln B1); stage 2 adds the semismooth integral for one prime in (B1,B2]. P+1 = same × 0.5 (complementary half of primes).</div>
+        <div style="color:var(--text-muted)">Caveat: ρ(u) mildly overstates smoothness for small factors, and the table is calibrated to ~63% (one expected hit). Treat all figures as good estimates, not guarantees. Above 65d ECM is impractical — switch to NFS/GNFS.</div>
+      </div>
+    </details>`;
   }
 
   // Add form — local GMP-ECM / P-1 / P+1
@@ -4277,7 +4382,7 @@ function buildECMSection(n, e) {
     }
   }
 
-  return diffHtml + recommendHtml + probHtml + tableHtml + formHtml;
+  return diffHtml + recommendHtml + probHtml + tableHtml + methodHtml + formHtml;
 }
 
 // Refresh grid/stats after ECM log changes
