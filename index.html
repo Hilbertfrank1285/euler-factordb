@@ -2534,10 +2534,24 @@ function applyFdbResult(data, n, numberStr) {
     .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
     .filter(f => f && f !== '1');
 
-  // CF: the LAST factor is always the composite cofactor — strip it. Others are prime.
-  const fdbPrimes = (status === 'CF' && allFdbFactors.length > 1)
-    ? allFdbFactors.slice(0, -1)
-    : allFdbFactors;
+  // CF: FactorDB lists known primes plus (usually) one composite cofactor as the
+  // LAST element. But the last factor is only a cofactor if it's actually composite —
+  // if it's prime, it's a real factor and must NOT be stripped. Test primality.
+  let fdbPrimes = allFdbFactors;
+  if (status === 'CF' && allFdbFactors.length > 1) {
+    const last = allFdbFactors[allFdbFactors.length - 1];
+    let lastIsComposite = true; // default: assume cofactor (safe for huge unfactored numbers)
+    const m = /^(\d+)(?:\^(\d+))?$/.exec(last);
+    if (m) {
+      const base = m[1];
+      // Numbers small enough to test cheaply: check primality. Large ones (likely the
+      // genuine unfactored cofactor) we leave as "composite" and strip.
+      if (base.length <= 19) {
+        try { lastIsComposite = !isProbablePrime(BigInt(base)); } catch { lastIsComposite = true; }
+      }
+    }
+    fdbPrimes = lastIsComposite ? allFdbFactors.slice(0, -1) : allFdbFactors;
+  }
 
   const entry = allEntries.find(x => x.n === n);
   const priorEntryStatus = entry ? entry.status : null;
