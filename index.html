@@ -593,6 +593,11 @@
     title="Wipes all localStorage — ECM logs, FDB cache, factors. Cannot be undone.">
     ⊗ Clear all local data
   </button>
+  <button class="poll-btn" onclick="clearEulerValueCache().then(()=>setStatus('Value cache cleared — reload to re-download','ok'))"
+    style="background:var(--surface2)"
+    title="Clears the cached Euler values (IndexedDB). Use if the chunk files on GitHub were updated. They re-download on next load.">
+    ⊗ Clear value cache
+  </button>
   <button class="poll-btn" id="ecmImportBtn" onclick="importECMSeed()" style="background:var(--surface2)" title="One-time import of ecm_seed.json from GitHub">
     ↑ Import ECM seed
   </button>
@@ -1273,6 +1278,72 @@ function fetchWithTimeout(url, ms, opts = {}) {
   const timer = setTimeout(() => controller.abort(), ms);
   return fetch(url, { signal: controller.signal, keepalive: true, ...opts })
     .finally(() => clearTimeout(timer));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IndexedDB cache for Euler-value chunks.
+// The 45 chunk files total ~400MB and never change, but were re-downloaded on
+// EVERY page load (the main cause of slow startup). We now cache each chunk's
+// parsed contents in IndexedDB keyed by filename, so repeat visits read locally
+// (near-instant) instead of re-fetching from GitHub.
+// ─────────────────────────────────────────────────────────────────────────────
+const EULER_DB_NAME  = 'eulerFDB_values';
+const EULER_DB_STORE = 'chunks';
+let _eulerDBPromise = null;
+
+function openEulerDB() {
+  if (_eulerDBPromise) return _eulerDBPromise;
+  _eulerDBPromise = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) { resolve(null); return; }
+    const req = indexedDB.open(EULER_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(EULER_DB_STORE)) db.createObjectStore(EULER_DB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => { console.warn('IndexedDB open failed:', req.error); resolve(null); };
+  });
+  return _eulerDBPromise;
+}
+
+async function idbGetChunk(fname) {
+  const db = await openEulerDB();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(EULER_DB_STORE, 'readonly');
+      const req = tx.objectStore(EULER_DB_STORE).get(fname);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror   = () => resolve(null);
+    } catch { resolve(null); }
+  });
+}
+
+async function idbPutChunk(fname, data) {
+  const db = await openEulerDB();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(EULER_DB_STORE, 'readwrite');
+      tx.objectStore(EULER_DB_STORE).put(data, fname);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => resolve();
+    } catch { resolve(); }
+  });
+}
+
+// Clear the cached Euler values (e.g. if chunk files are updated on GitHub).
+async function clearEulerValueCache() {
+  const db = await openEulerDB();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(EULER_DB_STORE, 'readwrite');
+      tx.objectStore(EULER_DB_STORE).clear();
+      tx.oncomplete = () => { addLog('Euler value cache cleared — will re-download on next load', 'ok'); resolve(); };
+      tx.onerror    = () => resolve();
+    } catch { resolve(); }
+  });
 }
 
 // Timeout scales with number size: bigger numbers take longer for FDB to process
@@ -4830,7 +4901,29 @@ async function fetchEulerValues() {
 
   setStatus('Loading Euler values…');
 
+  // Tell the user whether this is a fast cached load or a first-time download
+  try {
+    const firstChunkCached = await idbGetChunk(chunks[0]);
+    if (!firstChunkCached) {
+      setStatus('First load — downloading Euler values (cached locally for next time)…');
+    } else {
+      setStatus('Loading Euler values from local cache…');
+    }
+  } catch(e) {}
+
   async function fetchChunk(fname, idx) {
+    // 1. Try the IndexedDB cache first — chunks never change, so a hit means
+    //    we skip the (large) network download entirely.
+    try {
+      const cached = await idbGetChunk(fname);
+      if (cached) {
+        for (const [k, v] of Object.entries(cached)) eulerValues[parseInt(k)] = v;
+        updateMaxNInput();
+        return true;
+      }
+    } catch(e) { /* fall through to network */ }
+
+    // 2. Not cached — fetch from GitHub, then store for next time.
     const urls = [
       fname,
       'https://raw.githubusercontent.com/' + user + '/' + repo + '/' + branch + '/' + fname + '?v=1',
@@ -4841,7 +4934,8 @@ async function fetchEulerValues() {
         if (!r.ok) continue;
         const data = await r.json();
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
-        console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url);
+        idbPutChunk(fname, data); // cache for future loads (fire-and-forget)
+        console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url + ' (cached)');
         updateMaxNInput();
         return true;
       } catch(e) {
