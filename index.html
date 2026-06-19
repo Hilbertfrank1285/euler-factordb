@@ -2466,7 +2466,7 @@ function exportFDBSubmission() {
     // FactorDB report.php accepts large numbers; cap only at a genuinely huge size.
     // (Entries like E(3578) at ~10k digits hold valuable partial factorizations and
     // must be exportable — the old 10000 cap wrongly dropped them.)
-    if (e.val.length > 100000) { skippedTooBig++; continue; }
+    if (e.val.length > 1000000) { skippedTooBig++; continue; }
 
     // Skip entries fully covered by FactorDB (source 'fdb').
     // Entries with ANY of our own factors stay tagged 'import' and ARE exported.
@@ -2505,7 +2505,7 @@ function exportFDBSubmission() {
 
   let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
   if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
-  if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>100000 digits)';
+  if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>1000000 digits)';
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
