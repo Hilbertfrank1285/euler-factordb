@@ -974,6 +974,7 @@ function applyFdbUnknownSet() {
 }
 function saveECM(d) {
   _ecmCache = d; // update cache immediately
+  invalidateCpuTotal(); // ECM changed → recompute total CPU on next renderStats
   try {
     localStorage.setItem(ECM_KEY, JSON.stringify(d));
     markDirty();
@@ -1549,10 +1550,14 @@ function fmtCurves(n) {
 // Computed via the stable recurrence rho(u) = (1/u)∫_{u-1}^{u} rho(t) dt, which
 // avoids the catastrophic cancellation of the "1 - integral" form. Accurate to
 // ~1-3% across u ∈ [1,10] (the old piecewise approximation was off by up to 56%).
+const _dickmanCache = new Map();
 function dickmanRho(u) {
   if (u <= 0) return 1;
   if (u <= 1) return 1;
   if (u <= 2) return 1 - Math.log(u);   // exact on [1,2]
+  const key = Math.round(u * 1000);
+  const hit = _dickmanCache.get(key);
+  if (hit !== undefined) return hit;
   const N = Math.max(200, Math.ceil(u * 200));
   const h = u / N;
   const rho = new Float64Array(N + 1);
@@ -1572,7 +1577,9 @@ function dickmanRho(u) {
     }
     rho[i] = s / x;
   }
-  return Math.max(rho[N], 0);
+  const result = Math.max(rho[N], 0);
+  if (_dickmanCache.size < 5000) _dickmanCache.set(key, result);
+  return result;
 }
 
 // P-1 / P+1 success probability.
@@ -3346,25 +3353,25 @@ function applyFilters() {
     // Status category order for grouping (fully factored always last when sorting by difficulty)
     const statusOrder = { full: 0, partial: 1, composite: 2, attempted: 3, unknown: 4 };
 
+    // Precompute each entry's difficulty score ONCE (the comparator runs O(n log n)
+    // times; computeDifficulty now does a Dickman integration, so calling it inside
+    // the comparator was the main sort cost). Cache on a transient _diffScore field.
+    for (const e of filtered) {
+      const d = getCofactorDigits(e);
+      e._diffScore = d ? computeDifficulty(d, ecmData[String(e.n)] || []).score : null;
+    }
+
     filtered.sort((a, b) => {
       const catA = statusOrder[a.status] ?? 5;
       const catB = statusOrder[b.status] ?? 5;
-
-      // Within each status category, sort by difficulty
       if (catA !== catB) return catA - catB;
 
-      const da = getCofactorDigits(a);
-      const db = getCofactorDigits(b);
-
       // Entries with no cofactor (e.g. fully factored) sort by n
-      if (!da && !db) return a.n - b.n;
-      if (!da) return 1;
-      if (!db) return -1;
+      if (a._diffScore == null && b._diffScore == null) return a.n - b.n;
+      if (a._diffScore == null) return 1;
+      if (b._diffScore == null) return -1;
 
-      const sa = computeDifficulty(da, ecmData[String(a.n)] || []).score;
-      const sb = computeDifficulty(db, ecmData[String(b.n)] || []).score;
-
-      return sortMode === 'diff-asc' ? sa - sb : sb - sa;
+      return sortMode === 'diff-asc' ? a._diffScore - b._diffScore : b._diffScore - a._diffScore;
     });
   } else if (sortMode === 'n-desc') {
     filtered.sort((a, b) => b.n - a.n);
@@ -3570,27 +3577,45 @@ function renderPagination() {
   pag.innerHTML = html;
 }
 
-function renderStats() {
-  const full    = allEntries.filter(e => e.status==='full').length;
-  const partial = allEntries.filter(e => e.status==='partial').length;
-  const unknown   = allEntries.filter(e => e.status==='unknown').length;
-  const fdbUnknown = allEntries.filter(e => e.status==='fdb-unknown').length;
-  const composite = allEntries.filter(e => e.status==='composite').length;
+// Cached total-CPU sum — only recomputed when ECM data changes (see invalidateCpuTotal).
+let _cpuTotalCache = null;
+function invalidateCpuTotal() { _cpuTotalCache = null; }
+function computeTotalCpuSec() {
+  if (_cpuTotalCache !== null) return _cpuTotalCache;
   const ecmD = loadECM();
-  const attempted = allEntries.filter(e => e.status !== 'full' && (ecmD[String(e.n)]||[]).length > 0).length;
-  // Sum total CPU time across all ECM attempts
-  let totalCpuSec = 0;
+  // Build an n→entry map once (avoids O(n²) allEntries.find inside the loop)
+  const byN = new Map();
+  for (const e of allEntries) byN.set(e.n, e);
+  let total = 0;
   for (const [nStr, attempts] of Object.entries(ecmD)) {
-    const entry = allEntries.find(e => e.n === parseInt(nStr));
+    const entry = byN.get(parseInt(nStr));
     const digits = entry ? getCofactorDigits(entry) : null;
     if (!digits) continue;
     for (const a of attempts) {
       const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
       const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
-      totalCpuSec += estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0;
+      total += estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0;
     }
   }
-  const totalCpuStr = fmtCpuTime(totalCpuSec);
+  _cpuTotalCache = total;
+  return total;
+}
+
+function renderStats() {
+  // Single pass over allEntries for all status counts (was 6 separate .filter() passes)
+  const ecmD = loadECM();
+  let full = 0, partial = 0, unknown = 0, fdbUnknown = 0, composite = 0, attempted = 0;
+  for (const e of allEntries) {
+    switch (e.status) {
+      case 'full':        full++; break;
+      case 'partial':     partial++; break;
+      case 'unknown':     unknown++; break;
+      case 'fdb-unknown': fdbUnknown++; break;
+      case 'composite':   composite++; break;
+    }
+    if (e.status !== 'full' && (ecmD[String(e.n)] || []).length > 0) attempted++;
+  }
+  const totalCpuStr = fmtCpuTime(computeTotalCpuSec());
 
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
