@@ -612,11 +612,11 @@
   <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border2);padding:6px 12px;background:var(--bg)">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Range E(</label>
     <input type="number" id="minNInput" value="0" min="0" step="2"
-      onchange="MIN_N = Math.max(0, parseInt(this.value)||0); rebuildAndRender();"
+      onchange="applyRangeInputs();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
     <input type="number" id="maxNInput" value="20000" min="2" step="2"
-      onchange="MAX_N = Math.max(MIN_N+2, Math.min(parseInt(this.value)||15000, _maxLoadedN())); this.value=MAX_N; applyFilters();"
+      onchange="applyRangeInputs();"
       style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
   </div>
@@ -2234,14 +2234,37 @@ function toggleSortDiff() {
   applyFilters();
 }
 
+// Read both range inputs, clamp them sanely, and rebuild the grid.
+// (Previously the max input only ran applyFilters — which ignores the range —
+// so changing the max didn't actually narrow the displayed range.)
+function applyRangeInputs() {
+  const minEl = document.getElementById('minNInput');
+  const maxEl = document.getElementById('maxNInput');
+  const loadedMax = _maxLoadedN();
+
+  let lo = Math.max(0, parseInt(minEl?.value) || 0);
+  let hi = Math.min(parseInt(maxEl?.value) || 20000, loadedMax);
+  if (hi < lo + 2) hi = lo + 2;   // keep a valid window
+
+  MIN_N = lo;
+  MAX_N = hi;
+  // Reflect the clamped values back into the inputs
+  if (minEl) minEl.value = MIN_N;
+  if (maxEl) maxEl.value = MAX_N;
+
+  rebuildAndRender();
+}
+
 function rebuildAndRender() {
   allEntries = buildEntries();
   // Re-apply FDB cache
   replayFDBCache();
-  filtered   = [...allEntries];
+  // re-apply any restored sets so statuses are correct after rebuild
+  try { applyFdbUnknownSet(); applySeedNewSet(); } catch(e) {}
   currentPage = 1;
-  renderGrid();
-  renderPagination();
+  // applyFilters respects the active status filter AND the new range
+  // (allEntries is already bounded to [MIN_N, MAX_N] by buildEntries)
+  applyFilters();
   renderStats();
 }
 
@@ -3233,8 +3256,12 @@ function startStalePoll() {
 function startPartialPoll() {
   if (polling) return;
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  // Target any non-full entry that HAS known factors — not just those whose status
+  // label is exactly 'partial'. An entry can hold factors while still labelled
+  // 'composite' or 'fdb-unknown' (e.g. stale status), and those must be re-checkable
+  // here too, otherwise the bulk sweep silently skips them (the modal recheck didn't).
   const targets = allEntries
-    .filter(e => e.status === 'partial' && e.val && e.n > 2)
+    .filter(e => e.status !== 'full' && e.val && e.n > 2 && (e.factors || []).filter(f => f && f !== '1').length > 0)
     .map(e => ({ n: e.n, number: e.val }))
     .filter(t => t.number)
     .slice(0, cap);
@@ -3242,8 +3269,8 @@ function startPartialPoll() {
     setStatus('No partially factored entries to check', 'warn');
     return;
   }
-  addLog('Checking ' + targets.length + ' partially factored entries (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, document.getElementById('pollPartialBtn'), false, false);
+  addLog('Checking ' + targets.length + ' entries with known factors (cap: ' + cap + ')', '');
+  runPollQueue(targets, true, document.getElementById('pollPartialBtn'), false, true);
 }
 
 function startFdbUnknownPoll() {
