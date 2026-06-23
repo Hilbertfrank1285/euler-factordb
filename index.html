@@ -3496,18 +3496,23 @@ function getDifficultyForEntry(e) {
   }
 }
 
-// Get last FDB check info for an entry (used in modal and sorting)
+// Get last FDB check info for an entry (used in modal, tile, and sorting).
+// Rechecks write to fdbCache[e.val], but legacy data may also have a separate
+// cofactor-keyed entry. Pick whichever was checked MOST RECENTLY so the tile
+// reflects the latest rerun (previously it always took the stale cofactor entry).
 function getFdbCheckInfo(e) {
   const targets = [
-    e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
-    (e.status === 'unknown' || e.status === 'composite' || e.status === 'attempted') && e.val ? e.val : null,
     e.val || null,
+    e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
   ].filter(Boolean);
+  let best = null;
   for (const num of targets) {
     const cached = fdbCache[num];
-    if (cached && cached.timestamp) return cached;
+    if (cached && cached.timestamp) {
+      if (!best || cached.timestamp > best.timestamp) best = cached;
+    }
   }
-  return null;
+  return best;
 }
 
 function fmtFdbDate(timestamp) {
@@ -3590,6 +3595,7 @@ function renderGrid() {
         const cpu = getTotalCpuForEntry(e);
         if (cpu) html += `<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ${fmtCpuTime(cpu)} CPU</div>`;
       } catch(_) {}
+
       // FDB date
       try {
         if (e.status !== 'full') {
@@ -4204,7 +4210,6 @@ function buildECMSection(n, e) {
           <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--border2);padding-left:8px">
             Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your ECM and P-1/P+1 runs together would have caught it?
             Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance that at least one method succeeds.
-            <span style="color:var(--text-muted)">ECM breakdown and P±1 breakdown are shown separately below.</span>
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
@@ -4241,7 +4246,7 @@ function buildECMSection(n, e) {
           </div>
           <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--purple);padding-left:8px">
             ECM finds a d-digit factor by running random elliptic curves; each curve is an independent attempt, so more curves = higher chance.
-            Probabilities use the empirical <span style="color:var(--text)">GMP-ECM expected-curve table</span> (default Brent–Suyama polynomial): P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%). <span style="color:var(--text)">done</span> = curves you've run targeting that digit size (binned from each run's B1 via the table). <span style="color:var(--text)">90%→</span> = curves needed for 90% (≈2.3× C_opt). Above 65d, ECM is impractical — use NFS/GNFS.
+            Probabilities use the empirical <span style="color:var(--text)">GMP-ECM expected-curve table</span> (default Brent–Suyama polynomial): P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%). <span style="color:var(--text)">done</span> = curves you've run targeting that digit size (binned from each run's B1 via the table). <span style="color:var(--text)">90%→</span> = curves needed for 90% (≈2.3× C_opt).
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
