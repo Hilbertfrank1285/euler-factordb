@@ -2926,7 +2926,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     const fetchingCard = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
     if (fetchingCard) {
       fetchingCard.classList.add('fetching');
-      fetchingCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // (no auto-scroll — the page no longer jumps to follow the checking row)
     }
 
     try {
@@ -4182,7 +4182,7 @@ function buildECMSection(n, e) {
 
   // Probability table for cofactor
   if (digits) {
-    const targetDigits = [20,25,30,35,40,45,50,55,60,65,70];
+    const targetDigits = [10,15,20,25,30,35,40,45,50,55,60,65,70];
     const checkDigits  = targetDigits.filter(d => d < digits);
     if (checkDigits.length) {
       const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
@@ -4421,7 +4421,7 @@ function buildECMSection(n, e) {
             const curves  = parseInt(a.curves) || 1;
             // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
             const I_val = a.I ? parseFloat(a.I) : 0;
-            const showDigits = [15,20,25,30,35,40,45,50,55,60,65].filter(d => d < digits);
+            const showDigits = [10,15,20,25,30,35,40,45,50,55,60,65].filter(d => d < digits);
             if (showDigits.length === 0) showDigits.push(targetD);
             const parts = showDigits.map(d => {
               const p = I_val > 0
@@ -4436,7 +4436,7 @@ function buildECMSection(n, e) {
             const b2num = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
             // Show probability for each relevant digit size (20d, 25d, 30d...)
             // P-1 is run once — no curves multiplier
-            const targetD = [20,25,30,35,40,45,50];
+            const targetD = [10,15,20,25,30,35,40,45,50];
             const probParts = targetD.filter(d => d < digits).map(d => {
               const p   = pm1Probability(d, b1num, b2num, a.method);
               const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
