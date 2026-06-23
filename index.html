@@ -4182,7 +4182,7 @@ function buildECMSection(n, e) {
 
   // Probability table for cofactor
   if (digits) {
-    const targetDigits = [10,15,20,25,30,35,40,45,50,55,60,65,70];
+    const targetDigits = [10,15,20,25,30,35,40,45,50,55,60,65];
     const checkDigits  = targetDigits.filter(d => d < digits);
     if (checkDigits.length) {
       const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
@@ -4342,7 +4342,7 @@ function buildECMSection(n, e) {
           return Math.min(Math.max(p, 0), 0.5);
         }
 
-        const resolveDigits = [20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
+        const resolveDigits = [10,15,20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
         if (resolveDigits.length) {
           probHtml = `<div style="margin-bottom:12px">
             <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
@@ -4436,7 +4436,7 @@ function buildECMSection(n, e) {
             const b2num = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
             // Show probability for each relevant digit size (20d, 25d, 30d...)
             // P-1 is run once — no curves multiplier
-            const targetD = [10,15,20,25,30,35,40,45,50];
+            const targetD = [10,15,20,25,30,35,40,45,50,55,60,65];
             const probParts = targetD.filter(d => d < digits).map(d => {
               const p   = pm1Probability(d, b1num, b2num, a.method);
               const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
