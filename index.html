@@ -690,6 +690,7 @@
     <button class="sort-btn" id="sortDiffBtn" onclick="toggleSortDiff()">Difficulty ↑</button>
     <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()">CPU ↓</button>
     <button class="sort-btn" id="sortFdbBtn" onclick="toggleSortFdb()">FDB date ↓</button>
+    <button class="sort-btn" id="sortNextRunBtn" onclick="toggleSortNextRun()" title="Sort by CPU time of the fastest recommended next run">Next run ↑</button>
   </div>
 </div>
 
@@ -945,7 +946,7 @@ function loadFdbUnknownSet() {
   catch { return new Set(); }
 }
 function saveFdbUnknownSet(s) {
-  try { localStorage.setItem('eulerFDB_fdbUnknown_v1', JSON.stringify([...s])); } catch(e) {}
+  try { localStorage.setItem('eulerFDB_fdbUnknown_v1', JSON.stringify([...s])); } catch(e) { console.warn('save fdbUnknown set failed:', e.name); }
 }
 function addFdbUnknown(n) {
   const s = loadFdbUnknownSet(); s.add(n); saveFdbUnknownSet(s);
@@ -957,7 +958,7 @@ function loadSeedNewSet() {
   catch { return new Set(); }
 }
 function saveSeedNewSet(s) {
-  try { localStorage.setItem('eulerFDB_seedNew_v1', JSON.stringify([...s])); } catch(e) {}
+  try { localStorage.setItem('eulerFDB_seedNew_v1', JSON.stringify([...s])); } catch(e) { console.warn('save seedNew set failed:', e.name); }
 }
 function applySeedNewSet() {
   const s = loadSeedNewSet();
@@ -975,6 +976,7 @@ function applyFdbUnknownSet() {
 function saveECM(d) {
   _ecmCache = d; // update cache immediately
   invalidateCpuTotal(); // ECM changed → recompute total CPU on next renderStats
+  invalidateNextRunCache(); // ECM changed → recompute recommended-run times
   try {
     localStorage.setItem(ECM_KEY, JSON.stringify(d));
     markDirty();
@@ -1026,6 +1028,20 @@ const MANUAL_COOLDOWN = 0; // 10 seconds
 // Request spacing — be polite to FactorDB
 const REQUEST_DELAY_MS = 250;  // 250ms between requests
 let MAX_PER_SESSION    = 500;   // cap requests per manual session (user-adjustable)
+
+// Maximum number size (in digits) we attempt to auto-query on FactorDB. Above this
+// the query URL is too long for the proxies (HTTP 414) — the user checks it directly
+// on factordb.com and uses "Mark factors as FDB-confirmed" instead. Single source of
+// truth: referenced by queryFactorDB, the modal recheck UI, and the error fallback.
+const QUERY_MAX_DIGITS = 52000;
+
+// Parse a B1/B2 bound that may be written as "3e6", "3000000", or "3,000,000".
+// Returns a Number (0 if blank/invalid). Used everywhere ECM/P±1 bounds are read.
+function parseB1(v) {
+  if (v == null || v === '') return 0;
+  const n = parseFloat(String(v).replace(/,/g, '').replace(/[eE]/, 'e'));
+  return isFinite(n) ? n : 0;
+}
 
 function loadFDBCache() {
   try {
@@ -1366,8 +1382,8 @@ async function queryFactorDB(numberStr) {
   // FactorDB's API only accepts the number as a GET query parameter (?query=...).
   // Very large numbers make very long URLs; proxies may reject them (HTTP 414).
   // Above this cap we don't even attempt — check directly at factordb.com instead.
-  if (numberStr.length > 52000) {
-    throw new Error('Number too large to query (' + numberStr.length + 'd > 52000d cap) — check it directly at factordb.com and mark manually');
+  if (numberStr.length > QUERY_MAX_DIGITS) {
+    throw new Error('Number too large to query (' + numberStr.length + 'd > ' + QUERY_MAX_DIGITS + 'd cap) — check it directly at factordb.com and mark manually');
   }
 
   const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
@@ -1405,7 +1421,7 @@ function optimalB1(digits) {
 // Inverse: map a B1 value to the digit level it's optimal for, by inverting the
 // GMP-ECM table (the old (lnB1²)/(ln10·lnln) formula was off by 3-5 digits).
 function b1ToDigits(b1str) {
-  const b1val = parseFloat(String(b1str).replace(/,/g,'').replace(/[eE]/,'e'));
+  const b1val = parseB1(b1str);
   if (!b1val || b1val <= 1) return 0;
   let bestD = ECM_TABLE[0].d, bestErr = Infinity;
   for (let d = ECM_TABLE[0].d; d <= ECM_TABLE[ECM_TABLE.length-1].d; d++) {
@@ -1622,6 +1638,52 @@ function pm1Probability(digits, B1, B2, method = 'P-1') {
 
   if (method === 'P+1') prob *= 0.5;             // ~half of primes have exploitable p+1
   return Math.min(prob, 1);
+}
+
+// Aggregate probability that the user's P-1/P+1 attempts find a d-digit factor.
+// P-1 is DETERMINISTIC — re-running with the same (or smaller) bounds finds the
+// SAME factors, so attempts must NOT be compounded as if independent (that would
+// overcount). Instead we take the single BEST P-1 attempt and the single best P+1
+// attempt (a larger run subsumes a smaller one), then combine those two methods
+// independently, since p-1 and p+1 smoothness are genuinely different events.
+function bestPm1Prob(d, pm1Attempts) {
+  let bestMinus = 0, bestPlus = 0;
+  for (const a of pm1Attempts) {
+    const b1n = parseB1(a.b1);
+    const b2n = (a.b2 ? parseB1(a.b2) : null);
+    const p = pm1Probability(d, b1n, b2n, a.method);
+    if (a.method === 'P+1') { if (p > bestPlus) bestPlus = p; }
+    else                    { if (p > bestMinus) bestMinus = p; }
+  }
+  return 1 - (1 - bestMinus) * (1 - bestPlus); // P-1 and P+1 independent of each other
+}
+
+// Probability the user's ECM attempts find a d-digit factor. ECM curves ARE
+// independent random trials, so we combine attempts as 1 − ∏(1−p_i). Each
+// attempt's probability uses its OWN B1 via ecmProbability(d, curves, b1), which
+// applies the B1-efficiency penalty — a run at B1=50k has ~0 chance at a 65d
+// factor regardless of curve count. (The old ±3 digit-banding was a cruder
+// approximation that disagreed with the per-attempt rows.)
+function ecmProbForDigit(d, ecmAttempts) {
+  let fail = 1;
+  for (const a of ecmAttempts) {
+    const b1 = parseB1(a.b1);
+    const curves = parseInt(a.curves) || 0;
+    if (!curves || !b1) continue;
+    const I_val = a.I ? parseFloat(a.I) : 0;
+    const p = I_val > 0 ? ecmProbabilityWithI(d, b1, curves, I_val) : ecmProbability(d, curves, b1);
+    fail *= (1 - p);
+  }
+  return 1 - fail;
+}
+
+// Rough probability that a prime factor in the [d, d+5) digit range exists as the
+// SMALLER factor of an N-digit number. Dickman-like: ln((d+5)/d) / ln(N), capped
+// at 0.5 (no single 5-digit-wide range is more than ~even to contain the factor).
+function pFactorExists(d, totalDigits) {
+  if (d >= totalDigits) return 0;
+  const p = Math.log((d + 5) / d) / Math.log(totalDigits);
+  return Math.min(Math.max(p, 0), 0.5);
 }
 
 function fdbStatusLabel(s) {
@@ -2223,6 +2285,19 @@ function toggleSortCpu() {
   applyFilters();
 }
 
+function toggleSortNextRun() {
+  // Default to fastest-first (ascending), so the quickest next runs surface at the top
+  if (sortMode !== 'nextrun-asc' && sortMode !== 'nextrun-desc') {
+    sortMode = 'nextrun-asc';
+  } else {
+    sortMode = sortMode === 'nextrun-asc' ? 'nextrun-desc' : 'nextrun-asc';
+  }
+  const btn = document.getElementById('sortNextRunBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'nextrun-asc' ? 'Next run ↑' : 'Next run ↓'; btn.classList.add('active'); }
+  applyFilters();
+}
+
 function toggleSortDiff() {
   // If not currently sorting by diff, start with asc; else toggle asc/desc
   if (sortMode !== 'diff-asc' && sortMode !== 'diff-desc') {
@@ -2231,9 +2306,10 @@ function toggleSortDiff() {
     sortMode = sortMode === 'diff-asc' ? 'diff-desc' : 'diff-asc';
   }
   const btn    = document.getElementById('sortDiffBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
   const nBtn   = document.getElementById('sortNBtn');
+  if (nBtn) nBtn.textContent = 'E(n) ↑';
   if (btn)  { btn.textContent = sortMode === 'diff-asc' ? 'Difficulty ↑' : 'Difficulty ↓'; btn.classList.add('active'); }
-  if (nBtn) { nBtn.classList.remove('active'); nBtn.textContent = 'E(n) ↑'; }
   applyFilters();
 }
 
@@ -2263,7 +2339,7 @@ function rebuildAndRender() {
   // Re-apply FDB cache
   replayFDBCache();
   // re-apply any restored sets so statuses are correct after rebuild
-  try { applyFdbUnknownSet(); applySeedNewSet(); } catch(e) {}
+  try { applyFdbUnknownSet(); applySeedNewSet(); } catch(e) { console.warn('re-apply fdbUnknown/seedNew sets failed:', e.message); }
   currentPage = 1;
   // applyFilters respects the active status filter AND the new range
   // (allEntries is already bounded to [MIN_N, MAX_N] by buildEntries)
@@ -2543,7 +2619,7 @@ function doClearAllLocalData() {
     'eulerFDB_fdbUnknown_v1'
     // GH_SETTINGS_KEY intentionally kept — you need the token to push after reset
   ];
-  keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+  keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) { console.warn('removeItem failed for', k, e.name); } });
 
   // Also wipe any other eulerFDB_ keys — but PRESERVE GitHub settings (token) and theme
   Object.keys(localStorage)
@@ -3446,6 +3522,16 @@ function applyFilters() {
       if (!cb) return -1;
       return sortMode === 'cpu-desc' ? cb - ca : ca - cb;
     });
+  } else if (sortMode === 'nextrun-asc' || sortMode === 'nextrun-desc') {
+    filtered.sort((a, b) => {
+      const na = getNextRunTimeForEntry(a);
+      const nb = getNextRunTimeForEntry(b);
+      // entries with no recommended run (e.g. fully factored) sort last
+      if (na == null && nb == null) return a.n - b.n;
+      if (na == null) return 1;
+      if (nb == null) return -1;
+      return sortMode === 'nextrun-asc' ? na - nb : nb - na;
+    });
   } else if (sortMode === 'fdb-asc' || sortMode === 'fdb-desc') {
     filtered.sort((a, b) => {
       const ia = getFdbCheckInfo(a);
@@ -3474,12 +3560,37 @@ function getTotalCpuForEntry(e) {
   if (!digits) return null;
   let total = 0;
   for (const a of attempts) {
-    const b1n = a.b1 ? parseFloat(String(a.b1).replace(/[eE]/,'e')) : 0;
-    const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+    const b1n = parseB1(a.b1);
+    const b2n = (a.b2 ? parseB1(a.b2) : null);
     const s   = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
     if (s) total += s;
   }
   return total > 0 ? total : null;
+}
+
+// Fastest recommended next run for an entry (the #1 item in the time-sorted
+// recommendation list). Used by the "Next run" grid sort and the tile footer.
+// Memoized per render; cache stores the full rec object (or null).
+let _nextRunCache = new Map();
+function invalidateNextRunCache() { _nextRunCache = new Map(); }
+function getNextRunForEntry(e) {
+  if (e.status === 'full') return null;
+  if (_nextRunCache.has(e.n)) return _nextRunCache.get(e.n);
+  const digits = getCofactorDigits(e);
+  let rec = null;
+  if (digits) {
+    try {
+      const recs = recommendNextRun(digits, loadECM()[String(e.n)] || []);
+      if (recs && recs.length) rec = recs[0]; // list is sorted fastest-first
+    } catch(err) { console.warn('getNextRunForEntry error E(' + e.n + '):', err.message); }
+  }
+  _nextRunCache.set(e.n, rec);
+  return rec;
+}
+// Time-only accessor for the grid sort.
+function getNextRunTimeForEntry(e) {
+  const rec = getNextRunForEntry(e);
+  return rec ? (rec.cpuTime || 0) : null;
 }
 
 function getDifficultyForEntry(e) {
@@ -3607,6 +3718,18 @@ function renderGrid() {
         }
       } catch(_) {}
 
+      // Fastest recommended next run
+      try {
+        if (e.status !== 'full') {
+          const rec = getNextRunForEntry(e);
+          if (rec) {
+            const label = rec.method + ' B1=' + rec.b1 + (rec.curves ? ' ·' + rec.curves + 'cv' : '') + ' (' + rec.targetDigits + 'd)';
+            const time  = rec.cpuTime ? ' · ' + fmtCpuTime(rec.cpuTime) : '';
+            html += `<div style="font-size:9px;color:var(--accent);margin-top:2px" title="Fastest recommended next run">▶ ${label}${time}</div>`;
+          }
+        }
+      } catch(_) {}
+
       lazy.innerHTML = html;
     }
   };
@@ -3660,8 +3783,8 @@ function computeTotalCpuSec() {
     const digits = entry ? getCofactorDigits(entry) : null;
     if (!digits) continue;
     for (const a of attempts) {
-      const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
-      const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+      const b1n = parseB1(a.b1);
+      const b2n = (a.b2 ? parseB1(a.b2) : null);
       total += estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0;
     }
   }
@@ -3830,9 +3953,9 @@ function openModal(n) {
     ${e.val ? `
     <div class="modal-section">
       <div class="modal-section-label">FactorDB</div>
-      ${e.val.length > 52000 ? `
+      ${e.val.length > QUERY_MAX_DIGITS ? `
       <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">
-        This number is ${e.val.length} digits — too large to auto-query (cap 52000d).
+        This number is ${e.val.length} digits — too large to auto-query (cap ${QUERY_MAX_DIGITS}d).
         Check it directly: <a href="https://factordb.com/index.php?query=${e.val}" target="_blank" style="color:var(--accent)">open on FactorDB ↗</a>.
         If FactorDB lists all the factors you already have, mark it confirmed:
       </div>
@@ -3905,7 +4028,7 @@ async function modalCheckFull(n) {
     }
     const errEl = document.getElementById('fdbQueryStatus_' + n);
     if (errEl) {
-      const isLarge = e && e.val && e.val.length > 49999;
+      const isLarge = e && e.val && e.val.length > QUERY_MAX_DIGITS;
       errEl.innerHTML = '<span style="color:var(--red)">⚠ ' + err.message + '</span>'
         + (isLarge
           ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB Unknown</button>'
@@ -3982,69 +4105,104 @@ function fmtCpuTime(seconds) {
   return (seconds/86400).toFixed(1) + ' days';
 }
 
+// Suggest the next sensible factoring runs, returned as a list sorted by CPU time
+// (fastest first) so the user can quickly pick what to knock out next.
+//
+// Strategy (matches how ECM is actually run):
+//  • ECM marches UPWARD in factor size. You complete a digit level (run ~the
+//    expected curve count at its optimal B1), then step up to the next level.
+//    Re-doing smaller levels you've already cleared is wasted work — a 25-digit
+//    search already finds 20-digit factors incidentally.
+//  • So we find the SMALLEST digit level that isn't yet adequately covered and
+//    suggest finishing it, plus the next couple of step-ups as bigger options.
+//  • P-1/P+1 are cheap one-shots that hit a different class of primes — suggested
+//    if not yet done (or not at a decent bound).
 function recommendNextRun(digits, attempts) {
-  if (!digits || digits > 10000) return null;
+  if (!digits || digits > 100000) return null;
 
   const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
   const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
 
-  const b1ToTargetD = b1ToDigits; // shared table-inversion helper
-
+  // curves credited to each digit level (±3 band around each run's B1 target)
   const curvesPerD = {};
   for (const a of ecmAttempts) {
-    const td = b1ToTargetD(a.b1); const c = parseInt(a.curves)||0;
-    for (let d = td-3; d <= td+3; d++) curvesPerD[d] = (curvesPerD[d]||0) + c;
+    const td = b1ToDigits(a.b1); const c = parseInt(a.curves) || 0;
+    for (let d = td - 3; d <= td + 3; d++) curvesPerD[d] = (curvesPerD[d] || 0) + c;
+  }
+  // Highest digit level that has had meaningful ECM work. Any level at or below
+  // this is effectively already searched — running ECM aimed at a d-digit factor
+  // finds all smaller factors incidentally, so we never recommend going backward.
+  let highestWorked = 0;
+  for (const a of ecmAttempts) {
+    if ((parseInt(a.curves) || 0) > 0) highestWorked = Math.max(highestWorked, b1ToDigits(a.b1));
   }
 
-  const targetRange = [20,25,30,35,40,45,50,55,60,65].filter(d => d < Math.min(digits, 66));
+  // A digit level counts as "covered" once it's reached ~63% (its expected-curve
+  // count). The largest factor that could be the SMALLER factor is √N ≈ digits/2.
+  const maxUseful = Math.min(Math.floor(digits / 2), 65);
+  const levels = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65].filter(d => d <= maxUseful);
 
-  // Find the digit range with the most probability gain potential
-  // Gain = pFactorExists(d,digits) × (targetProb - currentProb) where targetProb=0.5
-  let bestGain = 0, bestD = 25, bestCurves = 1000, bestB1 = '1e6';
+  const candidates = [];
 
-  for (const d of targetRange) {
-    const currentCurves = curvesPerD[d] || 0;
-    const currentP = currentCurves ? ecmProbability(d, currentCurves) : 0;
-    if (currentP >= 0.9) continue; // already well covered
+  // ── ECM: for each not-yet-complete level, suggest the curves to COMPLETE it ──
+  // (reach its expected-curve count = ~63%). Only suggest levels at or above the
+  // lowest incomplete one — never push the user back down to a cleared level.
+  let lowestIncomplete = null;
+  for (const d of levels) {
+    // Skip any level already searched: directly covered, OR below a higher level
+    // that's been worked (larger-B1 runs find smaller factors incidentally).
+    if (d <= highestWorked) continue;
+    const have   = curvesPerD[d] || 0;
+    const target = Math.round(ecmOptimalCurves(d));        // ~63% completion
+    if (have >= target * 0.95) continue;                   // already effectively done
+    if (lowestIncomplete === null) lowestIncomplete = d;
+    // suggest this level + the next two step-ups (so bigger options appear too)
+    if (d > lowestIncomplete + 10) break;
 
-    // How many curves to add to reach 50% (or improve by 20 percentage points)?
-    const targetP  = Math.min(currentP + 0.20, 0.5);
-    const totalNeeded = curvesForProb(d, targetP);
-    const addCurves   = Math.max(totalNeeded - currentCurves, 100);
-    const pExists  = Math.log((d+5)/d) / Math.log(digits);
-    const gain     = pExists * (targetP - currentP) * 100;
+    const addCurves = Math.max(target - have, 50);
+    const b1        = optimalB1(d);
+    const pBefore   = have ? ecmProbability(d, have) : 0;
+    const pAfter    = ecmProbability(d, have + addCurves);
+    const pExists   = pFactorExists(d, digits);
+    const gain      = pExists * (pAfter - pBefore) * 100;
+    const cpuSec    = estimateCpuSeconds('ECM', b1, null, addCurves, digits);
 
-    if (gain > bestGain) {
-      bestGain    = gain;
-      bestD       = d;
-      bestCurves  = addCurves;
-      bestB1      = fmtB1(optimalB1(d));
-    }
+    candidates.push({
+      method: 'ECM', b1: fmtB1(b1), b2: null, curves: fmtCurves(addCurves),
+      rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
+      reason: have === 0
+        ? `Reach the ${d}-digit level: run ${fmtCurves(addCurves)} curves at the optimal B1=${fmtB1(b1)} (gets you to ~63% if a ${d}d factor exists).`
+        : `Finish the ${d}-digit level: ${fmtCurves(have)} curves done (${fmtPct(pBefore)}); +${fmtCurves(addCurves)} curves reaches ~63%.`,
+    });
   }
 
-  if (bestGain < 0.001) {
-    // ECM well covered — suggest P-1 if not done
-    if (!pm1Attempts.length) {
-      const pm1CpuSec = estimateCpuSeconds('P-1', 1e7, 1e11, 1, digits);
-      return { method:'P-1', b1:'1e7', b2:'1e11', curves:null, targetDigits:20,
-        gain:(Math.log(25/20)/Math.log(digits)*100).toFixed(2),
-        reason:'No P-1 runs logged yet. P-1 is fast and finds primes with smooth p−1 — complementary to ECM.',
-        cpuTime: pm1CpuSec };
-    }
-    return null;
+  // ── P-1 / P+1: cheap complementary one-shots ─────────────────────────────────
+  const hasP1 = pm1Attempts.some(a => a.method === 'P-1' && parseB1(a.b1) >= 1e6);
+  const hasPp1 = pm1Attempts.some(a => a.method === 'P+1' && parseB1(a.b1) >= 1e6);
+  if (!hasP1) {
+    const b1 = 1e7, b2 = 1e11;
+    candidates.push({
+      method: 'P-1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0,
+      targetDigits: b1ToDigits(b1), gain: (pFactorExists(b1ToDigits(b1), digits) * pm1Probability(b1ToDigits(b1), b1, b2, 'P-1') * 100).toFixed(2),
+      cpuTime: estimateCpuSeconds('P-1', b1, b2, 1, digits),
+      reason: 'A single P-1 run is fast and catches primes p where p−1 is smooth — a different class than ECM finds. Worth doing once at a healthy bound.',
+    });
+  }
+  if (hasP1 && !hasPp1) {
+    const b1 = 1e7, b2 = 1e11;
+    candidates.push({
+      method: 'P+1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0,
+      targetDigits: b1ToDigits(b1), gain: (pFactorExists(b1ToDigits(b1), digits) * pm1Probability(b1ToDigits(b1), b1, b2, 'P+1') * 100).toFixed(2),
+      cpuTime: estimateCpuSeconds('P+1', b1, b2, 1, digits),
+      reason: 'You\'ve done P-1 but not P+1. P+1 hits the complementary half of primes (smooth p+1) for little extra cost.',
+    });
   }
 
-  const reason = currentD => {
-    const cov = curvesPerD[bestD] || 0;
-    return cov === 0
-      ? `No ECM coverage at ${bestD}-digit range yet. Optimal B1 for this range is ${bestB1}.`
-      : `Current coverage at ${bestD}d: ${fmtCurves(cov)} curves (${fmtPct(ecmProbability(bestD, cov))}). Adding ${fmtCurves(bestCurves)} curves improves by ~20 percentage points.`;
-  };
+  if (!candidates.length) return null;
 
-  const ecmCpuSec = estimateCpuSeconds('ECM', optimalB1(bestD), null, bestCurves, digits);
-  return { method:'ECM', b1:bestB1, b2:null, curves:fmtCurves(bestCurves),
-    targetDigits: bestD, gain: bestGain.toFixed(2), reason: reason(bestD),
-    cpuTime: ecmCpuSec };
+  // Sort by CPU time ascending (fastest to do first), then by gain descending.
+  candidates.sort((a, b) => (a.cpuTime - b.cpuTime) || (parseFloat(b.gain) - parseFloat(a.gain)));
+  return candidates;
 }
 
 function computeDifficulty(digits, attempts) {
@@ -4099,13 +4257,7 @@ function computeDifficulty(digits, attempts) {
     let wCov = 0, wTot = 0;
     for (const d of pm1Range) {
       const w = 1 / d;
-      let failProd = 1;
-      for (const a of pm1Attempts) {
-        const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-        const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-        failProd *= (1 - pm1Probability(d, b1n, b2n, a.method));
-      }
-      wCov += w * (1 - failProd);
+      wCov += w * bestPm1Prob(d, pm1Attempts);
       wTot += w;
     }
     pm1Coverage = wTot > 0 ? wCov / wTot : 0;
@@ -4213,17 +4365,11 @@ function buildECMSection(n, e) {
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
-              // ECM failure prob
-              const ecmCurves = curvesPerDigit[d] || 0;
-              const ecmP      = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
-              // PM1 failure prob
-              let pm1Fail = 1;
-              for (const a of pm1Attempts) {
-                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-                pm1Fail *= (1 - pm1Probability(d, b1n, b2n, a.method));
-              }
-              const combined = 1 - (1 - ecmP) * pm1Fail;
+              // ECM probability (per-attempt B1 efficiency, combined across runs)
+              const ecmP      = ecmProbForDigit(d, ecmAttempts);
+              // P-1/P+1: best attempt (deterministic — don't compound duplicates)
+              const pm1P      = bestPm1Prob(d, pm1Attempts);
+              const combined = 1 - (1 - ecmP) * (1 - pm1P);
               const cls    = combined > 0.5 ? 'prob-high' : combined > 0.1 ? 'prob-mid' : 'prob-low';
               const nfs    = d > 65;
               const style  = nfs ? 'opacity:0.45' : '';
@@ -4233,7 +4379,7 @@ function buildECMSection(n, e) {
               return `<div class="prob-cell" style="${style}">
                 <div class="prob-d">${d}-digit factor</div>
                 ${pDisp}
-                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(1-pm1Fail)}</div>
+                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(pm1P)}</div>
               </div>`;
             }).join('')}
           </div>
@@ -4250,8 +4396,8 @@ function buildECMSection(n, e) {
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
-              const curves   = curvesPerDigit[d] || 0;
-              const p        = curves ? ecmProbability(d, curves) : 0;
+              const curves   = curvesPerDigit[d] || 0; // banding count for the "done" label
+              const p        = ecmProbForDigit(d, ecmAttempts); // efficiency-based probability
               const b1opt    = optimalB1(d);
               const cls      = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
               const need     = curvesForProb(d, 0.9);
@@ -4284,29 +4430,17 @@ function buildECMSection(n, e) {
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
-              let failProd = 1;
-              for (const a of pm1Attempts) {
-                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-                failProd *= (1 - pm1Probability(d, b1n, b2n, a.method));
-              }
-              const combined = 1 - failProd;
-              const best     = pm1Attempts.reduce((mx, a) => {
-                const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-                const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-                return Math.max(mx, pm1Probability(d, b1n, b2n, a.method));
-              }, 0);
+              // P-1 is deterministic — show the BEST attempt, not a compounded product
+              const combined = bestPm1Prob(d, pm1Attempts);
               const cls    = combined > 0.3 ? 'prob-high' : combined > 0.05 ? 'prob-mid' : 'prob-low';
               const nfs    = d > 65;
               const style  = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
               const pDisp  = nfs
                 ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
                 : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
-              const bNote  = pm1Attempts.length > 1 ? `<div class="prob-b1">best single: ${fmtPct(best)}</div>` : '';
               return `<div class="prob-cell" style="${style}">
                 <div class="prob-d">${d}-digit factor</div>
                 ${pDisp}
-                ${bNote}
               </div>`;
             }).join('')}
           </div>
@@ -4331,17 +4465,6 @@ function buildECMSection(n, e) {
         // P(k) ≈ (1/k) × (1 - 1/k) × ... ≈ ln(k+1)/ln(n) - ln(k)/ln(n) = ln((k+1)/k)/ln(n)
         // For a 5-digit range [d, d+5): sum from k=d to d+4 of ln((k+1)/k)/ln(n)
         // = ln((d+5)/d) / ln(n)   (telescoping)
-        function pFactorExists(d, totalDigits) {
-          if (d >= totalDigits) return 0;
-          const lnN = Math.log(totalDigits); // in digit-space, lnN ≈ totalDigits (natural log of 10^n = n×ln10)
-          // Probability of a factor in [d, d+5) digits:
-          // integral from d to d+5 of 1/(k × ln(n/k)) dk (Dickman-like)
-          // Simple closed form: ln((d+5)/d) / ln(totalDigits)
-          // Capped at 0.5 per bucket (can't be more than 50% likely for any one range)
-          const p = Math.log((d + 5) / d) / Math.log(totalDigits);
-          return Math.min(Math.max(p, 0), 0.5);
-        }
-
         const resolveDigits = [10,15,20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
         if (resolveDigits.length) {
           probHtml = `<div style="margin-bottom:12px">
@@ -4361,15 +4484,9 @@ function buildECMSection(n, e) {
                 const pExists = pFactorExists(d, digits);
 
                 // P(your runs find it | it exists) = combined ECM + PM1
-                const ecmCurves = curvesPerDigit[d] || 0;
-                const ecmFind   = ecmCurves ? ecmProbability(d, ecmCurves) : 0;
-                let pm1Fail = 1;
-                for (const a of pm1Attempts) {
-                  const b1n = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-                  const b2n = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
-                  pm1Fail  *= (1 - pm1Probability(d, b1n, b2n, a.method));
-                }
-                const totalFind = 1 - (1 - ecmFind) * pm1Fail;
+                const ecmFind   = ecmProbForDigit(d, ecmAttempts);
+                const pm1Find   = bestPm1Prob(d, pm1Attempts);
+                const totalFind = 1 - (1 - ecmFind) * (1 - pm1Find);
 
                 // Combined: P(exists AND found)
                 const combined = pExists * totalFind;
@@ -4398,8 +4515,8 @@ function buildECMSection(n, e) {
   // Attempts table
   if (attempts.length) {
     const totalCpuSec = attempts.reduce((sum, a) => {
-      const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
-      const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+      const b1n = parseB1(a.b1);
+      const b2n = (a.b2 ? parseB1(a.b2) : null);
       return sum + (estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0);
     }, 0);
     tableHtml = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
@@ -4416,7 +4533,7 @@ function buildECMSection(n, e) {
           // Per-row: show the digit range this B1 targets + whether it's practical
           let probCell = '';
           if (a.method === 'ECM' && a.b1) {
-            const b1val   = parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e'));
+            const b1val   = parseB1(a.b1);
             const targetD = b1ToDigits(a.b1);
             const curves  = parseInt(a.curves) || 1;
             // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
@@ -4426,14 +4543,14 @@ function buildECMSection(n, e) {
             const parts = showDigits.map(d => {
               const p = I_val > 0
                 ? ecmProbabilityWithI(d, b1val, curves, I_val)
-                : ecmProbability(d, curves);
+                : ecmProbability(d, curves, b1val);
               const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
               return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
             });
             probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ` + parts.join(' ');
           } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
-            const b1num = parseFloat(String(a.b1).replace(/[eE]/,'e'));
-            const b2num = a.b2 ? parseFloat(String(a.b2).replace(/[eE]/,'e')) : null;
+            const b1num = parseB1(a.b1);
+            const b2num = (a.b2 ? parseB1(a.b2) : null);
             // Show probability for each relevant digit size (20d, 25d, 30d...)
             // P-1 is run once — no curves multiplier
             const targetD = [10,15,20,25,30,35,40,45,50,55,60,65];
@@ -4454,8 +4571,8 @@ function buildECMSection(n, e) {
             <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
             <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
             <td title="Estimated time on a single Zen 3 / 5900X core" style="font-size:10px;color:var(--text-dim)">${(() => {
-              const b1n = a.b1 ? parseFloat(String(a.b1).replace(/,/g,'').replace(/[eE]/,'e')) : 0;
-              const b2n = a.b2 ? parseFloat(String(a.b2).replace(/,/g,'').replace(/[eE]/,'e')) : null;
+              const b1n = parseB1(a.b1);
+              const b2n = (a.b2 ? parseB1(a.b2) : null);
               const cpuS = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
               return fmtCpuTime(cpuS);
             })()}</td>
@@ -4542,14 +4659,24 @@ function buildECMSection(n, e) {
 
   // What to run next recommendation
   if (digits) {
-    const rec = recommendNextRun(digits, attempts);
-    if (rec) {
-      const cpuStr = rec.cpuTime ? ' · <span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + ' on 5900X core</span>' : '';
+    const recs = recommendNextRun(digits, attempts);
+    if (recs && recs.length) {
+      const rows = recs.map((rec, i) => {
+        const cpuStr = rec.cpuTime ? '<span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + '</span>' : '';
+        const star   = i === 0 ? '★ ' : '';
+        const head   = rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '');
+        return '<div style="padding:8px 0;border-top:' + (i ? '1px solid var(--border)' : 'none') + '">'
+          + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">'
+          +   '<span style="font-size:12px;color:var(--text)">' + star + head + '</span>'
+          +   '<span style="font-size:10px;white-space:nowrap">' + cpuStr + '</span>'
+          + '</div>'
+          + '<div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:3px">' + rec.reason + '</div>'
+          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% chance of finding a ' + rec.targetDigits + 'd factor (if one exists)</div>'
+          + '</div>';
+      }).join('');
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
-        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">★ Recommended next run</div>'
-        + '<div style="font-size:12px;color:var(--text);margin-bottom:4px">' + rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '') + cpuStr + '</div>'
-        + '<div style="font-size:11px;color:var(--text-dim);line-height:1.6">' + rec.reason + '</div>'
-        + '<div style="font-size:10px;color:var(--green);margin-top:4px">Expected gain: +' + rec.gain + '% probability at ' + rec.targetDigits + 'd factors</div>'
+        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— sorted by time, fastest first</span></div>'
+        + rows
         + '</div>';
     }
   }
@@ -5060,10 +5187,10 @@ async function fetchEulerValues() {
 // ── INIT ─────────────────────────────────────────────────────────────────────
 // Step 1: render synchronously with whatever is available right now
 try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
-try { fetchLastUpdateTime(); } catch(e) {}
+try { fetchLastUpdateTime(); } catch(e) { console.warn('fetchLastUpdateTime failed:', e.message); }
 
-try { renderLog(); } catch(e) {}
-try { renderChangelog(); } catch(e) {}
+try { renderLog(); } catch(e) { console.warn('renderLog failed:', e.message); }
+try { renderChangelog(); } catch(e) { console.warn('renderChangelog failed:', e.message); }
 try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
 // Don't replay FDB cache here — eulerValues not loaded yet, no vals to match against
 try { applyFilters(); } catch(e) { console.error('applyFilters', e); }
@@ -5121,7 +5248,7 @@ setTimeout(async () => {
 
   setStatus('');
   // One-time cleanup: re-save changelog without large strings (trims old stored data)
-  try { saveChangelog(loadChangelog()); } catch(e) {}
+  try { saveChangelog(loadChangelog()); } catch(e) { console.warn('changelog re-save failed:', e.message); }
   // Loading/replaying data during init is not an unsaved user change — start clean.
   markClean();
 }, 0);
