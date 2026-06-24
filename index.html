@@ -4191,8 +4191,12 @@ function recommendNextRun(digits, attempts) {
 
   if (!candidates.length) return null;
 
-  // Sort by CPU time ascending (fastest first), then by gain descending; cap at 3.
-  candidates.sort((a, b) => (a.cpuTime - b.cpuTime) || (parseFloat(b.gain) - parseFloat(a.gain)));
+  // Rank by EFFICIENCY — overall-odds gain per CPU-second — so "cheap and useful"
+  // beats "fast but near-worthless". Pure speed-first wrongly ranked a 17-day P-1
+  // at <0.01% above a 20-day ECM at +1.03%. A tiny epsilon on time avoids div-by-0
+  // and keeps two equal-value runs ordered fastest-first.
+  const efficiency = c => parseFloat(c.gain) / Math.max(c.cpuTime, 1);
+  candidates.sort((a, b) => (efficiency(b) - efficiency(a)) || (a.cpuTime - b.cpuTime));
   return candidates.slice(0, 3);
 }
 
@@ -4666,9 +4670,9 @@ function buildECMSection(n, e) {
           + '</div>';
       }).join('');
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
-        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— sorted by time, fastest first</span></div>'
+        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— best value first (odds gained per unit time)</span></div>'
         + '<div style="font-size:10px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;border-left:2px solid var(--border2);padding-left:8px">'
-        +   'Two numbers per run, don\'t confuse them: the <span style="color:var(--text)">~63%</span> in the description is how likely the run is to find a factor of that size <em>if one exists</em>. The <span style="color:var(--green)">green %</span> is how much it raises your <span style="color:var(--text)">overall</span> chance of factoring this number — smaller, because a factor of exactly that size probably isn\'t there. Pick the fastest run that still moves your overall odds.'
+        +   'Two numbers per run, don\'t confuse them: the <span style="color:var(--text)">~63%</span> in the description is how likely the run is to find a factor of that size <em>if one exists</em>. The <span style="color:var(--green)">green %</span> is how much it raises your <span style="color:var(--text)">overall</span> chance of factoring this number — smaller, because a factor of exactly that size probably isn\'t there. Runs are ordered by best value (overall odds gained per unit of CPU time).'
         + '</div>'
         + rows
         + '</div>';
