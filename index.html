@@ -4123,86 +4123,77 @@ function recommendNextRun(digits, attempts) {
   const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
   const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
 
-  // curves credited to each digit level (±3 band around each run's B1 target)
-  const curvesPerD = {};
-  for (const a of ecmAttempts) {
-    const td = b1ToDigits(a.b1); const c = parseInt(a.curves) || 0;
-    for (let d = td - 3; d <= td + 3; d++) curvesPerD[d] = (curvesPerD[d] || 0) + c;
-  }
-  // Highest digit level that has had meaningful ECM work. Any level at or below
-  // this is effectively already searched — running ECM aimed at a d-digit factor
-  // finds all smaller factors incidentally, so we never recommend going backward.
-  let highestWorked = 0;
-  for (const a of ecmAttempts) {
-    if ((parseInt(a.curves) || 0) > 0) highestWorked = Math.max(highestWorked, b1ToDigits(a.b1));
-  }
-
-  // A digit level counts as "covered" once it's reached ~63% (its expected-curve
-  // count). The largest factor that could be the SMALLER factor is √N ≈ digits/2.
+  // The largest factor that could be the SMALLER of two is sqrt(N) ~ digits/2.
   const maxUseful = Math.min(Math.floor(digits / 2), 65);
   const levels = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65].filter(d => d <= maxUseful);
 
+  // How "complete" is each ECM level? Use the efficiency-aware probability of the
+  // user's actual runs at that digit size (ecmProbForDigit accounts for B1 — a
+  // 1-curve run at huge B1 contributes ~nothing, so it does NOT mark a level done).
+  // A level is "covered" once its probability reaches ~55% (near the ~63% mark).
+  // This replaces the broken "highest B1 seen" logic that leapt straight to 55d+.
+  const COVERED = 0.55;
+  const coverageP = {};
+  for (const d of levels) coverageP[d] = ecmProbForDigit(d, ecmAttempts);
+
   const candidates = [];
 
-  // ── ECM: for each not-yet-complete level, suggest the curves to COMPLETE it ──
-  // (reach its expected-curve count = ~63%). Only suggest levels at or above the
-  // lowest incomplete one — never push the user back down to a cleared level.
-  let lowestIncomplete = null;
+  // ECM strategy: walk UP the levels. Recommend the lowest not-yet-covered level
+  // (completing it reaches ~63%), then up to two more as bigger options. This
+  // naturally suggests 30d after 25d is done — cheap and high-value — instead of
+  // leaping to 55d+ which would take years.
+  let suggested = 0;
   for (const d of levels) {
-    // Skip any level already searched: directly covered, OR below a higher level
-    // that's been worked (larger-B1 runs find smaller factors incidentally).
-    if (d <= highestWorked) continue;
-    const have   = curvesPerD[d] || 0;
-    const target = Math.round(ecmOptimalCurves(d));        // ~63% completion
-    if (have >= target * 0.95) continue;                   // already effectively done
-    if (lowestIncomplete === null) lowestIncomplete = d;
-    // suggest this level + the next two step-ups (so bigger options appear too)
-    if (d > lowestIncomplete + 10) break;
-
-    const addCurves = Math.max(target - have, 50);
-    const b1        = optimalB1(d);
-    const pBefore   = have ? ecmProbability(d, have) : 0;
-    const pAfter    = ecmProbability(d, have + addCurves);
-    const pExists   = pFactorExists(d, digits);
-    const gain      = pExists * (pAfter - pBefore) * 100;
-    const cpuSec    = estimateCpuSeconds('ECM', b1, null, addCurves, digits);
+    if (coverageP[d] >= COVERED) continue;          // this level effectively done
+    const b1       = optimalB1(d);
+    const pBefore  = coverageP[d];
+    const Copt     = ecmOptimalCurves(d);
+    // effective curves already done at this level (invert the probability model)
+    const haveEff  = Math.round(-Math.log(1 - Math.min(pBefore, 0.99)) * Copt);
+    const targetCv = Math.round(Copt);              // ~63% completion
+    const addCurves = Math.max(targetCv - haveEff, 50);
+    const pAfter   = ecmProbability(d, haveEff + addCurves, b1);
+    const pExists  = pFactorExists(d, digits);
+    const gain     = pExists * (pAfter - pBefore) * 100;
+    const cpuSec   = estimateCpuSeconds('ECM', b1, null, addCurves, digits);
 
     candidates.push({
       method: 'ECM', b1: fmtB1(b1), b2: null, curves: fmtCurves(addCurves),
       rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
-      reason: have === 0
-        ? `Reach the ${d}-digit level: run ${fmtCurves(addCurves)} curves at the optimal B1=${fmtB1(b1)} (gets you to ~63% if a ${d}d factor exists).`
-        : `Finish the ${d}-digit level: ${fmtCurves(have)} curves done (${fmtPct(pBefore)}); +${fmtCurves(addCurves)} curves reaches ~63%.`,
+      reason: pBefore < 0.02
+        ? 'Search the ' + d + '-digit level: ~' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' reaches ~63% (if a ' + d + 'd factor exists). The natural next step up.'
+        : 'Finish the ' + d + '-digit level: currently ~' + fmtPct(pBefore) + ' covered; +' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' reaches ~63%.',
     });
+    if (++suggested >= 3) break;                    // never more than 3 ECM steps
   }
 
-  // ── P-1 / P+1: cheap complementary one-shots ─────────────────────────────────
-  const hasP1 = pm1Attempts.some(a => a.method === 'P-1' && parseB1(a.b1) >= 1e6);
+  // P-1 / P+1: cheap complementary one-shots — only if not yet done at a healthy
+  // bound. They find a DIFFERENT class of primes than ECM.
+  const hasP1  = pm1Attempts.some(a => a.method === 'P-1' && parseB1(a.b1) >= 1e6);
   const hasPp1 = pm1Attempts.some(a => a.method === 'P+1' && parseB1(a.b1) >= 1e6);
   if (!hasP1) {
-    const b1 = 1e7, b2 = 1e11;
+    const b1 = 1e7, b2 = 1e11, td = b1ToDigits(b1);
     candidates.push({
-      method: 'P-1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0,
-      targetDigits: b1ToDigits(b1), gain: (pFactorExists(b1ToDigits(b1), digits) * pm1Probability(b1ToDigits(b1), b1, b2, 'P-1') * 100).toFixed(2),
+      method: 'P-1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0, targetDigits: td,
+      gain: (pFactorExists(td, digits) * pm1Probability(td, b1, b2, 'P-1') * 100).toFixed(2),
       cpuTime: estimateCpuSeconds('P-1', b1, b2, 1, digits),
-      reason: 'A single P-1 run is fast and catches primes p where p−1 is smooth — a different class than ECM finds. Worth doing once at a healthy bound.',
+      reason: 'A single P-1 run is fast and catches primes p where p-1 is smooth - a class ECM can miss. Worth doing once at a healthy bound.',
     });
-  }
-  if (hasP1 && !hasPp1) {
-    const b1 = 1e7, b2 = 1e11;
+  } else if (!hasPp1) {
+    const b1 = 1e7, b2 = 1e11, td = b1ToDigits(b1);
     candidates.push({
-      method: 'P+1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0,
-      targetDigits: b1ToDigits(b1), gain: (pFactorExists(b1ToDigits(b1), digits) * pm1Probability(b1ToDigits(b1), b1, b2, 'P+1') * 100).toFixed(2),
+      method: 'P+1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0, targetDigits: td,
+      gain: (pFactorExists(td, digits) * pm1Probability(td, b1, b2, 'P+1') * 100).toFixed(2),
       cpuTime: estimateCpuSeconds('P+1', b1, b2, 1, digits),
-      reason: 'You\'ve done P-1 but not P+1. P+1 hits the complementary half of primes (smooth p+1) for little extra cost.',
+      reason: 'You have done P-1 but not P+1. P+1 hits the complementary half of primes (smooth p+1) for little extra cost.',
     });
   }
 
   if (!candidates.length) return null;
 
-  // Sort by CPU time ascending (fastest to do first), then by gain descending.
+  // Sort by CPU time ascending (fastest first), then by gain descending; cap at 3.
   candidates.sort((a, b) => (a.cpuTime - b.cpuTime) || (parseFloat(b.gain) - parseFloat(a.gain)));
-  return candidates;
+  return candidates.slice(0, 3);
 }
 
 function computeDifficulty(digits, attempts) {
