@@ -4161,8 +4161,8 @@ function recommendNextRun(digits, attempts) {
       method: 'ECM', b1: fmtB1(b1), b2: null, curves: fmtCurves(addCurves),
       rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
       reason: pBefore < 0.02
-        ? 'Search the ' + d + '-digit level: ~' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' reaches ~63% (if a ' + d + 'd factor exists). The natural next step up.'
-        : 'Finish the ' + d + '-digit level: currently ~' + fmtPct(pBefore) + ' covered; +' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' reaches ~63%.',
+        ? 'Search the ' + d + '-digit level: ~' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists. The natural next step up.'
+        : 'Finish the ' + d + '-digit level: a ' + d + 'd factor (if present) is currently ~' + fmtPct(pBefore) + ' likely to be caught; +' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' raises that to ~63%.',
     });
     if (++suggested >= 3) break;                    // never more than 3 ECM steps
   }
@@ -4662,11 +4662,14 @@ function buildECMSection(n, e) {
           +   '<span style="font-size:10px;white-space:nowrap">' + cpuStr + '</span>'
           + '</div>'
           + '<div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:3px">' + rec.reason + '</div>'
-          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% chance of finding a ' + rec.targetDigits + 'd factor (if one exists)</div>'
+          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of factoring this number</div>'
           + '</div>';
       }).join('');
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
-        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— sorted by time, fastest first</span></div>'
+        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— sorted by time, fastest first</span></div>'
+        + '<div style="font-size:10px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;border-left:2px solid var(--border2);padding-left:8px">'
+        +   'Two numbers per run, don\'t confuse them: the <span style="color:var(--text)">~63%</span> in the description is how likely the run is to find a factor of that size <em>if one exists</em>. The <span style="color:var(--green)">green %</span> is how much it raises your <span style="color:var(--text)">overall</span> chance of factoring this number — smaller, because a factor of exactly that size probably isn\'t there. Pick the fastest run that still moves your overall odds.'
+        + '</div>'
         + rows
         + '</div>';
     }
