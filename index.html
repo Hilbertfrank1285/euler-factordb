@@ -4168,24 +4168,34 @@ function recommendNextRun(digits, attempts) {
   }
 
   // P-1 / P+1: cheap complementary one-shots — only if not yet done at a healthy
-  // bound. They find a DIFFERENT class of primes than ECM.
+  // bound. Unlike ECM they're not aimed at one digit size; a single run finds
+  // smooth-p∓1 primes across MANY sizes at once (strongest at small factors). So
+  // score their gain by summing the existence-weighted find-probability over all
+  // plausible factor sizes — not at a single "optimal" digit (which gave +0.00%).
+  const pmGain = (method, b1, b2) => {
+    let g = 0, bestD = levels[0] || 20, bestContrib = -1;
+    for (const d of levels) {
+      const contrib = pFactorExists(d, digits) * pm1Probability(d, b1, b2, method);
+      g += contrib;
+      if (contrib > bestContrib) { bestContrib = contrib; bestD = d; }
+    }
+    return { gain: g * 100, bestD };
+  };
   const hasP1  = pm1Attempts.some(a => a.method === 'P-1' && parseB1(a.b1) >= 1e6);
   const hasPp1 = pm1Attempts.some(a => a.method === 'P+1' && parseB1(a.b1) >= 1e6);
   if (!hasP1) {
-    const b1 = 1e7, b2 = 1e11, td = b1ToDigits(b1);
+    const b1 = 1e7, b2 = 1e11, { gain, bestD } = pmGain('P-1', b1, b2);
     candidates.push({
-      method: 'P-1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0, targetDigits: td,
-      gain: (pFactorExists(td, digits) * pm1Probability(td, b1, b2, 'P-1') * 100).toFixed(2),
-      cpuTime: estimateCpuSeconds('P-1', b1, b2, 1, digits),
-      reason: 'A single P-1 run is fast and catches primes p where p-1 is smooth - a class ECM can miss. Worth doing once at a healthy bound.',
+      method: 'P-1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0, targetDigits: bestD,
+      gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', b1, b2, 1, digits),
+      reason: 'A single P-1 run is fast and catches primes p where p−1 is smooth (best at small factors) — a class ECM can miss. Worth doing once.',
     });
   } else if (!hasPp1) {
-    const b1 = 1e7, b2 = 1e11, td = b1ToDigits(b1);
+    const b1 = 1e7, b2 = 1e11, { gain, bestD } = pmGain('P+1', b1, b2);
     candidates.push({
-      method: 'P+1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0, targetDigits: td,
-      gain: (pFactorExists(td, digits) * pm1Probability(td, b1, b2, 'P+1') * 100).toFixed(2),
-      cpuTime: estimateCpuSeconds('P+1', b1, b2, 1, digits),
-      reason: 'You have done P-1 but not P+1. P+1 hits the complementary half of primes (smooth p+1) for little extra cost.',
+      method: 'P+1', b1: fmtB1(b1), b2: fmtB1(b2), curves: null, rawCurves: 0, targetDigits: bestD,
+      gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', b1, b2, 1, digits),
+      reason: 'You\'ve done P-1 but not P+1. P+1 hits the complementary half of primes (smooth p+1) for little extra cost.',
     });
   }
 
@@ -4660,13 +4670,20 @@ function buildECMSection(n, e) {
         const cpuStr = rec.cpuTime ? '<span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + '</span>' : '';
         const star   = i === 0 ? '★ ' : '';
         const head   = rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '');
+        // efficiency = overall-odds gained per HOUR of CPU (the ranking metric)
+        const effPerHr = rec.cpuTime ? (parseFloat(rec.gain) / (rec.cpuTime / 3600)) : 0;
+        const effStr = effPerHr >= 0.01 ? effPerHr.toFixed(2) + '%/hr'
+                     : effPerHr > 0 ? (effPerHr * 24).toFixed(2) + '%/day'
+                     : '';
         return '<div style="padding:8px 0;border-top:' + (i ? '1px solid var(--border)' : 'none') + '">'
           + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">'
           +   '<span style="font-size:12px;color:var(--text)">' + star + head + '</span>'
           +   '<span style="font-size:10px;white-space:nowrap">' + cpuStr + '</span>'
           + '</div>'
           + '<div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:3px">' + rec.reason + '</div>'
-          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of factoring this number</div>'
+          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of factoring this number'
+          +   (effStr ? ' <span style="color:var(--text-muted)">· value: ' + effStr + '</span>' : '')
+          + '</div>'
           + '</div>';
       }).join('');
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
