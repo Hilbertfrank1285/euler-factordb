@@ -562,7 +562,7 @@
   <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)" title="Generate a file to paste into factordb.com/report.php">
     ↓ Export FDB submission
   </button>
-  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 250 fastest recommended ECM/P-1 runs as GMP-ECM commands">
+  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 250 best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands">
     ↓ Export runs (top 250)
   </button>
   <button class="poll-btn" onclick="clearAllLocalData()"
@@ -2641,7 +2641,7 @@ function exportFDBSubmission() {
 }
 
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
-// GMP-ECM commands + a human summary. Sorted fastest-first, capped at 250.
+// GMP-ECM commands + a human summary. Ranked by value (odds/time), capped at 250.
 function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
@@ -2671,8 +2671,11 @@ function exportNextRuns() {
 
   if (!runs.length) { alert('No recommended runs found.'); return; }
 
-  // Fastest first, then by best value (gain per second) as tiebreaker.
-  runs.sort((a, b) => (a.cpuTime - b.cpuTime) || ((b.gain / Math.max(b.cpuTime,1)) - (a.gain / Math.max(a.cpuTime,1))));
+  // Rank by EFFICIENCY — overall-odds gained per second of CPU — so the top 250
+  // are the best-value runs, not merely the quickest. Tiebreak by speed (faster
+  // first) so equal-value runs still surface the cheaper one.
+  const eff = r => r.gain / Math.max(r.cpuTime, 1);
+  runs.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
   const top = runs.slice(0, CAP);
 
   // Resolve B1/B2 to plain integers for the command line (use the raw numeric
@@ -2700,21 +2703,21 @@ function exportNextRuns() {
 
   const cmdHeader =
     '#!/bin/sh\n' +
-    '# GMP-ECM run list — ' + top.length + ' fastest recommended runs — generated ' + new Date().toISOString().slice(0,10) + '\n' +
-    '# Sorted fastest-first. Estimated total: ' + fmtCpuTime(totalSec) + ' on a single core.\n' +
+    '# GMP-ECM run list — ' + top.length + ' best-value recommended runs — generated ' + new Date().toISOString().slice(0,10) + '\n' +
+    '# Ranked by best value (odds gained per unit CPU time). Estimated total: ' + fmtCpuTime(totalSec) + ' on a single core.\n' +
     '# Each line factors E(n) directly; GMP-ECM finds the relevant factor.\n' +
     '# Requires GMP-ECM (https://gitlab.inria.fr/zimmerma/ecm). Run: sh ecm_runs.sh\n' +
-    '# Stop early any time — runs are ordered so the quickest wins come first.\n\n';
+    '# Stop early any time — runs are ordered so the highest-value runs come first.\n\n';
   const cmdFileText = cmdHeader + cmdLines.join('\n') + '\n';
 
   // ── Summary file (human-readable) ───────────────────────────────────────────
   const sum = [];
-  sum.push('FASTEST RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
-  sum.push('Generated ' + new Date().toISOString().slice(0,10) + ' · sorted fastest-first');
+  sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
+  sum.push('Generated ' + new Date().toISOString().slice(0,10) + ' · ranked by value (odds gained per unit time)');
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
-  sum.push('─'.repeat(72));
-  sum.push('  #   E(n)      digits  method  B1         curves   ~time        +odds');
-  sum.push('─'.repeat(72));
+  sum.push('─'.repeat(86));
+  sum.push('  #   E(n)      digits  method  B1         curves   ~time        +odds     value');
+  sum.push('─'.repeat(86));
   top.forEach((r, i) => {
     const idx = String(i+1).padStart(3);
     const en  = ('E(' + r.n + ')').padEnd(9);
@@ -2723,8 +2726,10 @@ function exportNextRuns() {
     const b1  = String(r.b1).padEnd(9);
     const cv  = (r.method === 'ECM' ? String(r.curves) : '—').padStart(7);
     const tm  = fmtCpuTime(r.cpuTime).padStart(11);
-    const gn  = '+' + r.gain.toFixed(2) + '%';
-    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}   ${gn}`);
+    const gn  = ('+' + r.gain.toFixed(2) + '%').padStart(8);
+    const effHr = r.cpuTime ? (r.gain / (r.cpuTime / 3600)) : 0;
+    const val = (effHr >= 0.01 ? effHr.toFixed(2) + '%/hr' : (effHr * 24).toFixed(2) + '%/d').padStart(9);
+    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${gn}  ${val}`);
   });
   const summaryText = sum.join('\n') + '\n';
 
