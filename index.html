@@ -2643,6 +2643,7 @@ function exportFDBSubmission() {
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
 // GMP-ECM commands + a human summary. Sorted fastest-first, capped at 250.
 function exportNextRuns() {
+ try {
   if (Object.keys(eulerValues).length === 0) {
     alert('Euler values still loading — please wait and try again.');
     return;
@@ -2704,7 +2705,7 @@ function exportNextRuns() {
     '# Each line factors E(n) directly; GMP-ECM finds the relevant factor.\n' +
     '# Requires GMP-ECM (https://gitlab.inria.fr/zimmerma/ecm). Run: sh ecm_runs.sh\n' +
     '# Stop early any time — runs are ordered so the quickest wins come first.\n\n';
-  downloadText('ecm_runs.sh', cmdHeader + cmdLines.join('\n') + '\n');
+  const cmdFileText = cmdHeader + cmdLines.join('\n') + '\n';
 
   // ── Summary file (human-readable) ───────────────────────────────────────────
   const sum = [];
@@ -2725,11 +2726,20 @@ function exportNextRuns() {
     const gn  = '+' + r.gain.toFixed(2) + '%';
     sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}   ${gn}`);
   });
-  downloadText('ecm_runs_summary.txt', sum.join('\n') + '\n');
+  const summaryText = sum.join('\n') + '\n';
+
+  // Download both files. Stagger the second slightly — browsers often block or
+  // silently drop a second programmatic download fired in the same tick.
+  downloadText('ecm_runs.sh', cmdFileText);
+  setTimeout(() => downloadText('ecm_runs_summary.txt', summaryText), 400);
 
   const msg = 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.sh + ecm_runs_summary.txt';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
+ } catch (err) {
+  console.error('exportNextRuns failed:', err);
+  alert('Export failed: ' + err.message);
+ }
 }
 
 // Small helper: trigger a text-file download.
