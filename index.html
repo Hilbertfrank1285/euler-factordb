@@ -2704,11 +2704,10 @@ function exportNextRuns() {
     batLines.push(`echo.`);
     batLines.push(`echo [${idx}/${top.length}] ${note}`);
     batLines.push(`echo # run ${idx} ${note}>>ecm_results_full.log`);
-    batLines.push(`echo # run ${idx} E(${r.n}) ${r.method}>>ecm_factors.log`);
-    batLines.push(`echo ${r.val} | ecm.exe ${args} > ecm_tmp.txt 2>&1`);
-    batLines.push(`type ecm_tmp.txt`);
-    batLines.push(`type ecm_tmp.txt >> ecm_results_full.log`);
-    batLines.push(`findstr /C:"Found" /C:"factor" /C:"Run " /C:"sigma" ecm_tmp.txt >> ecm_factors.log`);
+    // Pipe ecm's output through a PowerShell filter that keeps only the useful lines
+    // (curve counter, B1/B2, step timings, factors) — dropping NTT/polynomial/memory
+    // noise — then shows each kept line LIVE in the console AND appends it to the log.
+    batLines.push(`echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$input | Where-Object { $_ -match 'Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor' } | ForEach-Object { Write-Host $_; $_ } | Out-File -FilePath ecm_results_full.log -Append -Encoding ascii"`);
   });
 
   const dateStr = new Date().toISOString().slice(0,10);
@@ -2718,14 +2717,18 @@ function exportNextRuns() {
     'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
     'rem ecm.exe must be in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
     'rem Logs (created next to this file):\r\n' +
-    'rem   ecm_results_full.log  - full verbose output (every curve/sigma)\r\n' +
-    'rem   ecm_factors.log       - just found-factor / per-curve lines (easy to read)\r\n' +
-    'rem Safe to Ctrl+C any time. To RESUME: paste ecm_results_full.log into the app\r\n' +
-    'rem ("Import ECM results") — it records the curves you completed, then re-export\r\n' +
-    'rem and the new .bat will only contain runs that still need doing.\r\n\r\n';
+    'rem   ecm_results_full.log  - useful lines only (curves, B1, timings, factors), LIVE\r\n' +
+    'rem   ecm_factors.log       - just the found-factor lines (built when all runs finish)\r\n' +
+    'rem Output is filtered (NTT/polynomial/memory noise dropped) then streamed live to\r\n' +
+    'rem the console and the log via PowerShell (standard on Windows).\r\n' +
+    'rem If you Ctrl+C early, everything kept so far is already in the full log.\r\n' +
+    'rem To RESUME: paste ecm_results_full.log into the app ("Import ECM results") - it\r\n' +
+    'rem records the curves you completed, then re-export; the new .bat only has whats left.\r\n\r\n';
 
   const batFooter =
     '\r\necho.\r\n' +
+    'rem Build the clean factors log from the full log in one pass.\r\n' +
+    'findstr /C:"Found" /C:"Factor found" ecm_results_full.log > ecm_factors.log\r\n' +
     'echo All runs complete. Factors: ecm_factors.log  Full output: ecm_results_full.log\r\n' +
     'echo Paste ecm_results_full.log into the app via "Import ECM results".\r\n';
 
