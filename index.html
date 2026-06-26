@@ -2686,13 +2686,12 @@ function exportNextRuns() {
   const b1int = r => Math.round(r.rawB1 || 0);
   const b2int = r => Math.round(r.rawB2 || 0);
 
-  // Build command lines for BOTH PowerShell (.ps1) and batch (.bat). On Windows
-  // the ecm binary in the current folder must be called as .\ecm (PowerShell) or
-  // ecm.exe (cmd). Number is echoed and piped to ecm's stdin.
-  //  ECM:  echo <N> | .\ecm -c <curves> <B1>
-  //  P-1:  echo <N> | .\ecm -pm1 <B1> <B2>
-  //  P+1:  echo <N> | .\ecm -pp1 <B1> <B2>
-  const ps1Lines = [];
+  // Build batch (.bat) command lines. The ecm binary is called as ecm.exe (must be
+  // in this folder or on PATH). The number is echoed and piped to ecm's stdin, and
+  // each run's output is appended to ecm_results.log.
+  //  ECM:  echo <N> | ecm.exe -c <curves> <B1>
+  //  P-1:  echo <N> | ecm.exe -pm1 <B1> <B2>
+  //  P+1:  echo <N> | ecm.exe -pp1 <B1> <B2>
   const batLines = [];
   let totalSec = 0;
   for (const r of top) {
@@ -2702,29 +2701,23 @@ function exportNextRuns() {
       r.method === 'P-1' ? `-pm1 ${b1int(r)} ${b2int(r)}` :
                            `-pp1 ${b1int(r)} ${b2int(r)}`;
     const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
-    // PowerShell: echo is fine (alias for Write-Output); binary as .\ecm
-    ps1Lines.push(`# ${note}`);
-    ps1Lines.push(`echo "${r.val}" | .\\ecm ${args}`);
-    // Batch: rem comment; binary as ecm.exe
+    // Each run's output is APPENDED to ecm_results.log as it finishes, so if you
+    // Ctrl+C partway through, everything found so far is already saved to disk.
     batLines.push(`rem ${note}`);
-    batLines.push(`echo ${r.val} | ecm.exe ${args}`);
+    batLines.push(`echo # ${note}>> ecm_results.log`);
+    batLines.push(`echo ${r.val} | ecm.exe ${args} >> ecm_results.log 2>&1`);
   }
 
   const dateStr = new Date().toISOString().slice(0,10);
-  const ps1Header =
-    '# GMP-ECM run list (PowerShell) - ' + top.length + ' best-value runs - ' + dateStr + '\n' +
-    '# Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\n' +
-    '# Assumes ecm.exe is in this folder (called as .\\ecm). Run:  .\\ecm_runs.ps1\n' +
-    '# If blocked: powershell -ExecutionPolicy Bypass -File .\\ecm_runs.ps1\n' +
-    '# Stop any time - highest-value runs come first.\n\n';
   const batHeader =
     '@echo off\r\n' +
     'rem GMP-ECM run list (batch) - ' + top.length + ' best-value runs - ' + dateStr + '\r\n' +
     'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
     'rem Assumes ecm.exe is in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
+    'rem Output is saved to ecm_results.log as it runs - safe to Ctrl+C any time,\r\n' +
+    'rem then paste ecm_results.log into the app via "Import ECM results".\r\n' +
     'rem Stop any time - highest-value runs come first.\r\n\r\n';
 
-  const ps1Text = ps1Header + ps1Lines.join('\n') + '\n';
   const batText = batHeader + batLines.join('\r\n') + '\r\n';
 
   // ── Summary file (human-readable) ───────────────────────────────────────────
@@ -2752,11 +2745,10 @@ function exportNextRuns() {
 
   // Download all three files, staggered — browsers block/drop downloads fired in
   // the same tick.
-  downloadText('ecm_runs.ps1', ps1Text);
-  setTimeout(() => downloadText('ecm_runs.bat', batText), 350);
-  setTimeout(() => downloadText('ecm_runs_summary.txt', summaryText), 700);
+  downloadText('ecm_runs.bat', batText);
+  setTimeout(() => downloadText('ecm_runs_summary.txt', summaryText), 400);
 
-  const msg = 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.ps1 + ecm_runs.bat + summary';
+  const msg = 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.bat + ecm_runs_summary.txt';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
