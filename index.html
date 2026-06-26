@@ -2686,39 +2686,50 @@ function exportNextRuns() {
   const b1int = r => Math.round(r.rawB1 || 0);
   const b2int = r => Math.round(r.rawB2 || 0);
 
-  // Build batch (.bat) command lines. The ecm binary is called as ecm.exe (must be
-  // in this folder or on PATH). The number is echoed and piped to ecm's stdin, and
-  // each run's output is appended to ecm_results.log.
-  //  ECM:  echo <N> | ecm.exe -c <curves> <B1>
-  //  P-1:  echo <N> | ecm.exe -pm1 <B1> <B2>
-  //  P+1:  echo <N> | ecm.exe -pp1 <B1> <B2>
+  // Build the batch script. Each run uses -v (verbose: every curve's sigma),
+  // writes output to a temp file, TYPEs it (live in cmd) and appends to the full
+  // log, and pulls factor/sigma lines into a clean factors log. Resume is handled
+  // by IMPORTING the log afterwards: completed curves are recorded as attempts, so
+  // re-exporting only includes runs that still need doing.
   const batLines = [];
   let totalSec = 0;
-  for (const r of top) {
+  top.forEach((r, i) => {
     totalSec += r.cpuTime;
+    const idx = i + 1;
     const args =
-      r.method === 'ECM' ? `-c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
-      r.method === 'P-1' ? `-pm1 ${b1int(r)} ${b2int(r)}` :
-                           `-pp1 ${b1int(r)} ${b2int(r)}`;
+      r.method === 'ECM' ? `-v -c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
+      r.method === 'P-1' ? `-v -pm1 ${b1int(r)} ${b2int(r)}` :
+                           `-v -pp1 ${b1int(r)} ${b2int(r)}`;
     const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
-    // Each run's output is APPENDED to ecm_results.log as it finishes, so if you
-    // Ctrl+C partway through, everything found so far is already saved to disk.
-    batLines.push(`rem ${note}`);
-    batLines.push(`echo # ${note}>> ecm_results.log`);
-    batLines.push(`echo ${r.val} | ecm.exe ${args} >> ecm_results.log 2>&1`);
-  }
+    batLines.push(`echo.`);
+    batLines.push(`echo [${idx}/${top.length}] ${note}`);
+    batLines.push(`echo # run ${idx} ${note}>>ecm_results_full.log`);
+    batLines.push(`echo # run ${idx} E(${r.n}) ${r.method}>>ecm_factors.log`);
+    batLines.push(`echo ${r.val} | ecm.exe ${args} > ecm_tmp.txt 2>&1`);
+    batLines.push(`type ecm_tmp.txt`);
+    batLines.push(`type ecm_tmp.txt >> ecm_results_full.log`);
+    batLines.push(`findstr /C:"Found" /C:"factor" /C:"Run " /C:"sigma" ecm_tmp.txt >> ecm_factors.log`);
+  });
 
   const dateStr = new Date().toISOString().slice(0,10);
   const batHeader =
     '@echo off\r\n' +
     'rem GMP-ECM run list (batch) - ' + top.length + ' best-value runs - ' + dateStr + '\r\n' +
     'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
-    'rem Assumes ecm.exe is in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
-    'rem Output is saved to ecm_results.log as it runs - safe to Ctrl+C any time,\r\n' +
-    'rem then paste ecm_results.log into the app via "Import ECM results".\r\n' +
-    'rem Stop any time - highest-value runs come first.\r\n\r\n';
+    'rem ecm.exe must be in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
+    'rem Logs (created next to this file):\r\n' +
+    'rem   ecm_results_full.log  - full verbose output (every curve/sigma)\r\n' +
+    'rem   ecm_factors.log       - just found-factor / per-curve lines (easy to read)\r\n' +
+    'rem Safe to Ctrl+C any time. To RESUME: paste ecm_results_full.log into the app\r\n' +
+    'rem ("Import ECM results") — it records the curves you completed, then re-export\r\n' +
+    'rem and the new .bat will only contain runs that still need doing.\r\n\r\n';
 
-  const batText = batHeader + batLines.join('\r\n') + '\r\n';
+  const batFooter =
+    '\r\necho.\r\n' +
+    'echo All runs complete. Factors: ecm_factors.log  Full output: ecm_results_full.log\r\n' +
+    'echo Paste ecm_results_full.log into the app via "Import ECM results".\r\n';
+
+  const batText = batHeader + batLines.join('\r\n') + batFooter;
 
   // ── Summary file (human-readable) ───────────────────────────────────────────
   const sum = [];
@@ -2775,62 +2786,126 @@ function importECMResults() {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
-  const text = prompt('Paste your GMP-ECM output / results log below.\n(It looks for lines like "Found prime factor of N digits: 12345".)');
+  const text = prompt('Paste the contents of ecm_results_full.log (the full verbose GMP-ECM output).\nIt records the curves/B1 you ran AND any factors found, then updates recommendations.');
   if (!text) return;
 
-  // Extract candidate factors. GMP-ECM phrasings:
-  //   "Found prime factor of 16 digits: 3085637175635107"
-  //   "Found probable prime factor of 20 digits: ..."
-  //   "Found composite factor of 30 digits: ..."
-  //   "********** Factor found in step 1: 12345"
-  const factors = new Set();
-  const reA = /Found (?:prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/g;
-  const reB = /Factor found in step \d+:\s*(\d+)/g;
-  let m;
-  while ((m = reA.exec(text)) !== null) factors.add(m[1]);
-  while ((m = reB.exec(text)) !== null) factors.add(m[1]);
+  const lines = text.split(/\r?\n/);
 
-  if (!factors.size) {
-    alert('No factors found in the pasted text.\nExpected lines like: "Found prime factor of 16 digits: 3085637175635107".');
+  // Parse the log into run-blocks. GMP-ECM verbose prints, per invocation:
+  //   Input number is <N> (<D> digits)
+  //   Using B1=<B1>, B2=<B2>, polynomial ..., sigma=...    (or "P-1"/"P+1" variants)
+  //   Run K out of M: Using B1=...                          (one per curve, K up to M)
+  //   ... Found ... factor ... : <f>                        (when a factor turns up)
+  // A new "Input number is" starts a fresh block; the highest "Run K out of M" tells
+  // us how many curves were actually completed (so a Ctrl+C'd run records real work).
+  const blocks = [];
+  let cur = null;
+  const reInput = /Input number is\s+([0-9]+)\s*\(/;
+  const reUsing = /Using B1=([0-9.eE+]+)(?:,\s*B2=([0-9.eE+\-]+))?/;
+  const reRun   = /Run\s+(\d+)\s+out of\s+(\d+)/;
+  const reMethod= /\[(ECM|P-1|P\+1|P\+1)\]/;
+  const reFacA  = /Found (?:prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
+  const reFacB  = /Factor found in step \d+:\s*(\d+)/;
+  let lastMethod = 'ECM';
+
+  for (const ln of lines) {
+    let mm;
+    if ((mm = reMethod.exec(ln))) lastMethod = mm[1];
+    if ((mm = reInput.exec(ln))) {
+      cur = { number: mm[1], method: lastMethod, b1: null, b2: null, curves: 1, factors: new Set() };
+      blocks.push(cur);
+      continue;
+    }
+    if (!cur) continue;
+    if ((mm = reUsing.exec(ln))) {
+      if (cur.b1 == null) cur.b1 = mm[1];
+      if (mm[2] && cur.b2 == null) cur.b2 = mm[2];
+    }
+    if ((mm = reRun.exec(ln))) {
+      cur.curves = Math.max(cur.curves, parseInt(mm[1]) || 1); // highest completed run #
+      cur.declared = parseInt(mm[2]) || cur.curves;
+    }
+    let fm;
+    if ((fm = reFacA.exec(ln)) || (fm = reFacB.exec(ln))) cur.factors.add(fm[1]);
+  }
+
+  if (!blocks.length) {
+    alert('No GMP-ECM run blocks found.\nExpected lines like "Input number is ... (NN digits)" and "Using B1=...".');
     return;
   }
 
-  // Build n→value map once (numbers we have loaded).
+  // Match each block's number to an E(n) by exact division (a factor of E(n)
+  // divides E(n); the input number we ran IS E(n) or its cofactor, so it equals or
+  // divides the stored value). We match the full input number to a stored E(n).
   const valEntries = allEntries.filter(e => e.val);
-  let recorded = 0, alreadyHad = 0, unmatched = 0;
+  const ecmData = loadECM();
+
+  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0;
   const summary = [];
+  const dirtyN = new Set();
 
-  for (const fStr of factors) {
-    let fBig;
-    try { fBig = BigInt(fStr); } catch { continue; }
-    if (fBig < 2n) continue;
-
-    // Find which E(n) this factor divides. Stop at the first match (a prime factor
-    // belongs to exactly one E(n) within our set in practice).
+  for (const blk of blocks) {
+    // identify owner: stored value equals the run number, or the run number divides it
     let owner = null;
+    let bBig; try { bBig = BigInt(blk.number); } catch { continue; }
     for (const e of valEntries) {
-      // quick length guard: factor can't exceed the number
-      if (fStr.length > e.val.length) continue;
-      let vBig;
-      try { vBig = BigInt(e.val); } catch { continue; }
-      if (vBig % fBig === 0n) { owner = e; break; }
+      if (e.val === blk.number) { owner = e; break; }
+    }
+    if (!owner) {
+      // maybe we ran a cofactor: find an E(n) the number divides into
+      for (const e of valEntries) {
+        if (blk.number.length > e.val.length) continue;
+        let vBig; try { vBig = BigInt(e.val); } catch { continue; }
+        if (vBig % bBig === 0n) { owner = e; break; }
+      }
+    }
+    if (!owner) { unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + blk.number.length + 'd) — no matching E(n)'); continue; }
+
+    // Record the ECM/P±1 attempt (curves actually completed, B1, B2).
+    if (blk.b1) {
+      const key = String(owner.n);
+      if (!ecmData[key]) ecmData[key] = [];
+      const b1n = parseB1(blk.b1), b2n = blk.b2 ? parseB1(blk.b2) : 0;
+      // Merge with an identical prior attempt (same method+B1) by summing curves,
+      // so re-imports / resumed runs accumulate rather than duplicate.
+      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
+      if (existing) {
+        existing.curves = String(Math.max(parseInt(existing.curves)||0, blk.curves));
+      } else {
+        ecmData[key].push({
+          method: blk.method,
+          b1: blk.b1,
+          b2: blk.b2 || '',
+          curves: blk.method === 'ECM' ? String(blk.curves) : '',
+          poly: '', I: '', tool: 'GMP-ECM', source: 'log',
+          note: 'imported from log',
+          date: new Date().toISOString().slice(0,10),
+        });
+      }
+      runsRecorded++;
+      dirtyN.add(owner.n);
     }
 
-    if (!owner) { unmatched++; summary.push('• ' + fStr + ' (' + fStr.length + 'd) — no matching E(n)'); continue; }
-
-    const res = recordEcmFactor(owner, fStr);
-    if (res === 'new')        { recorded++;   summary.push('• E(' + owner.n + ') ← ' + fStr + ' (' + fStr.length + 'd)'); }
-    else if (res === 'dup')   { alreadyHad++; summary.push('• E(' + owner.n + ') already had ' + fStr); }
+    // Record any factors found in this block.
+    for (const fStr of blk.factors) {
+      const res = recordEcmFactor(owner, fStr);
+      if (res === 'new')      { factorsNew++; summary.push('• E(' + owner.n + ') ← factor ' + fStr + ' (' + fStr.length + 'd)'); }
+      else if (res === 'dup') { factorsDup++; }
+    }
   }
 
-  if (recorded) { applyFilters(); renderStats(); scheduleECMPush(); }
+  if (runsRecorded) saveECM(ecmData);
+  if (runsRecorded || factorsNew) { applyFilters(); renderStats(); scheduleECMPush(); }
 
-  const msg = 'Imported: ' + recorded + ' new factor' + (recorded===1?'':'s')
-    + (alreadyHad ? ', ' + alreadyHad + ' already known' : '')
-    + (unmatched ? ', ' + unmatched + ' unmatched' : '');
-  addLog(msg, recorded ? 'ok' : 'warn');
-  setStatus(msg, recorded ? 'ok' : 'warn');
-  alert(msg + '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : ''));
+  const msg = 'Imported ' + runsRecorded + ' run' + (runsRecorded===1?'':'s')
+    + ' across ' + dirtyN.size + ' number' + (dirtyN.size===1?'':'s')
+    + (factorsNew ? ', ' + factorsNew + ' new factor' + (factorsNew===1?'':'s') : '')
+    + (factorsDup ? ', ' + factorsDup + ' factor' + (factorsDup===1?'':'s') + ' already known' : '')
+    + (unmatched ? ', ' + unmatched + ' unmatched block' + (unmatched===1?'':'s') : '');
+  addLog(msg, runsRecorded ? 'ok' : 'warn');
+  setStatus(msg, runsRecorded ? 'ok' : 'warn');
+  alert(msg + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
+    + (summary.length ? '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : '') : ''));
 }
 
 // Merge a newly-found prime factor into an entry, recompute status, and persist.
