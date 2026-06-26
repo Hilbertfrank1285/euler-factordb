@@ -1870,9 +1870,17 @@ function mergeEcmData(remoteEcm) {
       const aB1 = parseB1(a.b1);
       const hit = merged[key].find(x => x.method === a.method && parseB1(x.b1) === aB1);
       if (!hit) { merged[key].push(a); continue; }
-      // same method+B1: keep the larger curve count, prefer a real date/source
-      const hc = parseInt(hit.curves) || 0, ac = parseInt(a.curves) || 0;
-      if (ac > hc) { hit.curves = String(ac); }
+      // same method+B1: union sigma sets so curve counts accumulate correctly across
+      // devices, then derive curves from the union (falling back to max when absent).
+      const hs = hit.sigmas || [], as = a.sigmas || [];
+      if (hs.length || as.length) {
+        const u = new Set(hs); for (const s of as) u.add(s);
+        hit.sigmas = Array.from(u);
+        hit.curves = String(Math.max(u.size, parseInt(hit.curves)||0, parseInt(a.curves)||0));
+      } else {
+        const hc = parseInt(hit.curves) || 0, ac = parseInt(a.curves) || 0;
+        if (ac > hc) hit.curves = String(ac);
+      }
       if (a.b2 && !hit.b2) hit.b2 = a.b2;
     }
   }
@@ -2997,6 +3005,7 @@ function processEcmLogText(text) {
   const reInput = /Input number is\s+([0-9]+)\s*\(/;
   const reUsing = /Using B1=([0-9.eE+]+)(?:,\s*B2=([0-9.eE+\-]+))?/;
   const reRun   = /Run\s+(\d+)\s+out of\s+(\d+)/;
+  const reSigma = /sigma=\d+:(\d+)/;          // unique per curve — used to sum/dedup
   const reMethod= /\[(ECM|P-1|P\+1|P\+1)\]/;
   const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
@@ -3006,7 +3015,7 @@ function processEcmLogText(text) {
     let mm;
     if ((mm = reMethod.exec(ln))) lastMethod = mm[1];
     if ((mm = reInput.exec(ln))) {
-      cur = { number: mm[1], method: lastMethod, b1: null, b2: null, curves: 1, factors: new Map() };
+      cur = { number: mm[1], method: lastMethod, b1: null, b2: null, curves: 1, sigmas: new Set(), factors: new Map() };
       blocks.push(cur);
       continue;
     }
@@ -3015,6 +3024,7 @@ function processEcmLogText(text) {
       if (cur.b1 == null) cur.b1 = mm[1];
       if (mm[2] && cur.b2 == null) cur.b2 = mm[2];
     }
+    if ((mm = reSigma.exec(ln))) cur.sigmas.add(mm[1]); // collect every curve's sigma
     if ((mm = reRun.exec(ln))) {
       cur.curves = Math.max(cur.curves, parseInt(mm[1]) || 1); // highest completed run #
       cur.declared = parseInt(mm[2]) || cur.curves;
@@ -3071,20 +3081,39 @@ function processEcmLogText(text) {
     if (nOwner == null) { unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + blk.number.length + 'd) — no matching E(n)'); continue; }
     const owner = entryForN(nOwner);
 
-    // Record the ECM/P±1 attempt (curves actually completed, B1, B2).
+    // Record the ECM/P±1 attempt. Curve counting uses each curve's unique sigma so
+    // separate sessions SUM correctly (20 then 80 -> 100) while re-importing the same
+    // log is idempotent (the same sigmas are already counted, so nothing is added).
+    // Falls back to the "Run K out of M" count when a log lacks sigma lines.
     if (blk.b1) {
       const key = String(owner.n);
       if (!ecmData[key]) ecmData[key] = [];
       const b1n = parseB1(blk.b1);
+      const blkSigmas = Array.from(blk.sigmas || []);
       const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
       if (existing) {
-        existing.curves = String(Math.max(parseInt(existing.curves)||0, blk.curves));
+        if (blkSigmas.length) {
+          // Accumulate unique sigmas; curve count = size of the accumulated set.
+          const seen = new Set(existing.sigmas || []);
+          const before = seen.size;
+          for (const s of blkSigmas) seen.add(s);
+          existing.sigmas = Array.from(seen);
+          // If we have sigma tracking, curves = unique sigmas seen (more accurate than
+          // the run-counter). Keep the larger of (sigma count, recorded curves) so a
+          // prior sigma-less import isn't reduced.
+          existing.curves = String(Math.max(seen.size, parseInt(existing.curves) || 0, before));
+        } else {
+          // No sigmas in this log: fall back to max of run-counts (can't safely sum).
+          existing.curves = String(Math.max(parseInt(existing.curves) || 0, blk.curves));
+        }
+        if (blk.b2 && !existing.b2) existing.b2 = blk.b2;
       } else {
         ecmData[key].push({
           method: blk.method,
           b1: blk.b1,
           b2: blk.b2 || '',
-          curves: blk.method === 'ECM' ? String(blk.curves) : '',
+          curves: blk.method === 'ECM' ? String(blkSigmas.length || blk.curves) : '',
+          sigmas: blkSigmas,
           poly: '', I: '', tool: 'GMP-ECM', source: 'log',
           note: 'imported from log',
           date: new Date().toISOString().slice(0,10),
