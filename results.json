@@ -1128,14 +1128,15 @@
     },
     "174": {
       "status": "CF",
-      "timestamp": 1782385093471,
+      "timestamp": 1782464010574,
       "n": 174,
       "factors": [
         "79",
         "563",
-        "1199714371"
+        "1199714371",
+        "53359696078967"
       ],
-      "source": "fdb"
+      "source": "import"
     },
     "176": {
       "status": "CF",
@@ -98988,6 +98989,12 @@
   },
   "changelog": [
     {
+      "n": 174,
+      "type": "updated",
+      "detail": "ECM factor 53359696078967 (14d) [composite]",
+      "ts": 1782464010585
+    },
+    {
       "n": 2470,
       "type": "updated",
       "detail": "FDB CF: 3 factor(s)",
@@ -99580,12 +99587,6 @@
       "type": "updated",
       "detail": "FDB CF: 1 factor(s)",
       "ts": 1782132254028
-    },
-    {
-      "n": 14322,
-      "type": "updated",
-      "detail": "FDB CF: 2 factor(s)",
-      "ts": 1782132253552
     }
   ],
   "ecm": {
@@ -260176,5 +260177,5 @@
       }
     ]
   },
-  "updatedAt": "2026-06-25T12:00:12.895Z"
+  "updatedAt": "2026-06-26T08:53:39.062Z"
 }
