@@ -565,7 +565,11 @@
   <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 250 best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands">
     ↓ Export runs (top 250)
   </button>
-  <button class="poll-btn" onclick="importECMResults()" style="background:var(--surface2)" title="Paste GMP-ECM output (or your results log) — finds which E(n) each factor belongs to and records it">
+  <button class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
+    ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
+    ondragleave="this.style.outline='';"
+    ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files[0]) importEcmFromFile(event.dataTransfer.files[0]);"
+    style="background:var(--surface2)" title="Load ecm_import.txt (click to pick, or drag the file here). Records curves done + factors, splits composites, updates recommendations.">
     ↑ Import ECM results
   </button>
   <button class="poll-btn" onclick="clearAllLocalData()"
@@ -781,7 +785,7 @@
     Token needs <strong>Contents: Read &amp; Write</strong> scope only.
     Create one at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>
     (Fine-grained token → your repo → Contents read/write).
-    Data is saved as <code>results.json</code> in your repo root.
+    Data is saved as <code>results.json</code> (factors) and <code>results_ecm.json</code> (ECM run logs) in your repo root.
   </div>
 </div>
 
@@ -885,6 +889,60 @@ function labelFactor(f) {
     const big = BigInt(f);
     return big > 999999999999999n ? 'large' : (isPrime(big) ? 'prime' : 'composite');
   } catch { return 'large'; }
+}
+
+// Fully factor a small-ish integer into its prime factors. Trial-divides small
+// primes, then uses Pollard's rho for the rest, recursing until every piece is
+// prime. Reliable for the composite factors ECM reports (typically ≤ ~25 digits,
+// products of the small primes ECM targets). Returns an array of prime BigInts,
+// or null if it can't fully split within the effort budget (caller keeps the
+// composite intact in that case).
+function factorizeSmall(n) {
+  const out = [];
+  if (n < 2n) return out;
+  // small trial division
+  for (const p of [2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n,41n,43n,47n]) {
+    while (n % p === 0n) { out.push(p); n /= p; }
+  }
+  if (n === 1n) return out;
+  if (isProbablePrime(n)) { out.push(n); return out; }
+
+  const absBig = (x) => (x < 0n ? -x : x);
+  const gcd = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
+  // Pollard's rho with Brent's improvement.
+  const rho = (m) => {
+    if (m % 2n === 0n) return 2n;
+    let attempt = 0;
+    while (attempt < 40) {
+      const c = 1n + BigInt(Math.floor(Math.random() * 1e9)) % (m - 1n);
+      let x = 2n, y = 2n, d = 1n;
+      const f = (v) => (v * v + c) % m;
+      let guard = 0;
+      while (d === 1n && guard++ < 2_000_000) {
+        x = f(x);
+        y = f(f(y));
+        d = gcd(absBig(x - y), m);
+      }
+      if (d !== 1n && d !== m) return d;
+      attempt++;
+    }
+    return null; // failed to find a factor
+  };
+
+  // Recursively split with a work stack.
+  const stack = [n];
+  let steps = 0;
+  while (stack.length) {
+    if (++steps > 500) return null; // effort budget exceeded → give up
+    const m = stack.pop();
+    if (m === 1n) continue;
+    if (isProbablePrime(m)) { out.push(m); continue; }
+    const d = rho(m);
+    if (!d) return null; // couldn't split a composite piece
+    stack.push(d, m / d);
+  }
+  out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return out;
 }
 
 // Your base factorization data
@@ -1698,6 +1756,7 @@ function renderChangelog() {
 
 const GH_SETTINGS_KEY = 'eulerFDB_ghSettings';
 const GH_DATA_FILE    = 'results.json';
+const GH_ECM_FILE     = 'results_ecm.json'; // ECM/P±1 run logs, synced separately
 // results.json schema version. Bump when the on-disk format changes so old
 // files can be detected and (if needed) migrated or flagged on pull.
 const SCHEMA_VERSION  = 3;
@@ -1792,6 +1851,98 @@ function ghHeaders() {
   };
 }
 
+function ghEcmApiBase() {
+  const s = loadGHSettings();
+  return `https://api.github.com/repos/${s.user}/${s.repo}/contents/${GH_ECM_FILE}`;
+}
+
+// Merge an ECM payload (from results_ecm.json) into local storage. For each entry,
+// dedup attempts by method+B1; when two match, keep the HIGHER curve count (so
+// resumed/extended runs accumulate rather than getting lost). Returns merged map.
+function mergeEcmData(remoteEcm) {
+  const local = loadECM();
+  const merged = {};
+  for (const [k, v] of Object.entries(local)) merged[String(k)] = (v || []).slice();
+  for (const [n, attempts] of Object.entries(remoteEcm || {})) {
+    const key = String(n);
+    if (!merged[key]) { merged[key] = attempts.slice(); continue; }
+    for (const a of attempts) {
+      const aB1 = parseB1(a.b1);
+      const hit = merged[key].find(x => x.method === a.method && parseB1(x.b1) === aB1);
+      if (!hit) { merged[key].push(a); continue; }
+      // same method+B1: keep the larger curve count, prefer a real date/source
+      const hc = parseInt(hit.curves) || 0, ac = parseInt(a.curves) || 0;
+      if (ac > hc) { hit.curves = String(ac); }
+      if (a.b2 && !hit.b2) hit.b2 = a.b2;
+    }
+  }
+  return merged;
+}
+
+// Pull results_ecm.json and merge it into local ECM logs. Public (no token needed).
+async function pullECMFile() {
+  const s = loadGHSettings();
+  const user = s.user || 'hilbertfrank1285', repo = s.repo || 'euler-factordb', branch = s.branch || 'main';
+  const apiUrl = 'https://api.github.com/repos/' + user + '/' + repo + '/contents/' + GH_ECM_FILE + '?ref=' + branch + '&_=' + Date.now();
+  const headers = { 'Accept': 'application/vnd.github.raw+json' };
+  if (s.token) headers['Authorization'] = 'Bearer ' + s.token;
+  const r = await fetch(apiUrl, { headers, cache: 'no-store' });
+  if (r.status === 404) { addLog('No results_ecm.json yet — will be created on next push', ''); return false; }
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' pulling ECM file');
+  const text = await r.text();
+  const payload = JSON.parse(text);
+  const remoteEcm = payload.ecm || payload || {};
+  const merged = mergeEcmData(remoteEcm);
+  saveECM(merged);
+  addLog('ECM runs pulled — ' + Object.keys(merged).length + ' numbers have logged runs', 'ok');
+  return true;
+}
+
+// Push local ECM logs to results_ecm.json (separate from results.json).
+async function pushECMFile() {
+  const s = loadGHSettings();
+  if (!s.user || !s.repo || !s.token) return false;
+  async function getSha() {
+    const url = ghEcmApiBase() + '?ref=' + (s.branch||'main') + '&_=' + Date.now();
+    const r = await fetch(url, { headers: ghHeaders(), cache: 'no-store' });
+    if (r.ok) { const d = await r.json(); return d.sha || null; }
+    return null;
+  }
+  const payload = {
+    version:   SCHEMA_VERSION,
+    ecm:       loadECM(),
+    updatedAt: new Date().toISOString(),
+  };
+  const jsonStr = JSON.stringify(payload, null, 2);
+  const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+  async function attempt(sha) {
+    const body = {
+      message: 'Update ECM run logs — ' + new Date().toISOString().slice(0,10),
+      content: encoded,
+      branch:  s.branch || 'main',
+      ...(sha ? { sha } : {}),
+    };
+    return fetch(ghEcmApiBase(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
+  }
+  let sha = await getSha();
+  let r = await attempt(sha);
+  let retries = 0;
+  while (!r.ok && retries < 2) {
+    const clone = r.clone();
+    let conflict = (r.status === 409 || r.status === 422);
+    try { const eb = await clone.json(); if (eb.message && /does not match|sha/i.test(eb.message)) conflict = true; } catch(e) {}
+    if (!conflict) break;
+    retries++;
+    await new Promise(res => setTimeout(res, 500 * retries));
+    sha = await getSha();
+    r = await attempt(sha);
+  }
+  if (!r.ok) { const err = await r.json().catch(()=>({})); throw new Error(err.message || 'HTTP ' + r.status + ' pushing ECM file'); }
+  addLog('ECM runs pushed to results_ecm.json', 'ok');
+  return true;
+}
+
+
 
 function setGHStatus(msg, cls = '') {
   try {
@@ -1870,7 +2021,8 @@ function buildSyncPayload() {
     version:   SCHEMA_VERSION,
     fdbCache:  full,
     changelog: loadChangelog(),
-    ecm:       loadECM(),
+    // ECM run logs now live in their own file (results_ecm.json), pushed separately.
+    // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
   };
 }
@@ -1944,22 +2096,12 @@ function mergeSyncPayload(remote) {
   const mergedCL = Array.from(clMap.values()).sort((a,b) => (b.ts||0)-(a.ts||0));
   saveChangelog(mergedCL);
 
-  // ECM: merge by n + date + method (dedup) — normalise all keys to strings
-  const localECM  = loadECM();
-  const remoteECM = remote.ecm || {};
-  // Normalise local keys to strings
-  const normLocal = {};
-  for (const [k,v] of Object.entries(localECM)) normLocal[String(k)] = v;
-  const mergedECM = { ...normLocal };
-  for (const [n, attempts] of Object.entries(remoteECM)) {
-    const key = String(n);
-    if (!mergedECM[key]) { mergedECM[key] = attempts; continue; }
-    const existing = new Set(mergedECM[key].map(a => `${a.method}_${a.date}_${a.b1}`));
-    for (const a of attempts) {
-      if (!existing.has(`${a.method}_${a.date}_${a.b1}`)) mergedECM[key].push(a);
-    }
+  // ECM: backward-compat — old results.json files carried an `ecm` field. New files
+  // don't (ECM lives in results_ecm.json now), so this only fires for legacy data.
+  // Use mergeEcmData so curve counts accumulate by max rather than first-wins.
+  if (remote.ecm && Object.keys(remote.ecm).length) {
+    saveECM(mergeEcmData(remote.ecm));
   }
-  saveECM(mergedECM);
 }
 
 async function githubPull() {
@@ -1989,6 +2131,8 @@ async function githubPull() {
     const payload = JSON.parse(text);
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
     mergeSyncPayload(payload);
+    // Also pull the separate ECM run-log file (results_ecm.json).
+    try { await pullECMFile(); } catch(ecmErr) { addLog('ECM file pull skipped: ' + ecmErr.message, 'warn'); }
     allEntries = buildEntries();
     replayFDBCache();
     applyFilters();
@@ -2111,6 +2255,8 @@ async function githubPush() {
     }
     const pushTime = new Date();
     addLog('GitHub push complete', 'ok');
+    // Also push the separate ECM run-log file (results_ecm.json).
+    try { await pushECMFile(); } catch(ecmErr) { addLog('ECM file push skipped: ' + ecmErr.message, 'warn'); }
     markClean(); // changes are now safely on GitHub
     const payloadStats = buildSyncPayload();
     const entryCount = Object.keys(payloadStats.fdbCache || {}).length;
@@ -2704,10 +2850,12 @@ function exportNextRuns() {
     batLines.push(`echo.`);
     batLines.push(`echo [${idx}/${top.length}] ${note}`);
     batLines.push(`echo # run ${idx} ${note}>>ecm_results_full.log`);
-    // Pipe ecm's output through a PowerShell filter that keeps only the useful lines
-    // (curve counter, B1/B2, step timings, factors) — dropping NTT/polynomial/memory
-    // noise — then shows each kept line LIVE in the console AND appends it to the log.
-    batLines.push(`echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$input | Where-Object { $_ -match 'Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor' } | ForEach-Object { Write-Host $_; $_ } | Out-File -FilePath ecm_results_full.log -Append -Encoding ascii"`);
+    // One PowerShell pass over ecm's output:
+    //  • shows useful lines LIVE in the console (Write-Host)
+    //  • appends ALL useful lines to ecm_results_full.log (full record, -v sigmas etc.)
+    //  • appends ONLY the import-critical lines (Input number / Using B1 / Run K out of M
+    //    / factor lines) to ecm_import.txt — a small file the app imports directly.
+    batLines.push(`echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; Add-Content -Path ecm_results_full.log -Value $_; if ($_ -match $imp) { Add-Content -Path ecm_import.txt -Value $_ } } }"`);
   });
 
   const dateStr = new Date().toISOString().slice(0,10);
@@ -2717,20 +2865,30 @@ function exportNextRuns() {
     'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
     'rem ecm.exe must be in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
     'rem Logs (created next to this file):\r\n' +
-    'rem   ecm_results_full.log  - useful lines only (curves, B1, timings, factors), LIVE\r\n' +
-    'rem   ecm_factors.log       - just the found-factor lines (built when all runs finish)\r\n' +
+    'rem   ecm_results_full.log  - useful lines (curves, B1, timings, factors), shown LIVE\r\n' +
+    'rem   ecm_import.txt         - compact file to load into the app (drag-drop / pick)\r\n' +
+    'rem   ecm_factors.log        - just the found-factor lines (built when all runs finish)\r\n' +
     'rem Output is filtered (NTT/polynomial/memory noise dropped) then streamed live to\r\n' +
     'rem the console and the log via PowerShell (standard on Windows).\r\n' +
-    'rem If you Ctrl+C early, everything kept so far is already in the full log.\r\n' +
-    'rem To RESUME: paste ecm_results_full.log into the app ("Import ECM results") - it\r\n' +
-    'rem records the curves you completed, then re-export; the new .bat only has whats left.\r\n\r\n';
+    'rem If you Ctrl+C early, everything kept so far is already in the logs.\r\n' +
+    'rem To RESUME or record progress: load ecm_import.txt into the app ("Import ECM\r\n' +
+    'rem results" - drag-drop or pick the file). It records curves done + factors; then\r\n' +
+    'rem re-export and the new .bat only has whats left.\r\n\r\n';
 
   const batFooter =
     '\r\necho.\r\n' +
     'rem Build the clean factors log from the full log in one pass.\r\n' +
     'findstr /C:"Found" /C:"Factor found" ecm_results_full.log > ecm_factors.log\r\n' +
-    'echo All runs complete. Factors: ecm_factors.log  Full output: ecm_results_full.log\r\n' +
-    'echo Paste ecm_results_full.log into the app via "Import ECM results".\r\n';
+    'echo ============================================================\r\n' +
+    'echo Done (or stopped). Factors: ecm_factors.log\r\n' +
+    'echo.\r\n' +
+    'echo IMPORTANT: do NOT just re-run this .bat to continue - it would\r\n' +
+    'echo repeat every curve from scratch. To resume with only the curves\r\n' +
+    'echo still needed: load ecm_import.txt into the app ("Import ECM\r\n' +
+    'echo results" - drag-drop or pick the file), then Export runs again.\r\n' +
+    'echo The new .bat will have the reduced curve counts.\r\n' +
+    'echo ============================================================\r\n' +
+    'pause\r\n';
 
   const batText = batHeader + batLines.join('\r\n') + batFooter;
 
@@ -2784,12 +2942,45 @@ function downloadText(filename, text) {
 // GMP-ECM prints found factors but not which E(n) they came from (we piped a bare
 // number), so we identify the owner by testing which loaded E(n) value the factor
 // divides — a true factor of E(n) divides E(n) exactly.
+// Entry point: let the user load a results file (drag-drop happens via the drop
+// zone; this opens a file picker) OR fall back to pasting. Both feed the same
+// parser. A file avoids prompt()'s length limit and is far less error-prone.
 function importECMResults() {
   if (Object.keys(eulerValues).length === 0) {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
-  const text = prompt('Paste the contents of ecm_results_full.log (the full verbose GMP-ECM output).\nIt records the curves/B1 you ran AND any factors found, then updates recommendations.');
+  // Offer a file picker; if the user cancels, fall back to paste.
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.txt,.log,text/plain';
+  inp.onchange = () => {
+    const file = inp.files && inp.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => processEcmLogText(String(reader.result || ''));
+    reader.onerror = () => alert('Could not read the file.');
+    reader.readAsText(file);
+  };
+  // If the picker is dismissed without choosing, offer paste as a fallback.
+  inp.oncancel = () => {
+    const text = prompt('Or paste the contents of ecm_import.txt (or ecm_results_full.log):');
+    if (text) processEcmLogText(text);
+  };
+  inp.click();
+}
+
+// Read a dropped file (used by the drop zone) and process it.
+function importEcmFromFile(file) {
+  if (!file) return;
+  if (Object.keys(eulerValues).length === 0) { alert('Euler values still loading — please wait and try again.'); return; }
+  const reader = new FileReader();
+  reader.onload = () => processEcmLogText(String(reader.result || ''));
+  reader.onerror = () => alert('Could not read the file.');
+  reader.readAsText(file);
+}
+
+function processEcmLogText(text) {
   if (!text) return;
 
   const lines = text.split(/\r?\n/);
@@ -2807,7 +2998,7 @@ function importECMResults() {
   const reUsing = /Using B1=([0-9.eE+]+)(?:,\s*B2=([0-9.eE+\-]+))?/;
   const reRun   = /Run\s+(\d+)\s+out of\s+(\d+)/;
   const reMethod= /\[(ECM|P-1|P\+1|P\+1)\]/;
-  const reFacA  = /Found (?:prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
+  const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
   let lastMethod = 'ECM';
 
@@ -2815,7 +3006,7 @@ function importECMResults() {
     let mm;
     if ((mm = reMethod.exec(ln))) lastMethod = mm[1];
     if ((mm = reInput.exec(ln))) {
-      cur = { number: mm[1], method: lastMethod, b1: null, b2: null, curves: 1, factors: new Set() };
+      cur = { number: mm[1], method: lastMethod, b1: null, b2: null, curves: 1, factors: new Map() };
       blocks.push(cur);
       continue;
     }
@@ -2829,7 +3020,11 @@ function importECMResults() {
       cur.declared = parseInt(mm[2]) || cur.curves;
     }
     let fm;
-    if ((fm = reFacA.exec(ln)) || (fm = reFacB.exec(ln))) cur.factors.add(fm[1]);
+    if ((fm = reFacA.exec(ln))) {
+      cur.factors.set(fm[2], { value: fm[2], composite: fm[1] === 'composite' });
+    } else if ((fm = reFacB.exec(ln))) {
+      if (!cur.factors.has(fm[1])) cur.factors.set(fm[1], { value: fm[1], composite: false });
+    }
   }
 
   if (!blocks.length) {
@@ -2837,40 +3032,50 @@ function importECMResults() {
     return;
   }
 
-  // Match each block's number to an E(n) by exact division (a factor of E(n)
-  // divides E(n); the input number we ran IS E(n) or its cofactor, so it equals or
-  // divides the stored value). We match the full input number to a stored E(n).
-  const valEntries = allEntries.filter(e => e.val);
+  // Match each block's number to an E(n) by exact value (or division for a cofactor).
+  // Search ALL loaded euler values — not just entries in the current visible range —
+  // so an import works regardless of the top-right E(n) range filter.
+  const valByNum = new Map();   // exact number -> n
+  const allLoaded = [];          // [{n, val}] for division fallback
+  for (const [nStr, val] of Object.entries(eulerValues)) {
+    if (!val) continue;
+    valByNum.set(val, parseInt(nStr));
+    allLoaded.push({ n: parseInt(nStr), val });
+  }
   const ecmData = loadECM();
 
   let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0;
   const summary = [];
   const dirtyN = new Set();
 
+  // helper to get/make a live entry for an n (may be outside current range)
+  const entryForN = (n) => {
+    let e = allEntries.find(x => x.n === n);
+    if (!e) e = { n, val: eulerValues[n] || null, status: factoData[n]?.status || 'unknown', factors: (factoData[n]?.factors || []).slice() };
+    return e;
+  };
+
   for (const blk of blocks) {
-    // identify owner: stored value equals the run number, or the run number divides it
-    let owner = null;
-    let bBig; try { bBig = BigInt(blk.number); } catch { continue; }
-    for (const e of valEntries) {
-      if (e.val === blk.number) { owner = e; break; }
-    }
-    if (!owner) {
+    let nOwner = null;
+    if (valByNum.has(blk.number)) {
+      nOwner = valByNum.get(blk.number);
+    } else {
       // maybe we ran a cofactor: find an E(n) the number divides into
-      for (const e of valEntries) {
-        if (blk.number.length > e.val.length) continue;
-        let vBig; try { vBig = BigInt(e.val); } catch { continue; }
-        if (vBig % bBig === 0n) { owner = e; break; }
+      let bBig; try { bBig = BigInt(blk.number); } catch { continue; }
+      for (const cand of allLoaded) {
+        if (blk.number.length > cand.val.length) continue;
+        let vBig; try { vBig = BigInt(cand.val); } catch { continue; }
+        if (vBig % bBig === 0n) { nOwner = cand.n; break; }
       }
     }
-    if (!owner) { unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + blk.number.length + 'd) — no matching E(n)'); continue; }
+    if (nOwner == null) { unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + blk.number.length + 'd) — no matching E(n)'); continue; }
+    const owner = entryForN(nOwner);
 
     // Record the ECM/P±1 attempt (curves actually completed, B1, B2).
     if (blk.b1) {
       const key = String(owner.n);
       if (!ecmData[key]) ecmData[key] = [];
-      const b1n = parseB1(blk.b1), b2n = blk.b2 ? parseB1(blk.b2) : 0;
-      // Merge with an identical prior attempt (same method+B1) by summing curves,
-      // so re-imports / resumed runs accumulate rather than duplicate.
+      const b1n = parseB1(blk.b1);
       const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
       if (existing) {
         existing.curves = String(Math.max(parseInt(existing.curves)||0, blk.curves));
@@ -2889,10 +3094,29 @@ function importECMResults() {
       dirtyN.add(owner.n);
     }
 
-    // Record any factors found in this block.
-    for (const fStr of blk.factors) {
-      const res = recordEcmFactor(owner, fStr);
-      if (res === 'new')      { factorsNew++; summary.push('• E(' + owner.n + ') ← factor ' + fStr + ' (' + fStr.length + 'd)'); }
+    // Record any factors found in this block. Primes are recorded directly;
+    // composites are split into their primes first (ECM composites are products of
+    // small primes, so they factor quickly). If a composite can't be split within
+    // the effort budget, the run is still logged and the composite is skipped.
+    for (const f of blk.factors.values()) {
+      if (f.composite) {
+        let primes = null;
+        try { primes = factorizeSmall(BigInt(f.value)); } catch(_) { primes = null; }
+        if (primes && primes.length) {
+          const recorded = [];
+          for (const p of primes) {
+            const res = recordEcmFactor(owner, p.toString());
+            if (res === 'new') { factorsNew++; recorded.push(p.toString()); }
+            else if (res === 'dup') { factorsDup++; }
+          }
+          if (recorded.length) summary.push('• E(' + owner.n + ') ← composite ' + f.value + ' split into ' + recorded.join(' × '));
+        } else {
+          summary.push('• E(' + owner.n + ') found COMPOSITE ' + f.value + ' (' + f.value.length + 'd) — could not split, run logged');
+        }
+        continue;
+      }
+      const res = recordEcmFactor(owner, f.value);
+      if (res === 'new')      { factorsNew++; summary.push('• E(' + owner.n + ') ← factor ' + f.value + ' (' + f.value.length + 'd)'); }
       else if (res === 'dup') { factorsDup++; }
     }
   }
@@ -3962,6 +4186,26 @@ function renderGrid() {
         if (cpu) html += `<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ${fmtCpuTime(cpu)} CPU</div>`;
       } catch(_) {}
 
+      // ECM runs done (total curves logged), so you can see at a glance what's been run
+      try {
+        if (e.status !== 'full') {
+          const attempts = loadECM()[String(e.n)] || [];
+          let ecmCurves = 0, pm1 = 0, pp1 = 0;
+          for (const a of attempts) {
+            if (a.method === 'ECM') ecmCurves += parseInt(a.curves) || 0;
+            else if (a.method === 'P-1') pm1++;
+            else if (a.method === 'P+1') pp1++;
+          }
+          const parts = [];
+          if (ecmCurves) parts.push(fmtCurves(ecmCurves) + ' curves');
+          if (pm1) parts.push('P-1×' + pm1);
+          if (pp1) parts.push('P+1×' + pp1);
+          if (parts.length) {
+            html += `<div style="font-size:9px;color:var(--text-muted);margin-top:2px" title="ECM/P±1 runs logged for this number">σ ECM: ${parts.join(' · ')}</div>`;
+          }
+        }
+      } catch(_) {}
+
       // FDB date
       try {
         if (e.status !== 'full') {
@@ -4417,7 +4661,7 @@ function recommendNextRun(digits, attempts) {
       rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
       reason: pBefore < 0.02
         ? 'Search the ' + d + '-digit level: ~' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists. The natural next step up.'
-        : 'Finish the ' + d + '-digit level: a ' + d + 'd factor (if present) is currently ~' + fmtPct(pBefore) + ' likely to be caught; +' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' raises that to ~63%.',
+        : 'Finish the ' + d + '-digit level: ~' + fmtCurves(haveEff) + ' of ~' + fmtCurves(targetCv) + ' curves done (' + fmtPct(pBefore) + '); +' + fmtCurves(addCurves) + ' more at B1=' + fmtB1(b1) + ' reaches ~63%.',
     });
     if (++suggested >= 3) break;                    // never more than 3 ECM steps
   }
