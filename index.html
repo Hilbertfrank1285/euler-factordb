@@ -565,6 +565,9 @@
   <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 250 best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands">
     ↓ Export runs (top 250)
   </button>
+  <button class="poll-btn" onclick="importECMResults()" style="background:var(--surface2)" title="Paste GMP-ECM output (or your results log) — finds which E(n) each factor belongs to and records it">
+    ↑ Import ECM results
+  </button>
   <button class="poll-btn" onclick="clearAllLocalData()"
     style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
     title="Wipes all localStorage — ECM logs, FDB cache, factors. Cannot be undone.">
@@ -579,7 +582,7 @@
     ↑ Import ECM seed
   </button>
   <button class="poll-btn" id="factorsImportBtn" onclick="importFactorsSeed()" style="background:var(--surface2)" title="One-time import of factors_seed.json — then auto-checks small entries on FDB">
-    ↑ Import factors
+    ↑ Import factors github
   </button>
   <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
@@ -2769,6 +2772,118 @@ function downloadText(filename, text) {
   const a    = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+}
+
+// Paste GMP-ECM output (or a results log) and record any factors it found.
+// GMP-ECM prints found factors but not which E(n) they came from (we piped a bare
+// number), so we identify the owner by testing which loaded E(n) value the factor
+// divides — a true factor of E(n) divides E(n) exactly.
+function importECMResults() {
+  if (Object.keys(eulerValues).length === 0) {
+    alert('Euler values still loading — please wait and try again.');
+    return;
+  }
+  const text = prompt('Paste your GMP-ECM output / results log below.\n(It looks for lines like "Found prime factor of N digits: 12345".)');
+  if (!text) return;
+
+  // Extract candidate factors. GMP-ECM phrasings:
+  //   "Found prime factor of 16 digits: 3085637175635107"
+  //   "Found probable prime factor of 20 digits: ..."
+  //   "Found composite factor of 30 digits: ..."
+  //   "********** Factor found in step 1: 12345"
+  const factors = new Set();
+  const reA = /Found (?:prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/g;
+  const reB = /Factor found in step \d+:\s*(\d+)/g;
+  let m;
+  while ((m = reA.exec(text)) !== null) factors.add(m[1]);
+  while ((m = reB.exec(text)) !== null) factors.add(m[1]);
+
+  if (!factors.size) {
+    alert('No factors found in the pasted text.\nExpected lines like: "Found prime factor of 16 digits: 3085637175635107".');
+    return;
+  }
+
+  // Build n→value map once (numbers we have loaded).
+  const valEntries = allEntries.filter(e => e.val);
+  let recorded = 0, alreadyHad = 0, unmatched = 0;
+  const summary = [];
+
+  for (const fStr of factors) {
+    let fBig;
+    try { fBig = BigInt(fStr); } catch { continue; }
+    if (fBig < 2n) continue;
+
+    // Find which E(n) this factor divides. Stop at the first match (a prime factor
+    // belongs to exactly one E(n) within our set in practice).
+    let owner = null;
+    for (const e of valEntries) {
+      // quick length guard: factor can't exceed the number
+      if (fStr.length > e.val.length) continue;
+      let vBig;
+      try { vBig = BigInt(e.val); } catch { continue; }
+      if (vBig % fBig === 0n) { owner = e; break; }
+    }
+
+    if (!owner) { unmatched++; summary.push('• ' + fStr + ' (' + fStr.length + 'd) — no matching E(n)'); continue; }
+
+    const res = recordEcmFactor(owner, fStr);
+    if (res === 'new')        { recorded++;   summary.push('• E(' + owner.n + ') ← ' + fStr + ' (' + fStr.length + 'd)'); }
+    else if (res === 'dup')   { alreadyHad++; summary.push('• E(' + owner.n + ') already had ' + fStr); }
+  }
+
+  if (recorded) { applyFilters(); renderStats(); scheduleECMPush(); }
+
+  const msg = 'Imported: ' + recorded + ' new factor' + (recorded===1?'':'s')
+    + (alreadyHad ? ', ' + alreadyHad + ' already known' : '')
+    + (unmatched ? ', ' + unmatched + ' unmatched' : '');
+  addLog(msg, recorded ? 'ok' : 'warn');
+  setStatus(msg, recorded ? 'ok' : 'warn');
+  alert(msg + '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : ''));
+}
+
+// Merge a newly-found prime factor into an entry, recompute status, and persist.
+// Source is 'import' (you found it via your own ECM, not from FactorDB) so it will
+// still appear in the FDB-submission export until FactorDB ingests it.
+function recordEcmFactor(entry, factorStr) {
+  const n = entry.n;
+  const parsePow = f => { const mm = /^(\d+)\^(\d+)$/.exec(String(f)); return mm ? { base: mm[1], exp: +mm[2] } : { base: String(f), exp: 1 }; };
+
+  const existing = (entry.factors || []).filter(f => f && f !== '1');
+  // already have this prime base?
+  const haveBase = new Set(existing.map(f => parsePow(f).base));
+  if (haveBase.has(factorStr)) return 'dup';
+
+  // Determine if the new factor is prime (cheap for <=19 digits; assume prime for ECM finds otherwise)
+  let isPrime = true;
+  if (factorStr.length <= 19) { try { isPrime = isProbablePrime(BigInt(factorStr)); } catch { isPrime = true; } }
+
+  const merged = [...existing, factorStr];
+
+  // Recompute status: does the product of known primes equal the full value?
+  let status = entry.status;
+  try {
+    const vBig = BigInt(entry.val);
+    let prod = 1n;
+    for (const f of merged) { const { base, exp } = parsePow(f); prod *= BigInt(base) ** BigInt(exp); }
+    if (prod === vBig)      status = 'full';      // fully factored
+    else if (vBig % prod === 0n) status = 'partial';   // some primes known, cofactor remains
+    else status = entry.status; // shouldn't happen (factor divides value), keep as-is
+  } catch { /* keep current status */ }
+
+  // Persist via fdbCache (the synced store), marked as our own import.
+  const cacheStatus = status === 'full' ? 'FF' : 'CF';
+  fdbCache[entry.val] = { status: cacheStatus, factors: merged, timestamp: Date.now(), source: 'import', n };
+  fdbFactors[entry.val] = { factors: merged };
+  saveFDBCache(fdbCache);
+
+  // Update the live entry so the UI reflects it immediately.
+  entry.factors = merged;
+  entry.status  = status;
+
+  // Log to changelog data layer (panel removed, but sync payload still carries it).
+  try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]')); } catch(_) {}
+
+  return 'new';
 }
 
 function exportCSV() {
