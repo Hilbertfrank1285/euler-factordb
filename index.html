@@ -2857,13 +2857,12 @@ function exportNextRuns() {
     const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
     batLines.push(`echo.`);
     batLines.push(`echo [${idx}/${top.length}] ${note}`);
-    batLines.push(`echo # run ${idx} ${note}>>ecm_results_full.log`);
+    batLines.push(`echo # run ${idx} ${note}>>ecm_import.txt`);
     // One PowerShell pass over ecm's output:
     //  • shows useful lines LIVE in the console (Write-Host)
-    //  • appends ALL useful lines to ecm_results_full.log (full record, -v sigmas etc.)
-    //  • appends ONLY the import-critical lines (Input number / Using B1 / Run K out of M
-    //    / factor lines) to ecm_import.txt — a small file the app imports directly.
-    batLines.push(`echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; Add-Content -Path ecm_results_full.log -Value $_; if ($_ -match $imp) { Add-Content -Path ecm_import.txt -Value $_ } } }"`);
+    //  • appends the import-critical lines (Input number / Using B1+sigma / Run K out of
+    //    M / factor lines) to ecm_import.txt — the file the app imports directly.
+    batLines.push(`echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ecm_import.txt -Value $_ } } }"`);
   });
 
   const dateStr = new Date().toISOString().slice(0,10);
@@ -2872,21 +2871,20 @@ function exportNextRuns() {
     'rem GMP-ECM run list (batch) - ' + top.length + ' best-value runs - ' + dateStr + '\r\n' +
     'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
     'rem ecm.exe must be in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
-    'rem Logs (created next to this file):\r\n' +
-    'rem   ecm_results_full.log  - useful lines (curves, B1, timings, factors), shown LIVE\r\n' +
-    'rem   ecm_import.txt         - compact file to load into the app (drag-drop / pick)\r\n' +
-    'rem   ecm_factors.log        - just the found-factor lines (built when all runs finish)\r\n' +
-    'rem Output is filtered (NTT/polynomial/memory noise dropped) then streamed live to\r\n' +
-    'rem the console and the log via PowerShell (standard on Windows).\r\n' +
-    'rem If you Ctrl+C early, everything kept so far is already in the logs.\r\n' +
+    'rem Files (created next to this file):\r\n' +
+    'rem   ecm_import.txt   - compact file to load into the app (drag-drop / pick)\r\n' +
+    'rem   ecm_factors.log  - just the found-factor lines (built when all runs finish)\r\n' +
+    'rem Output is filtered (NTT/polynomial/memory noise dropped) and streamed live to\r\n' +
+    'rem the console via PowerShell (standard on Windows).\r\n' +
+    'rem If you Ctrl+C early, everything kept so far is already in ecm_import.txt.\r\n' +
     'rem To RESUME or record progress: load ecm_import.txt into the app ("Import ECM\r\n' +
     'rem results" - drag-drop or pick the file). It records curves done + factors; then\r\n' +
     'rem re-export and the new .bat only has whats left.\r\n\r\n';
 
   const batFooter =
     '\r\necho.\r\n' +
-    'rem Build the clean factors log from the full log in one pass.\r\n' +
-    'findstr /C:"Found" /C:"Factor found" ecm_results_full.log > ecm_factors.log\r\n' +
+    'rem Build the clean factors log from the import file in one pass.\r\n' +
+    'findstr /C:"Found" /C:"Factor found" ecm_import.txt > ecm_factors.log\r\n' +
     'echo ============================================================\r\n' +
     'echo Done (or stopped). Factors: ecm_factors.log\r\n' +
     'echo.\r\n' +
@@ -2972,7 +2970,7 @@ function importECMResults() {
   };
   // If the picker is dismissed without choosing, offer paste as a fallback.
   inp.oncancel = () => {
-    const text = prompt('Or paste the contents of ecm_import.txt (or ecm_results_full.log):');
+    const text = prompt('Or paste the contents of ecm_import.txt:');
     if (text) processEcmLogText(text);
   };
   inp.click();
