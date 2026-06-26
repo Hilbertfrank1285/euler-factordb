@@ -1475,18 +1475,6 @@
         "tool": "GMP-ECM",
         "note": "HilbertFrank1285",
         "date": "2025-06-01"
-      },
-      {
-        "method": "ECM",
-        "b1": "250000",
-        "b2": "128992510",
-        "curves": "20",
-        "poly": "",
-        "I": "",
-        "tool": "GMP-ECM",
-        "source": "log",
-        "note": "imported from log",
-        "date": "2026-06-26"
       }
     ],
     "176": [
@@ -160600,5 +160588,5 @@
       }
     ]
   },
-  "updatedAt": "2026-06-26T11:36:27.370Z"
+  "updatedAt": "2026-06-26T11:50:35.230Z"
 }
