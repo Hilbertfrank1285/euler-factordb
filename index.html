@@ -2683,37 +2683,51 @@ function exportNextRuns() {
   const b1int = r => Math.round(r.rawB1 || 0);
   const b2int = r => Math.round(r.rawB2 || 0);
 
-  // ── Commands file (GMP-ECM) ─────────────────────────────────────────────────
-  // ECM:  echo <N> | ecm -c <curves> <B1>
-  // P-1:  echo <N> | ecm -pm1 <B1> <B2>
-  // P+1:  echo <N> | ecm -pp1 <B1> <B2>
-  const cmdLines = [];
+  // Build command lines for BOTH PowerShell (.ps1) and batch (.bat). On Windows
+  // the ecm binary in the current folder must be called as .\ecm (PowerShell) or
+  // ecm.exe (cmd). Number is echoed and piped to ecm's stdin.
+  //  ECM:  echo <N> | .\ecm -c <curves> <B1>
+  //  P-1:  echo <N> | .\ecm -pm1 <B1> <B2>
+  //  P+1:  echo <N> | .\ecm -pp1 <B1> <B2>
+  const ps1Lines = [];
+  const batLines = [];
   let totalSec = 0;
   for (const r of top) {
     totalSec += r.cpuTime;
-    if (r.method === 'ECM') {
-      const curves = r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1;
-      cmdLines.push(`echo ${r.val} | ecm -c ${curves} ${b1int(r)}   # E(${r.n}) ${r.digits}d · target ${r.targetDigits}d · ~${fmtCpuTime(r.cpuTime)} · +${r.gain.toFixed(2)}%`);
-    } else if (r.method === 'P-1') {
-      cmdLines.push(`echo ${r.val} | ecm -pm1 ${b1int(r)} ${b2int(r)}   # E(${r.n}) ${r.digits}d · P-1 · ~${fmtCpuTime(r.cpuTime)} · +${r.gain.toFixed(2)}%`);
-    } else if (r.method === 'P+1') {
-      cmdLines.push(`echo ${r.val} | ecm -pp1 ${b1int(r)} ${b2int(r)}   # E(${r.n}) ${r.digits}d · P+1 · ~${fmtCpuTime(r.cpuTime)} · +${r.gain.toFixed(2)}%`);
-    }
+    const args =
+      r.method === 'ECM' ? `-c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
+      r.method === 'P-1' ? `-pm1 ${b1int(r)} ${b2int(r)}` :
+                           `-pp1 ${b1int(r)} ${b2int(r)}`;
+    const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
+    // PowerShell: echo is fine (alias for Write-Output); binary as .\ecm
+    ps1Lines.push(`# ${note}`);
+    ps1Lines.push(`echo "${r.val}" | .\\ecm ${args}`);
+    // Batch: rem comment; binary as ecm.exe
+    batLines.push(`rem ${note}`);
+    batLines.push(`echo ${r.val} | ecm.exe ${args}`);
   }
 
-  const cmdHeader =
-    '#!/bin/sh\n' +
-    '# GMP-ECM run list — ' + top.length + ' best-value recommended runs — generated ' + new Date().toISOString().slice(0,10) + '\n' +
-    '# Ranked by best value (odds gained per unit CPU time). Estimated total: ' + fmtCpuTime(totalSec) + ' on a single core.\n' +
-    '# Each line factors E(n) directly; GMP-ECM finds the relevant factor.\n' +
-    '# Requires GMP-ECM (https://gitlab.inria.fr/zimmerma/ecm). Run: sh ecm_runs.sh\n' +
-    '# Stop early any time — runs are ordered so the highest-value runs come first.\n\n';
-  const cmdFileText = cmdHeader + cmdLines.join('\n') + '\n';
+  const dateStr = new Date().toISOString().slice(0,10);
+  const ps1Header =
+    '# GMP-ECM run list (PowerShell) - ' + top.length + ' best-value runs - ' + dateStr + '\n' +
+    '# Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\n' +
+    '# Assumes ecm.exe is in this folder (called as .\\ecm). Run:  .\\ecm_runs.ps1\n' +
+    '# If blocked: powershell -ExecutionPolicy Bypass -File .\\ecm_runs.ps1\n' +
+    '# Stop any time - highest-value runs come first.\n\n';
+  const batHeader =
+    '@echo off\r\n' +
+    'rem GMP-ECM run list (batch) - ' + top.length + ' best-value runs - ' + dateStr + '\r\n' +
+    'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
+    'rem Assumes ecm.exe is in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
+    'rem Stop any time - highest-value runs come first.\r\n\r\n';
+
+  const ps1Text = ps1Header + ps1Lines.join('\n') + '\n';
+  const batText = batHeader + batLines.join('\r\n') + '\r\n';
 
   // ── Summary file (human-readable) ───────────────────────────────────────────
   const sum = [];
   sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
-  sum.push('Generated ' + new Date().toISOString().slice(0,10) + ' · ranked by value (odds gained per unit time)');
+  sum.push('Generated ' + dateStr + ' · ranked by value (odds gained per unit time)');
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
   sum.push('─'.repeat(86));
   sum.push('  #   E(n)      digits  method  B1         curves   ~time        +odds     value');
@@ -2733,12 +2747,13 @@ function exportNextRuns() {
   });
   const summaryText = sum.join('\n') + '\n';
 
-  // Download both files. Stagger the second slightly — browsers often block or
-  // silently drop a second programmatic download fired in the same tick.
-  downloadText('ecm_runs.sh', cmdFileText);
-  setTimeout(() => downloadText('ecm_runs_summary.txt', summaryText), 400);
+  // Download all three files, staggered — browsers block/drop downloads fired in
+  // the same tick.
+  downloadText('ecm_runs.ps1', ps1Text);
+  setTimeout(() => downloadText('ecm_runs.bat', batText), 350);
+  setTimeout(() => downloadText('ecm_runs_summary.txt', summaryText), 700);
 
-  const msg = 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.sh + ecm_runs_summary.txt';
+  const msg = 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.ps1 + ecm_runs.bat + summary';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
