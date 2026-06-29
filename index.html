@@ -2812,13 +2812,19 @@ function exportNextRuns() {
   for (const e of allEntries) {
     if (e.status === 'full' || !e.val) continue;
     if (e.val.length > 52000) continue; // too big to be practical here
+    // Run on the cofactor (E(n) with known factors divided out), not the full value:
+    // GMP-ECM stops re-finding known small factors and works on a smaller modulus.
+    const cof = getCofactor(e);
+    const runVal = cof ? cof.str : e.val;
+    const runDigits = cof ? cof.digits : e.val.length;
+    if (runDigits < 2) continue; // fully resolved (cofactor is 1)
     let recs;
-    try { recs = recommendNextRun(e.val.length, ecmData[String(e.n)] || []); }
+    try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
     catch(_) { continue; }
     if (!recs || !recs.length) continue;
     for (const r of recs) {
       runs.push({
-        n: e.n, val: e.val, digits: e.val.length,
+        n: e.n, val: runVal, digits: runDigits,
         method: r.method, b1: r.b1, b2: r.b2, rawB1: r.rawB1, rawB2: r.rawB2,
         curves: r.curves, rawCurves: r.rawCurves,
         gain: parseFloat(r.gain) || 0, cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
@@ -4827,8 +4833,34 @@ function difficultyLabel(score) {
   return              { label: 'Intractable',    color: '#b44fff' };
 }
 
+// Compute the remaining cofactor of an entry: E(n) with all known prime factors
+// divided out. Returns { big, str, digits } or null. Handles prime-power factors
+// ("5^2"). This is the number ECM should actually run on — dividing out known
+// factors means GMP-ECM stops re-finding them and works on a smaller modulus.
+function getCofactor(e) {
+  if (!e || !e.val || e.status === 'full') return null;
+  let vBig;
+  try { vBig = BigInt(e.val); } catch { return null; }
+  const factors = (e.factors || []).filter(f => f && f !== '1');
+  for (const f of factors) {
+    const mm = /^(\d+)\^(\d+)$/.exec(String(f));
+    const base = mm ? mm[1] : String(f);
+    const exp  = mm ? parseInt(mm[2]) : 1;
+    let bBig;
+    try { bBig = BigInt(base); } catch { continue; }
+    for (let i = 0; i < exp; i++) {
+      if (bBig !== 0n && vBig % bBig === 0n) vBig /= bBig;
+    }
+  }
+  const str = vBig.toString();
+  return { big: vBig, str, digits: str.length };
+}
+
 function getCofactorDigits(e) {
-  if (e.val && e.status !== 'full') return e.val.length;
+  if (e.val && e.status !== 'full') {
+    const cof = getCofactor(e);
+    return cof ? cof.digits : e.val.length;
+  }
   return null;
 }
 
