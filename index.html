@@ -969,6 +969,38 @@ function loadECM() {
 }
 let _ecmCache = null; // in-memory cache, invalidated on write
 
+// One-time repair of attempts mislabeled by an earlier parser bug: P-1/P+1 runs
+// never have curve counts or sigma lists, so any attempt tagged P-1/P+1 that has
+// curves > 1 or stored sigmas is really an ECM run. Re-label and dedup so the bad
+// P+1 ghost and the correct ECM entry don't coexist. Runs once; persists the fix.
+function migrateMislabeledEcm() {
+  if (localStorage.getItem('eulerFDB_ecmMethodFix_v1')) return;
+  const data = loadECM();
+  let fixed = 0;
+  for (const [n, attempts] of Object.entries(data)) {
+    if (!Array.isArray(attempts)) continue;
+    for (const a of attempts) {
+      const looksLikeEcm = (parseInt(a.curves) || 0) > 1 || (Array.isArray(a.sigmas) && a.sigmas.length > 0);
+      if ((a.method === 'P-1' || a.method === 'P+1') && looksLikeEcm) { a.method = 'ECM'; fixed++; }
+    }
+    // Dedup: collapse same method+B1, keeping the higher curve count / unioned sigmas.
+    const seen = new Map();
+    const out = [];
+    for (const a of attempts) {
+      const key = a.method + '|' + parseB1(a.b1);
+      const hit = seen.get(key);
+      if (!hit) { seen.set(key, a); out.push(a); continue; }
+      const hc = parseInt(hit.curves) || 0, ac = parseInt(a.curves) || 0;
+      if (ac > hc) hit.curves = String(ac);
+      const u = new Set([...(hit.sigmas||[]), ...(a.sigmas||[])]);
+      if (u.size) hit.sigmas = Array.from(u);
+    }
+    data[n] = out;
+  }
+  if (fixed) { saveECM(data); addLog('Fixed ' + fixed + ' mislabeled P±1→ECM run' + (fixed===1?'':'s'), 'ok'); }
+  localStorage.setItem('eulerFDB_ecmMethodFix_v1', '1');
+}
+
 // Dedicated storage for fdb-unknown n values — persists independently of eulerValues loading
 function loadFdbUnknownSet() {
   try { return new Set(JSON.parse(localStorage.getItem('eulerFDB_fdbUnknown_v1') || '[]')); }
@@ -5849,6 +5881,7 @@ setTimeout(async () => {
   // Phase 3: FINAL consistent state — re-read all data from localStorage
   // (because mergeSyncPayload may have updated it) and render in correct order
   try {
+    try { migrateMislabeledEcm(); } catch(_) {}  // one-time P±1→ECM relabel fix
     fdbCache    = loadFDBCache();
     allEntries  = buildEntries();
     applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
