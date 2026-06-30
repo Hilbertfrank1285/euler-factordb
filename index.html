@@ -4646,17 +4646,21 @@ function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
   if (!b1 || !cofactorDigits) return null;
   const d = cofactorDigits;
   const c = parseInt(curves) || 1;
-  // ECM/P-1/P+1 stage 1: roughly proportional to B1 × d^1.5 (FFT mulmod dominates).
-  // Calibrated against a real GMP-ECM 7.0.5 run on a single core of an AMD 7900:
-  //   P+1, B1=10,000,000, d=289 → Step 1 = 4.45s  ⇒  k = 4.45 / (1e7 · 289^1.5)
-  // (The earlier k=1.03e-9 was ~11× too high, badly over-estimating every run.)
+  // Per-method stage-1 cost (per the SAME B1), relative to P+1 = 1.0. The three
+  // methods do different per-step work: P-1 is a single modular exponentiation
+  // (~1 mulmod/step), P+1 a Lucas sequence (~2×), ECM elliptic-curve point ops
+  // (~2× P+1). These are standard approximate ratios; exact values depend on the
+  // mulmod backend GMP-ECM selects. The constant below is anchored to a real P+1
+  // run, so P+1 is exact and the others are scaled relative to it.
+  const methodCost = method === 'P-1' ? 0.5 : method === 'ECM' ? 2.0 : 1.0; // P+1 = 1.0
+  // Stage 1 ∝ B1 × d^1.5 (FFT mulmod dominates). Calibrated to a real GMP-ECM 7.0.5
+  // P+1 run on a single AMD 7900 core: B1=1e7, d=289 → Step 1 = 4.45s.
   const k_s1 = 9.06e-11;
-  const stage1 = k_s1 * b1 * Math.pow(d, 1.5);
+  const stage1 = methodCost * k_s1 * b1 * Math.pow(d, 1.5);
 
   // Stage 2: scales with sqrt(B2/B1) and sqrt(d). When B2 isn't given explicitly,
-  // GMP-ECM picks its own default — empirically ~18×B1 on this setup (observed
-  // B1=1e7 → B2≈1.8e8). Divisor calibrated to the real run (B2≈1.8e8, d=289 →
-  // Step 2 = 3.31s).
+  // GMP-ECM picks its own default — empirically ~18×B1 on this setup. Divisor
+  // calibrated to the same run (B2≈1.8e8, d=289 → Step 2 = 3.31s).
   const b2eff = b2 || (18 * b1);
   const stage2 = stage1 * Math.sqrt(b2eff / b1) / 9.76 * Math.sqrt(d / 100);
 
