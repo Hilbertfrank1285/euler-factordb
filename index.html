@@ -1232,10 +1232,14 @@ function replayFDBCache() {
   if (migrated) { saveFDBCache(fdbCache); console.log('Migrated: stripped ^1 from cached factors'); }
 
   let restored = 0;
+  // Index entries by n once, so we don't do allEntries.find() inside the cache loop
+  // (that was O(cache × entries) — slow when both are large).
+  const byN = new Map();
+  for (const e of allEntries) byN.set(e.n, e);
   for (const [number, cached] of Object.entries(fdbCache)) {
     const { status, factors, n } = cached;
     if (n == null) continue;
-    const entry = allEntries.find(x => x.n === n);
+    const entry = byN.get(n);
     if (!entry) continue;
 
     // If this was a cofactor lookup and it resolved
@@ -2112,7 +2116,7 @@ function mergeSyncPayload(remote) {
   }
 }
 
-async function githubPull() {
+async function githubPull(skipRender) {
   const s = loadGHSettings();
   const user   = s.user   || 'hilbertfrank1285';
   const repo   = s.repo   || 'euler-factordb';
@@ -2139,18 +2143,23 @@ async function githubPull() {
     const payload = JSON.parse(text);
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
     mergeSyncPayload(payload);
-    // Also pull the separate ECM run-log file (results_ecm.json).
-    try { await pullECMFile(); } catch(ecmErr) { addLog('ECM file pull skipped: ' + ecmErr.message, 'warn'); }
-    allEntries = buildEntries();
-    replayFDBCache();
-    applyFilters();
-    renderChangelog();
+    if (!skipRender) {
+      allEntries = buildEntries();
+      replayFDBCache();
+      applyFilters();
+      renderChangelog();
+    }
     addLog('GitHub pull complete — data merged', 'ok');
     // Refresh the header timestamp from the actual GitHub commit (most accurate)
     fetchLastUpdateTime();
     const pulledCount = Object.keys(fdbCache || {}).length;
     setGHStatus('✓ Pulled from GitHub — ' + pulledCount + ' entries merged', 'ok');
     markClean(); // just synced with remote — nothing unsaved
+    // Pull the separate ECM run-log file in the BACKGROUND (don't block the UI).
+    // It only affects recommendation/curve counts, so a slightly later refresh is fine.
+    pullECMFile()
+      .then(changed => { if (changed) { try { renderStats(); applyFilters(); } catch(_){} } })
+      .catch(ecmErr => addLog('ECM file pull skipped: ' + ecmErr.message, 'warn'));
   } catch(e) {
     setGHStatus(`Pull failed: ${e.message}`, 'err');
     addLog(`GitHub pull error: ${e.message}`, 'err');
@@ -2299,9 +2308,9 @@ async function maybeAutoPush() {
 }
 
 // Auto-pull on page load if configured
-async function maybeAutoPull() {
+async function maybeAutoPull(skipRender) {
   // Pull is always public — no token needed
-  await githubPull();
+  await githubPull(skipRender);
 }
 
 function toggleSortN() {
@@ -5804,7 +5813,7 @@ setTimeout(async () => {
   // Phase 2: pull from GitHub (merges remote into localStorage)
   // githubPull internally re-renders — that's fine, we'll re-render again below
   try {
-    await maybeAutoPull();
+    await maybeAutoPull(true);  // skip pull's own render — Phase 3 below renders once
   } catch(e) {
     console.warn('maybeAutoPull failed:', e);
   }
@@ -5817,10 +5826,12 @@ setTimeout(async () => {
     applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
     applySeedNewSet();                 // restore seed-new flags
     replayFDBCache();
-    // Ensure no fully-factored entry is stuck as 'attempted'
+    // Ensure no fully-factored entry is stuck as 'attempted' (index cache by n once)
+    const cacheByN = new Map();
+    for (const c of Object.values(fdbCache)) { if (c && c.n != null) cacheByN.set(c.n, c); }
     for (const e of allEntries) {
       if (e.status === 'attempted') {
-        const cached = Object.values(fdbCache).find(c => c.n === e.n);
+        const cached = cacheByN.get(e.n);
         if (cached && ['FF','P','PRP'].includes(cached.status)) e.status = 'full';
       }
     }
