@@ -2850,6 +2850,29 @@ function exportFDBSubmission() {
 
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
 // GMP-ECM commands + a human summary. Ranked by value (odds/time), capped at 250.
+// Wrap a single core's run lines in the standard header/footer (single-machine,
+// single-core export — the original behaviour).
+function singleBatchText(lines, importFile, runs) {
+  const dateStr = new Date().toISOString().slice(0,10);
+  const totalSec = runs.reduce((s, r) => s + (r.cpuTime || 0), 0);
+  const header =
+    '@echo off\r\n' +
+    'rem GMP-ECM run list (batch) - ' + runs.length + ' best-value runs - ' + dateStr + '\r\n' +
+    'rem Est. total: ' + fmtCpuTime(totalSec) + ' on one core. ecm.exe must be in this folder / on PATH.\r\n' +
+    'rem Writes ' + importFile + ' (load into the app via "Import ECM results").\r\n' +
+    'rem If you Ctrl+C early, everything kept so far is already in ' + importFile + '.\r\n\r\n';
+  const footer =
+    '\r\necho.\r\n' +
+    'findstr /C:"Found" /C:"Factor found" ' + importFile + ' > ecm_factors.log\r\n' +
+    'echo ============================================================\r\n' +
+    'echo Done (or stopped). Factors: ecm_factors.log\r\n' +
+    'echo IMPORTANT: do NOT re-run this .bat to resume - import ' + importFile + '\r\n' +
+    'echo into the app, then Export runs again for the reduced list.\r\n' +
+    'echo ============================================================\r\n' +
+    'pause\r\n';
+  return header + lines.join('\r\n') + footer;
+}
+
 function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
@@ -2889,6 +2912,7 @@ function exportNextRuns() {
   const eff = r => r.gain / Math.max(r.cpuTime, 1);
   runs.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
   const top = runs.slice(0, CAP);
+  const totalSec = top.reduce((s, r) => s + (r.cpuTime || 0), 0);
 
   // Now resolve the exact cofactor VALUE for just the top runs (BigInt division is
   // expensive, so we do it here — at most ~250 entries — not for all candidates).
@@ -2904,67 +2928,117 @@ function exportNextRuns() {
     r.val = v;
   }
 
-  // Resolve B1/B2 to plain integers for the command line (use the raw numeric
-  // values carried from the recommender, not the abbreviated "250k"/"10M" strings).
+  // Resolve B1/B2 to plain integers for the command line.
   const b1int = r => Math.round(r.rawB1 || 0);
 
-  // Build the batch script. Each run uses -v (verbose: every curve's sigma),
-  // writes output to a temp file, TYPEs it (live in cmd) and appends to the full
-  // log, and pulls factor/sigma lines into a clean factors log. Resume is handled
-  // by IMPORTING the log afterwards: completed curves are recorded as attempts, so
-  // re-exporting only includes runs that still need doing.
-  const batLines = [];
-  let totalSec = 0;
-  top.forEach((r, i) => {
-    totalSec += r.cpuTime;
-    const idx = i + 1;
+  // ── Distribution across machines/cores ──────────────────────────────────────
+  // Ask how the work should be split. Format: cores per machine, comma-separated.
+  // e.g. "24" = one machine, 24 cores;  "24,16,8" = three machines.
+  const spec = prompt(
+    'Distribute the ' + top.length + ' runs across machines/cores.\n\n' +
+    'Enter cores per machine, comma-separated:\n' +
+    '  "24"        = one machine with 24 cores\n' +
+    '  "24,16,8"   = three machines (24, 16, 8 cores)\n\n' +
+    'Leave blank for a single one-core batch (the old behaviour).',
+    '');
+  // null = cancelled; '' = single-core fallback
+  if (spec === null) return;
+
+  let coresPerMachine = spec.split(',').map(s => parseInt(s.trim())).filter(x => x > 0);
+  if (!coresPerMachine.length) coresPerMachine = [1];
+  const totalCores = coresPerMachine.reduce((a, b) => a + b, 0);
+
+  const dateStr = new Date().toISOString().slice(0,10);
+
+  // Build the command lines for ONE run (3 lines: blank, progress echo, the ecm
+  // pipe). importFile is per-core so parallel workers never clobber each other.
+  function runLines(r, label, total, importFile) {
     const args =
       r.method === 'ECM' ? `-v -c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
       r.method === 'P-1' ? `-v -pm1 ${b1int(r)}` :
                            `-v -pp1 ${b1int(r)}`;
     const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
-    batLines.push(`echo.`);
-    batLines.push(`echo [${idx}/${top.length}] ${note}`);
-    batLines.push(`echo # run ${idx} ${note}>>ecm_import.txt`);
-    // One PowerShell pass over ecm's output:
-    //  • shows useful lines LIVE in the console (Write-Host)
-    //  • appends the import-critical lines (Input number / Using B1+sigma / Run K out of
-    //    M / factor lines) to ecm_import.txt — the file the app imports directly.
-    batLines.push(`echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ecm_import.txt -Value $_ } } }"`);
+    return [
+      `echo.`,
+      `echo [${label}] ${note}`,
+      `echo # run ${label} ${note}>>${importFile}`,
+      `echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ } } }`,
+    ];
+  }
+
+  // Assign each run to a global core index round-robin (runs are value-sorted, so
+  // round-robin keeps every core's total time balanced).
+  const coreRuns = Array.from({ length: totalCores }, () => []);
+  top.forEach((r, i) => coreRuns[i % totalCores].push(r));
+
+  // Map global core index → which machine + that machine's local core number.
+  const coreOwner = []; // [{machine, localCore}]
+  coresPerMachine.forEach((cores, mi) => {
+    for (let c = 0; c < cores; c++) coreOwner.push({ machine: mi + 1, localCore: c + 1 });
   });
 
-  const dateStr = new Date().toISOString().slice(0,10);
-  const batHeader =
-    '@echo off\r\n' +
-    'rem GMP-ECM run list (batch) - ' + top.length + ' best-value runs - ' + dateStr + '\r\n' +
-    'rem Ranked by value (odds gained per unit CPU time). Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\r\n' +
-    'rem ecm.exe must be in this folder / on PATH. Run:  ecm_runs.bat\r\n' +
-    'rem Files (created next to this file):\r\n' +
-    'rem   ecm_import.txt   - compact file to load into the app (drag-drop / pick)\r\n' +
-    'rem   ecm_factors.log  - just the found-factor lines (built when all runs finish)\r\n' +
-    'rem Output is filtered (NTT/polynomial/memory noise dropped) and streamed live to\r\n' +
-    'rem the console via PowerShell (standard on Windows).\r\n' +
-    'rem If you Ctrl+C early, everything kept so far is already in ecm_import.txt.\r\n' +
-    'rem To RESUME or record progress: load ecm_import.txt into the app ("Import ECM\r\n' +
-    'rem results" - drag-drop or pick the file). It records curves done + factors; then\r\n' +
-    'rem re-export and the new .bat only has whats left.\r\n\r\n';
+  const filesToDownload = []; // {name, text}
+  const multi = totalCores > 1 || coresPerMachine.length > 1;
 
-  const batFooter =
-    '\r\necho.\r\n' +
-    'rem Build the clean factors log from the import file in one pass.\r\n' +
-    'findstr /C:"Found" /C:"Factor found" ecm_import.txt > ecm_factors.log\r\n' +
-    'echo ============================================================\r\n' +
-    'echo Done (or stopped). Factors: ecm_factors.log\r\n' +
-    'echo.\r\n' +
-    'echo IMPORTANT: do NOT just re-run this .bat to continue - it would\r\n' +
-    'echo repeat every curve from scratch. To resume with only the curves\r\n' +
-    'echo still needed: load ecm_import.txt into the app ("Import ECM\r\n' +
-    'echo results" - drag-drop or pick the file), then Export runs again.\r\n' +
-    'echo The new .bat will have the reduced curve counts.\r\n' +
-    'echo ============================================================\r\n' +
-    'pause\r\n';
+  if (!multi) {
+    // Single core, single machine — one simple batch (original behaviour).
+    const importFile = 'ecm_import.txt';
+    const lines = [];
+    coreRuns[0].forEach((r, i) => lines.push(...runLines(r, (i+1)+'/'+coreRuns[0].length, coreRuns[0].length, importFile)));
+    filesToDownload.push({ name: 'ecm_runs.bat', text: singleBatchText(lines, importFile, coreRuns[0]) });
+  } else {
+    // One launcher .bat per machine. The launcher spawns each of that machine's
+    // cores in its own parallel window (start "" cmd /c ...), each running a worker
+    // routine that does its slice and writes its own ecm_import_mM_cC.txt file.
+    coresPerMachine.forEach((cores, mi) => {
+      const machine = mi + 1;
+      // Gather this machine's global core indices.
+      const myCoreIdx = coreOwner
+        .map((o, gi) => ({ ...o, gi }))
+        .filter(o => o.machine === machine)
+        .map(o => o.gi);
 
-  const batText = batHeader + batLines.join('\r\n') + batFooter;
+      const headerLines = [
+        '@echo off',
+        'rem GMP-ECM launcher - machine ' + machine + ' of ' + coresPerMachine.length + ' - ' + cores + ' cores - ' + dateStr,
+        'rem Launches ' + cores + ' parallel ecm windows (one per core). ecm.exe must be',
+        'rem in this folder / on PATH. Each core writes its own ecm_import_m' + machine + '_cN.txt.',
+        'rem When all windows finish: load ALL ecm_import_m' + machine + '_c*.txt into the app',
+        'rem ("Import ECM results"), or combine them first (copy /b ecm_import_m' + machine + '_c*.txt ecm_import.txt).',
+        'rem Do NOT re-run to resume - import the results, then Export runs again.',
+        '',
+      ];
+      const launchLines = [];
+      myCoreIdx.forEach((gi, localIdx) => {
+        const lc = localIdx + 1;
+        launchLines.push('start "ECM m' + machine + ' core ' + lc + '" cmd /c ecm_worker_m' + machine + '_c' + lc + '.bat');
+      });
+      headerLines.push(...launchLines);
+      headerLines.push('echo Launched ' + cores + ' core windows on machine ' + machine + '.');
+      headerLines.push('echo Each writes ecm_import_m' + machine + '_cN.txt - import them when done.');
+      filesToDownload.push({ name: 'ecm_runs_machine' + machine + '.bat', text: headerLines.join('\r\n') + '\r\n' });
+
+      // Worker batch per core on this machine.
+      myCoreIdx.forEach((gi, localIdx) => {
+        const lc = localIdx + 1;
+        const myRuns = coreRuns[gi];
+        const importFile = 'ecm_import_m' + machine + '_c' + lc + '.txt';
+        const w = [
+          '@echo off',
+          'rem Worker - machine ' + machine + ' core ' + lc + ' - ' + myRuns.length + ' runs - ' + dateStr,
+          'title ECM m' + machine + ' core ' + lc,
+          '',
+        ];
+        let coreSec = 0;
+        myRuns.forEach((r, i) => { coreSec += r.cpuTime; w.push(...runLines(r, 'm'+machine+'c'+lc+' '+(i+1)+'/'+myRuns.length, myRuns.length, importFile)); });
+        w.push('echo.');
+        w.push('findstr /C:"Found" /C:"Factor found" ' + importFile + ' > ecm_factors_m' + machine + '_c' + lc + '.log');
+        w.push('echo Core ' + lc + ' done (~' + fmtCpuTime(coreSec) + '). Import ' + importFile + ' into the app.');
+        w.push('pause');
+        filesToDownload.push({ name: 'ecm_worker_m' + machine + '_c' + lc + '.bat', text: w.join('\r\n') + '\r\n' });
+      });
+    });
+  }
 
   // ── Summary file (human-readable) ───────────────────────────────────────────
   const sum = [];
@@ -2988,13 +3062,16 @@ function exportNextRuns() {
     sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${gn}  ${val}`);
   });
   const summaryText = sum.join('\n') + '\n';
+  filesToDownload.push({ name: 'ecm_runs_summary.txt', text: summaryText });
 
-  // Download all three files, staggered — browsers block/drop downloads fired in
-  // the same tick.
-  downloadText('ecm_runs.bat', batText);
-  setTimeout(() => downloadText('ecm_runs_summary.txt', summaryText), 400);
+  // Download every generated file, staggered — browsers block/drop downloads fired
+  // in the same tick.
+  filesToDownload.forEach((f, i) => setTimeout(() => downloadText(f.name, f.text), i * 350));
 
-  const msg = 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.bat + ecm_runs_summary.txt';
+  const fileList = filesToDownload.map(f => f.name).join(', ');
+  const msg = multi
+    ? 'Exported ' + top.length + ' runs across ' + totalCores + ' cores / ' + coresPerMachine.length + ' machine(s) → ' + filesToDownload.length + ' files'
+    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.bat + ecm_runs_summary.txt';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
