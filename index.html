@@ -2821,19 +2821,17 @@ function exportNextRuns() {
   for (const e of allEntries) {
     if (e.status === 'full' || !e.val) continue;
     if (e.val.length > 52000) continue; // too big to be practical here
-    // Run on the cofactor (E(n) with known factors divided out), not the full value:
-    // GMP-ECM stops re-finding known small factors and works on a smaller modulus.
-    const cof = getCofactor(e);
-    const runVal = cof ? cof.str : e.val;
-    const runDigits = cof ? cof.digits : e.val.length;
-    if (runDigits < 2) continue; // fully resolved (cofactor is 1)
+    // Cheap cofactor digit estimate (no BigInt) for ranking. The exact cofactor
+    // VALUE is computed later, only for the runs that make the top 250.
+    const runDigits = getCofactorDigits(e);
+    if (!runDigits || runDigits < 2) continue;
     let recs;
     try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
     catch(_) { continue; }
     if (!recs || !recs.length) continue;
     for (const r of recs) {
       runs.push({
-        n: e.n, val: runVal, digits: runDigits,
+        n: e.n, entry: e, digits: runDigits,   // keep entry ref; resolve value lazily
         method: r.method, b1: r.b1, b2: r.b2, rawB1: r.rawB1, rawB2: r.rawB2,
         curves: r.curves, rawCurves: r.rawCurves,
         gain: parseFloat(r.gain) || 0, cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
@@ -2849,6 +2847,20 @@ function exportNextRuns() {
   const eff = r => r.gain / Math.max(r.cpuTime, 1);
   runs.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
   const top = runs.slice(0, CAP);
+
+  // Now resolve the exact cofactor VALUE for just the top runs (BigInt division is
+  // expensive, so we do it here — at most ~250 entries — not for all candidates).
+  // Cache per entry so multiple runs on the same number divide only once.
+  const cofValCache = new Map();
+  for (const r of top) {
+    let v = cofValCache.get(r.n);
+    if (v === undefined) {
+      const cof = getCofactor(r.entry);
+      v = cof ? cof.str : r.entry.val;
+      cofValCache.set(r.n, v);
+    }
+    r.val = v;
+  }
 
   // Resolve B1/B2 to plain integers for the command line (use the raw numeric
   // values carried from the recommender, not the abbreviated "250k"/"10M" strings).
@@ -4466,6 +4478,8 @@ function openModal(n) {
     // (Recheck button now lives in the dedicated FactorDB section below — no duplicate here)
   }
 
+  const ecmSectionHtml = buildECMSection(n, e);
+
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
       <div class="modal-section-label">Sign</div>
@@ -4515,7 +4529,7 @@ function openModal(n) {
     ${valueHtml}
     <div class="modal-section">
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
-      <div id="ecmSection_${n}">${buildECMSection(n, e)}</div>
+      <div id="ecmSection_${n}">${ecmSectionHtml}</div>
     </div>
     <div class="modal-section">
       <div class="modal-section-label">Download</div>
@@ -4871,24 +4885,23 @@ function getCofactor(e) {
   return { big: vBig, str, digits: str.length };
 }
 
-// Cofactor digit count — hot path (called per tile on every render). Avoids the
-// expensive BigInt parse/divide except when actually needed, and memoizes the
-// result on the entry. Cache key includes the factor list so it invalidates when
-// factors change (e.g. after an import).
+// Cofactor digit count — hot path (called per tile/entry, and per export candidate).
+// Avoids BigInt entirely: the cofactor's digit length is the full length minus the
+// digits of the known prime factors (within ±1 from carries). Exact enough for
+// difficulty bucketing, and ~1000× cheaper than BigInt-dividing a huge number.
 function getCofactorDigits(e) {
   if (!e || !e.val || e.status === 'full') return null;
   const factors = (e.factors || []).filter(f => f && f !== '1');
-  // No known factors → cofactor IS the full number; just use its length (no BigInt).
   if (factors.length === 0) return e.val.length;
-  // Tiny factors (single/low digits) can't change the digit count enough to matter
-  // for difficulty bucketing, but compute exactly and cache it.
-  const key = factors.join(',');
-  if (e._cofDigKey === key && e._cofDig != null) return e._cofDig;
-  const cof = getCofactor(e);
-  const d = cof ? cof.digits : e.val.length;
-  e._cofDigKey = key;
-  e._cofDig = d;
-  return d;
+  let removed = 0;
+  for (const f of factors) {
+    const mm = /^(\d+)\^(\d+)$/.exec(String(f));
+    if (mm) removed += mm[1].length * parseInt(mm[2]); // base digits × exponent
+    else    removed += String(f).length;
+  }
+  // Subtracting digit-lengths slightly overestimates removal (e.g. 5×3=15 is 1 digit,
+  // not 1+1=2). Clamp to ≥1 and never below a sane floor.
+  return Math.max(1, e.val.length - removed + 1);
 }
 
 function buildECMSection(n, e) {
