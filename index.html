@@ -3155,7 +3155,13 @@ function processEcmLogText(text) {
   }
 
   if (runsRecorded) saveECM(ecmData);
-  if (runsRecorded || factorsNew) { applyFilters(); renderStats(); scheduleECMPush(); }
+  if (runsRecorded || factorsNew) {
+    // Rebuild entries from the persistent stores so newly-found factors (which may
+    // belong to entries outside the current view) are reflected, then re-render.
+    // Rebuilding also drops any stale cached cofactor digits.
+    if (factorsNew) { try { allEntries = buildEntries(); } catch(_) {} }
+    applyFilters(); renderStats(); scheduleECMPush();
+  }
 
   const msg = 'Imported ' + runsRecorded + ' run' + (runsRecorded===1?'':'s')
     + ' across ' + dirtyN.size + ' number' + (dirtyN.size===1?'':'s')
@@ -4856,12 +4862,24 @@ function getCofactor(e) {
   return { big: vBig, str, digits: str.length };
 }
 
+// Cofactor digit count — hot path (called per tile on every render). Avoids the
+// expensive BigInt parse/divide except when actually needed, and memoizes the
+// result on the entry. Cache key includes the factor list so it invalidates when
+// factors change (e.g. after an import).
 function getCofactorDigits(e) {
-  if (e.val && e.status !== 'full') {
-    const cof = getCofactor(e);
-    return cof ? cof.digits : e.val.length;
-  }
-  return null;
+  if (!e || !e.val || e.status === 'full') return null;
+  const factors = (e.factors || []).filter(f => f && f !== '1');
+  // No known factors → cofactor IS the full number; just use its length (no BigInt).
+  if (factors.length === 0) return e.val.length;
+  // Tiny factors (single/low digits) can't change the digit count enough to matter
+  // for difficulty bucketing, but compute exactly and cache it.
+  const key = factors.join(',');
+  if (e._cofDigKey === key && e._cofDig != null) return e._cofDig;
+  const cof = getCofactor(e);
+  const d = cof ? cof.digits : e.val.length;
+  e._cofDigKey = key;
+  e._cofDig = d;
+  return d;
 }
 
 function buildECMSection(n, e) {
