@@ -568,8 +568,8 @@
   <button class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
-    ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files[0]) importEcmFromFile(event.dataTransfer.files[0]);"
-    style="background:var(--surface2)" title="Load ecm_import.txt (click to pick, or drag the file here). Records curves done + factors, splits composites, updates recommendations.">
+    ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importEcmFromFiles(Array.from(event.dataTransfer.files));"
+    style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations.">
     ↑ Import ECM results
   </button>
   <button class="poll-btn" onclick="clearAllLocalData()"
@@ -665,7 +665,6 @@
     <button class="filter-btn fdb-unknown" data-filter="fdb-unknown">FDB UNKNOWN</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
-    <button class="filter-btn seed-new" data-filter="seed-new">SEED FACTORS</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
@@ -3101,17 +3100,16 @@ function importECMResults() {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
-  // Offer a file picker; if the user cancels, fall back to paste.
+  // Offer a file picker (multi-select — e.g. all ecm_import_m*_c*.txt from a
+  // multi-core/multi-machine export); if cancelled, fall back to paste.
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = '.txt,.log,text/plain';
+  inp.multiple = true;
   inp.onchange = () => {
-    const file = inp.files && inp.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => processEcmLogText(String(reader.result || ''));
-    reader.onerror = () => alert('Could not read the file.');
-    reader.readAsText(file);
+    const files = Array.from(inp.files || []);
+    if (!files.length) return;
+    importEcmFromFiles(files);
   };
   // If the picker is dismissed without choosing, offer paste as a fallback.
   inp.oncancel = () => {
@@ -3121,17 +3119,38 @@ function importECMResults() {
   inp.click();
 }
 
-// Read a dropped file (used by the drop zone) and process it.
-function importEcmFromFile(file) {
-  if (!file) return;
+// Read one or more dropped/picked files, concatenate them (each GMP-ECM run block
+// is self-contained, starting at "Input number is", so files can simply be joined),
+// and process once — giving a single combined summary instead of N separate alerts.
+function importEcmFromFiles(files) {
+  if (!files || !files.length) return;
   if (Object.keys(eulerValues).length === 0) { alert('Euler values still loading — please wait and try again.'); return; }
-  const reader = new FileReader();
-  reader.onload = () => processEcmLogText(String(reader.result || ''));
-  reader.onerror = () => alert('Could not read the file.');
-  reader.readAsText(file);
+  const readers = files.map(f => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve({ name: f.name, text: String(reader.result || '') });
+    reader.onerror = () => resolve({ name: f.name, text: '' });
+    reader.readAsText(f);
+  }));
+  Promise.all(readers).then(results => {
+    const ok = results.filter(r => r.text);
+    const failed = results.filter(r => !r.text);
+    if (failed.length) addLog('Could not read: ' + failed.map(f => f.name).join(', '), 'warn');
+    if (!ok.length) { alert('Could not read any of the selected files.'); return; }
+    // Join with a blank line between files so nothing from one file's tail can
+    // merge into the next file's first line.
+    const combined = ok.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
+    processEcmLogText(combined, ok.length > 1 ? ok.length + ' files' : ok[0].name);
+  });
 }
 
-function processEcmLogText(text) {
+// Backward-compatible single-file entry point (still used by the paste fallback
+// path and anywhere a single File is available).
+function importEcmFromFile(file) {
+  if (!file) return;
+  importEcmFromFiles([file]);
+}
+
+function processEcmLogText(text, sourceLabel) {
   if (!text) return;
 
   const lines = text.split(/\r?\n/);
@@ -3318,6 +3337,7 @@ function processEcmLogText(text) {
   }
 
   const msg = 'Imported ' + runsRecorded + ' run' + (runsRecorded===1?'':'s')
+    + (sourceLabel ? ' from ' + sourceLabel : '')
     + ' across ' + dirtyN.size + ' number' + (dirtyN.size===1?'':'s')
     + (factorsNew ? ', ' + factorsNew + ' new factor' + (factorsNew===1?'':'s') : '')
     + (factorsDup ? ', ' + factorsDup + ' factor' + (factorsDup===1?'':'s') + ' already known' : '')
@@ -4141,8 +4161,6 @@ function applyFilters() {
     let matchFilter;
     if (activeFilter === 'all') {
       matchFilter = true;
-    } else if (activeFilter === 'seed-new') {
-      matchFilter = !!e._seedAddedNew;
     } else if (activeFilter === 'attempted') {
       // Show entries with ECM logs — but never fully factored ones
       matchFilter = e.status !== 'full' && (ecmData[String(e.n)] || []).length > 0;
@@ -4507,7 +4525,7 @@ function renderStats() {
     <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> ECM logged</span>
     <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown · <strong>${fdbUnknown}</strong> fdb-unknown</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
-    <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (5900X)</span>
+    <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (7900)</span>
   `;
 }
 
@@ -4629,7 +4647,7 @@ function openModal(n) {
     ${factorsHtml}
     ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}
     </div>` : ''}
-    ${(e.status === 'fdb-unknown' || e.status === 'partial') ? `
+    ${(e.status !== 'full' && e.val) ? `
     <div class="modal-section" style="border:1px solid var(--accent);padding:12px 14px;background:var(--accent-dim)">
       <div class="modal-section-label" style="color:var(--accent)">Add Known Factor</div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Enter a factor you know divides E(${n}). The app will verify it using exact arithmetic.</div>
@@ -4763,7 +4781,7 @@ function getCachedDifficulty(n, digits, attempts) {
   return difficultyCache[n];
 }
 
-// Estimate CPU time on a single fast core (~Zen3 @ 4.5GHz / 5900X) in seconds
+// Estimate CPU time on a single fast core (~Zen3/Zen4 @ 4.5GHz / 7900) in seconds
 // Empirically calibrated against GMP-ECM 7.0.6 benchmarks
 function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
   if (!b1 || !cofactorDigits) return null;
@@ -5261,13 +5279,13 @@ function buildECMSection(n, e) {
       return sum + (estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0);
     }, 0);
     tableHtml = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
-      <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 5900X core</span>
+      <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 7900 core</span>
       <span style="opacity:0.3">|</span>
       <span>${attempts.length} attempt${attempts.length===1?'':'s'}</span>
     </div>` +
     `<table class="ecm-table">
       <thead><tr>
-        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~5900X core</span></th><th>Date</th><th>Note</th><th></th>
+        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~7900 core</span></th><th>Date</th><th>Note</th><th></th>
       </tr></thead>
       <tbody>
         ${attempts.map((a, i) => {
@@ -5311,7 +5329,7 @@ function buildECMSection(n, e) {
             <td style="font-size:10px;color:var(--text-muted)">${a.I||'—'}</td>
             <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
             <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
-            <td title="Estimated time on a single Zen 3 / 5900X core" style="font-size:10px;color:var(--text-dim)">${(() => {
+            <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${(() => {
               const b1n = parseB1(a.b1);
               const b2n = (a.b2 ? parseB1(a.b2) : null);
               const cpuS = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
