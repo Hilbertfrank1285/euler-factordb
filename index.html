@@ -4397,7 +4397,13 @@ function getNextRunForEntry(e) {
     try {
       const recs = recommendNextRun(digits, loadECM()[String(e.n)] || []);
       if (recs && recs.length) rec = recs[0]; // list is sorted fastest-first
-    } catch(err) { console.warn('getNextRunForEntry error E(' + e.n + '):', err.message); }
+      else if (localStorage.getItem('_debugNextRun')) console.log('DEBUG E(' + e.n + '): digits=' + digits + ', attempts=' + JSON.stringify(loadECM()[String(e.n)] || []) + ' -> recommendNextRun returned', recs);
+    } catch(err) {
+      console.warn('getNextRunForEntry error E(' + e.n + '):', err.message);
+      if (localStorage.getItem('_debugNextRun')) console.log('DEBUG E(' + e.n + '): digits=' + digits + ', attempts=' + JSON.stringify(loadECM()[String(e.n)] || []) + ' -> THREW', err);
+    }
+  } else if (localStorage.getItem('_debugNextRun')) {
+    console.log('DEBUG E(' + e.n + '): getCofactorDigits returned', digits, '(falsy — that\'s why nothing shows)');
   }
   _nextRunCache.set(e.n, rec);
   return rec;
