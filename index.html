@@ -562,8 +562,8 @@
   <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)" title="Generate a file to paste into factordb.com/report.php">
     ↓ Export FDB submission
   </button>
-  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 250 best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands">
-    ↓ Export runs (top 250)
+  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 1000 best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands">
+    ↓ Export runs (top 1000)
   </button>
   <button class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
@@ -2915,7 +2915,7 @@ function exportFDBSubmission() {
 }
 
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
-// GMP-ECM commands + a human summary. Ranked by value (odds/time), capped at 250.
+// GMP-ECM commands + a human summary. Ranked by value (odds/time), capped at 1000.
 // Wrap a single core's run lines in the standard header/footer (single-machine,
 // single-core export — the original behaviour).
 function singleBatchText(lines, importFile, runs) {
@@ -2939,40 +2939,54 @@ function singleBatchText(lines, importFile, runs) {
   return header + lines.join('\r\n') + footer;
 }
 
-function exportNextRuns() {
+async function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
-  const CAP = 250;
+  const CAP = 1000;
   const ecmData = loadECM();
   const runs = [];
 
-  for (const e of allEntries) {
-    if (e.status === 'full' || !e.val) continue;
-    if (e.val.length > 52000) continue; // too big to be practical here
-    // Cheap cofactor digit estimate (no BigInt) for ranking. The exact cofactor
-    // VALUE is computed later, only for the runs that make the top 250.
-    const runDigits = getCofactorDigits(e);
-    if (!runDigits || runDigits < 2) continue;
-    let recs;
-    try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
-    catch(_) { continue; }
-    if (!recs || !recs.length) continue;
-    for (const r of recs) {
-      runs.push({
-        n: e.n, entry: e, digits: runDigits,   // keep entry ref; resolve value lazily
-        method: r.method, b1: r.b1, b2: r.b2, rawB1: r.rawB1, rawB2: r.rawB2,
-        curves: r.curves, rawCurves: r.rawCurves,
-        gain: parseFloat(r.gain) || 0, cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
-      });
+  // Candidates first (cheap: no BigInt yet), so we know how many entries actually
+  // need cofactor-digit computation and can report real progress.
+  const candidates = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length <= 52000);
+
+  const CHUNK = 25; // entries per tick — small enough to keep the UI responsive
+  for (let i = 0; i < candidates.length; i += CHUNK) {
+    const chunk = candidates.slice(i, i + CHUNK);
+    for (const e of chunk) {
+      // getCofactorDigits: instant if this entry has no factors, instant if already
+      // cached (in-memory or in the GitHub-synced persisted cache), and otherwise
+      // does one EXACT BigInt division — the only genuinely slow case, and only
+      // ever paid once per entry (ever, across every device, thanks to the cache).
+      const runDigits = getCofactorDigits(e);
+      if (!runDigits || runDigits < 2) continue;
+      let recs;
+      try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
+      catch(_) { continue; }
+      if (!recs || !recs.length) continue;
+      for (const r of recs) {
+        runs.push({
+          n: e.n, entry: e, digits: runDigits,   // keep entry ref; resolve value lazily
+          method: r.method, b1: r.b1, b2: r.b2, rawB1: r.rawB1, rawB2: r.rawB2,
+          curves: r.curves, rawCurves: r.rawCurves,
+          gain: parseFloat(r.gain) || 0, cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
+        });
+      }
+    }
+    // Yield to the browser every chunk so the tab stays responsive instead of
+    // freezing — this cost only happens for entries never computed before.
+    if (i + CHUNK < candidates.length) {
+      setStatus('Ranking candidates… ' + Math.min(i + CHUNK, candidates.length) + '/' + candidates.length, '');
+      await new Promise(r => setTimeout(r, 0));
     }
   }
 
   if (!runs.length) { alert('No recommended runs found.'); return; }
 
-  // Rank by EFFICIENCY — overall-odds gained per second of CPU — so the top 250
+  // Rank by EFFICIENCY — overall-odds gained per second of CPU — so the top 1000
   // are the best-value runs, not merely the quickest. Tiebreak by speed (faster
   // first) so equal-value runs still surface the cheaper one.
   const eff = r => r.gain / Math.max(r.cpuTime, 1);
@@ -2981,7 +2995,7 @@ function exportNextRuns() {
   const totalSec = top.reduce((s, r) => s + (r.cpuTime || 0), 0);
 
   // Now resolve the exact cofactor VALUE for just the top runs (BigInt division is
-  // expensive, so we do it here — at most ~250 entries — not for all candidates).
+  // expensive, so we do it here — at most ~1000 entries — not for all candidates).
   // Cache per entry so multiple runs on the same number divide only once.
   const cofValCache = new Map();
   for (const r of top) {
@@ -3028,7 +3042,7 @@ function exportNextRuns() {
       `echo.`,
       `echo [${label}] ${note}`,
       `echo # run ${label} ${note}>>${importFile}`,
-      `echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ } } }`,
+      `echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "$keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ } } }"`,
     ];
   }
 
