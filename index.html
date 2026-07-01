@@ -4397,13 +4397,7 @@ function getNextRunForEntry(e) {
     try {
       const recs = recommendNextRun(digits, loadECM()[String(e.n)] || []);
       if (recs && recs.length) rec = recs[0]; // list is sorted fastest-first
-      else if (localStorage.getItem('_debugNextRun')) console.log('DEBUG E(' + e.n + '): digits=' + digits + ', attempts=' + JSON.stringify(loadECM()[String(e.n)] || []) + ' -> recommendNextRun returned', recs);
-    } catch(err) {
-      console.warn('getNextRunForEntry error E(' + e.n + '):', err.message);
-      if (localStorage.getItem('_debugNextRun')) console.log('DEBUG E(' + e.n + '): digits=' + digits + ', attempts=' + JSON.stringify(loadECM()[String(e.n)] || []) + ' -> THREW', err);
-    }
-  } else if (localStorage.getItem('_debugNextRun')) {
-    console.log('DEBUG E(' + e.n + '): getCofactorDigits returned', digits, '(falsy — that\'s why nothing shows)');
+    } catch(err) { console.warn('getNextRunForEntry error E(' + e.n + '):', err.message); }
   }
   _nextRunCache.set(e.n, rec);
   return rec;
@@ -6158,6 +6152,14 @@ setTimeout(async () => {
     try { migrateMislabeledEcm(); } catch(_) {}  // one-time P±1→ECM relabel fix
     fdbCache    = loadFDBCache();
     allEntries  = buildEntries();
+    // Step 1's premature render (before eulerValues had loaded) computed and
+    // permanently cached "no recommendation" / "no CPU total" for every entry that
+    // was visible on that first render — because e.val was null at the time.
+    // Nothing since then has cleared those caches, so any entry touched during
+    // Step 1 (typically the first page) stays stuck showing nothing forever, even
+    // though real values are now loaded and a fresh computation would work fine.
+    invalidateNextRunCache();
+    invalidateCpuTotal();
     applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
     applySeedNewSet();                 // restore seed-new flags
     replayFDBCache();
