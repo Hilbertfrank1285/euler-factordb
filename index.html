@@ -963,6 +963,11 @@ const LOG_KEY        = 'eulerFDB_log_v1';
 const COOLDOWN_KEY   = 'eulerFDB_lastPoll';
 const CHANGELOG_KEY  = 'eulerFDB_changelog_v1';
 const ECM_KEY        = 'eulerFDB_ecm_v1';
+// Persisted cache of EXACT cofactor digit counts, keyed by n. Pure function of
+// (value, factors) — computed once (BigInt division), then shared across every
+// device/session via results.json, so a cache-clear or fresh browser never has to
+// recompute it from scratch. See loadCofDigitsCache/saveCofDigitsCache below.
+const COFDIG_KEY      = 'eulerFDB_cofDigits_v1';
 
 function loadECM() {
   if (_ecmCache) return _ecmCache;
@@ -1035,6 +1040,30 @@ function saveECM(d) {
     console.error('saveECM failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
   }
+}
+
+// ── Cofactor-digits cache ────────────────────────────────────────────────────
+// { [n]: { d: <exact digit count>, k: <factors.join(',') fingerprint> } }
+// Purely derived data (a function of the entry's value + factor list) — losing it
+// just means recomputing, so it's persisted QUIETLY: no markDirty(), no auto-push
+// triggered on its own. It rides along on whatever real save/push already happens
+// next, and gets included in the results.json payload so every device benefits.
+let _cofDigCache = null;
+function loadCofDigitsCache() {
+  if (_cofDigCache) return _cofDigCache;
+  try { _cofDigCache = JSON.parse(localStorage.getItem(COFDIG_KEY) || '{}'); } catch { _cofDigCache = {}; }
+  return _cofDigCache;
+}
+let _cofDigSaveTimer = null;
+function saveCofDigitsCacheQuiet() {
+  // Debounced: many tiles can compute a fresh value in the same render pass —
+  // batch them into one localStorage write instead of one per entry.
+  if (_cofDigSaveTimer) return;
+  _cofDigSaveTimer = setTimeout(() => {
+    _cofDigSaveTimer = null;
+    try { localStorage.setItem(COFDIG_KEY, JSON.stringify(_cofDigCache || {})); }
+    catch(e) { console.warn('saveCofDigitsCacheQuiet failed:', e.name, e.message); }
+  }, 500);
 }
 
 function loadChangelog() {
@@ -1268,7 +1297,7 @@ function replayFDBCache() {
     const effectiveStatus = status === 'UN' ? 'FF' : status;
     if (entry.cofactor === number && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
-      entry.factors  = [...(entry.factors || []), ...fdbFactors];
+      entry.factors  = sortFactorsAsc([...(entry.factors || []), ...fdbFactors]);
       entry.cofactor = null;
       entry.status   = 'full';
       entry._fdbVerified = true;
@@ -1280,7 +1309,7 @@ function replayFDBCache() {
     // FF: always override to full — even if entry is 'attempted' due to ECM logs
     if (['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
-      entry.factors  = fdbFactors;
+      entry.factors  = sortFactorsAsc(fdbFactors);
       entry.cofactor = null;
       entry.status   = 'full';
       entry._fdbVerified = true;
@@ -1303,7 +1332,7 @@ function replayFDBCache() {
       if (knownFactors.length > 0 || cofactorLen) {
         // Strip any old large composite "factors" (>500 digits) — these are stale cofactors
         const cleanExisting = (entry.factors || []).filter(f => f.length <= 500);
-        entry.factors  = [...new Set([...cleanExisting, ...knownFactors])];
+        entry.factors  = sortFactorsAsc([...new Set([...cleanExisting, ...knownFactors])]);
         entry.cofactor = null;
         if (entry.status !== 'full') entry.status = 'partial';
         entry._fdbVerified = true;
@@ -2075,7 +2104,7 @@ function buildSyncPayload() {
     const memFactors  = (fd.factors || []);
     const slimFactors = (v.factors || []);
     const primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
-    if (primeFactors.length) entry.factors = primeFactors;
+    if (primeFactors.length) entry.factors = sortFactorsAsc(primeFactors);
     if (v.source)            entry.source  = v.source;
     full[nStr] = entry;
   }
@@ -2083,6 +2112,10 @@ function buildSyncPayload() {
     version:   SCHEMA_VERSION,
     fdbCache:  full,
     changelog: loadChangelog(),
+    // Persisted cofactor-digit cache — small (n → {digits, factors-fingerprint}),
+    // purely derived from fdbCache's own factors, but pushed so every device gets
+    // instant tile/next-run rendering without redoing BigInt division.
+    cofactorDigits: loadCofDigitsCache(),
     // ECM run logs now live in their own file (results_ecm.json), pushed separately.
     // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
@@ -2166,6 +2199,16 @@ function mergeSyncPayload(remote) {
   // Use mergeEcmData so curve counts accumulate by max rather than first-wins.
   if (remote.ecm && Object.keys(remote.ecm).length) {
     saveECM(mergeEcmData(remote.ecm));
+  }
+
+  // Cofactor-digits cache: simple union. Each entry is a deterministic function of
+  // (value, factors) and carries its own factors-fingerprint, which getCofactorDigits
+  // checks before trusting it — so a stale entry from either side is harmless (it's
+  // just ignored and recomputed), and there's no real "conflict" to resolve here.
+  if (remote.cofactorDigits && Object.keys(remote.cofactorDigits).length) {
+    const merged = { ...loadCofDigitsCache(), ...remote.cofactorDigits };
+    _cofDigCache = merged;
+    try { localStorage.setItem(COFDIG_KEY, JSON.stringify(merged)); } catch(e) { console.warn('cofactorDigits save failed:', e.name); }
   }
 }
 
@@ -2634,7 +2677,7 @@ async function importFactorsSeed() {
         .filter(f => !priorSet.has(f) && !fdbConfirmedSet.has(f));
       factorsAddedTotal += seedNewFactors.length;
 
-      entry.factors         = combined;
+      entry.factors         = sortFactorsAsc(combined);
       entry.cofactor        = null;
       entry._seedAddedNew   = seedAddedNew;
       if (seedAddedNew) { const sn = loadSeedNewSet(); sn.add(n); saveSeedNewSet(sn); }
@@ -3396,7 +3439,7 @@ function recordEcmFactor(entry, factorStr) {
   let isPrime = true;
   if (factorStr.length <= 19) { try { isPrime = isProbablePrime(BigInt(factorStr)); } catch { isPrime = true; } }
 
-  const merged = [...existing, factorStr];
+  const merged = sortFactorsAsc([...existing, factorStr]);
 
   // Recompute status: does the product of known primes equal the full value?
   let status = entry.status;
@@ -3604,7 +3647,7 @@ function applyFdbResult(data, n, numberStr) {
   };
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
-  const merged = collapsePowers([...priorOwn, ...fdbPrimes]);
+  const merged = sortFactorsAsc(collapsePowers([...priorOwn, ...fdbPrimes]));
 
   // Source: 'fdb' only if FDB covers every prime base we hold, at >= the power
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
@@ -3955,6 +3998,20 @@ function parseFactorExpr(s) {
   const mul = s.match(/^(\d+)\*(\d+)$/);
   if (mul) return { value: BigInt(mul[1]) * BigInt(mul[2]), display: String(BigInt(mul[1]) * BigInt(mul[2])) };
   throw new Error('Unsupported expression — use digits, base^exp, or base*mult');
+}
+
+// Canonical factor ordering — ascending by numeric value (handles "5^3" style
+// expressions too). Applied wherever entry.factors is WRITTEN, so the stored data
+// itself (and therefore results.json / results_ecm.json, CSV export, FDB
+// submission, changelog, etc.) is sorted low→high — not just re-sorted at each
+// display site. Falls back to string length if something is unparsable.
+function sortFactorsAsc(list) {
+  return [...(list || [])].sort((a, b) => {
+    try {
+      const av = parseFactorExpr(a).value, bv = parseFactorExpr(b).value;
+      return av < bv ? -1 : av > bv ? 1 : 0;
+    } catch { return String(a).length - String(b).length; }
+  });
 }
 
 async function verifyAndAddFactor(n) {
@@ -4645,6 +4702,13 @@ function openModal(n) {
       if (e.cofactor && f === e.cofactor) return false; // exact cofactor match
       if (f.length > 50000) return false;               // legacy huge composite
       return true;
+    }).sort((a, b) => {
+      // Numeric ascending (low → high) — plain string sort would put "9" after
+      // "18406..." since it compares character by character, not by value.
+      try {
+        const av = parseFactorExpr(a).value, bv = parseFactorExpr(b).value;
+        return av < bv ? -1 : av > bv ? 1 : 0;
+      } catch { return String(a).length - String(b).length; } // fallback if unparsable
     });
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
@@ -5126,22 +5190,32 @@ function getCofactorDigits(e) {
   // No known factors → cofactor IS the full number; skip BigInt entirely (the
   // common case for most entries — this alone avoids the original load-time cost).
   if (factors.length === 0) return e.val.length;
-  // With factors: compute the EXACT cofactor digit count via BigInt division, but
-  // cache it on the entry (keyed by the factor list) so repeated renders are O(1)
-  // and it only recomputes when factors actually change (rare). An earlier version
-  // used a cheap digit-LENGTH estimate instead of exact division to avoid BigInt —
-  // but summing factor string lengths systematically OVER-subtracts as factors
-  // accumulate (e.g. 10 factors could undershoot the true cofactor by 4+ digits).
-  // recommendNextRun has a hard cliff at digits<40 (below the ECM table's lowest
-  // level, 20d, since maxUseful=floor(digits/2)) — undershooting across that cliff
-  // silently returns NO recommendation for an entry that should still have one.
-  // Exact-but-cached avoids that risk entirely while staying just as fast.
   const key = factors.join(',');
+  // 1. In-memory entry cache — instant, no lookup, survives for this session.
   if (e._cofDigKey === key && e._cofDig != null) return e._cofDig;
+  // 2. Persisted, GitHub-synced cache — a pure function of (value, factors), so
+  // once ANY device computes it, every device gets it for free on the next pull.
+  // This is what makes a cache-clear / fresh browser instant instead of having to
+  // re-run BigInt division for every factored entry from scratch.
+  const persisted = loadCofDigitsCache();
+  const hit = persisted[e.n];
+  if (hit && hit.k === key && hit.d != null) {
+    e._cofDigKey = key; e._cofDig = hit.d;
+    return hit.d;
+  }
+  // 3. Cache miss everywhere — compute the EXACT digit count via BigInt division
+  // (the one case that costs real time), then cache it at BOTH levels so this
+  // entry never needs recomputing again, on this device or any other.
+  // (An earlier version used a cheap digit-LENGTH estimate instead of exact
+  // division — but summing factor string lengths systematically OVER-subtracts as
+  // factors accumulate, and recommendNextRun has a hard cliff at digits<40 [below
+  // the ECM table's lowest level] where undershooting silently hides a real
+  // recommendation. Exact-but-cached avoids that risk entirely.)
   const cof = getCofactor(e);
   const d = cof ? cof.digits : e.val.length;
-  e._cofDigKey = key;
-  e._cofDig = d;
+  e._cofDigKey = key; e._cofDig = d;
+  persisted[e.n] = { d, k: key };
+  saveCofDigitsCacheQuiet();
   return d;
 }
 
@@ -5889,7 +5963,7 @@ function downloadEntry(n) {
     `Euler Number E(${n})`, '='.repeat(40),
     `Sign: ${sign}1`, `Status: ${e.status}`, '',
     e.val ? `|E(${n})| = ${e.val}` : `|E(${n})| = (large, not stored)`, '',
-    `Known Factors: ${e.factors&&e.factors.length ? e.factors.join(' * ') : 'none'}`,
+    `Known Factors: ${e.factors&&e.factors.length ? [...e.factors].sort((a,b)=>{try{const av=parseFactorExpr(a).value,bv=parseFactorExpr(b).value;return av<bv?-1:av>bv?1:0;}catch{return String(a).length-String(b).length;}}).join(' * ') : 'none'}`,
     e.cofactor ? `Cofactor: ${e.cofactor}` : '',
     fdbEntry, e.note ? `Note: ${e.note}` : '', '',
     `Generated by Euler Factorization Database`,
