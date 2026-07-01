@@ -5123,16 +5123,26 @@ function getCofactor(e) {
 function getCofactorDigits(e) {
   if (!e || !e.val || e.status === 'full') return null;
   const factors = (e.factors || []).filter(f => f && f !== '1');
+  // No known factors → cofactor IS the full number; skip BigInt entirely (the
+  // common case for most entries — this alone avoids the original load-time cost).
   if (factors.length === 0) return e.val.length;
-  let removed = 0;
-  for (const f of factors) {
-    const mm = /^(\d+)\^(\d+)$/.exec(String(f));
-    if (mm) removed += mm[1].length * parseInt(mm[2]); // base digits × exponent
-    else    removed += String(f).length;
-  }
-  // Subtracting digit-lengths slightly overestimates removal (e.g. 5×3=15 is 1 digit,
-  // not 1+1=2). Clamp to ≥1 and never below a sane floor.
-  return Math.max(1, e.val.length - removed + 1);
+  // With factors: compute the EXACT cofactor digit count via BigInt division, but
+  // cache it on the entry (keyed by the factor list) so repeated renders are O(1)
+  // and it only recomputes when factors actually change (rare). An earlier version
+  // used a cheap digit-LENGTH estimate instead of exact division to avoid BigInt —
+  // but summing factor string lengths systematically OVER-subtracts as factors
+  // accumulate (e.g. 10 factors could undershoot the true cofactor by 4+ digits).
+  // recommendNextRun has a hard cliff at digits<40 (below the ECM table's lowest
+  // level, 20d, since maxUseful=floor(digits/2)) — undershooting across that cliff
+  // silently returns NO recommendation for an entry that should still have one.
+  // Exact-but-cached avoids that risk entirely while staying just as fast.
+  const key = factors.join(',');
+  if (e._cofDigKey === key && e._cofDig != null) return e._cofDig;
+  const cof = getCofactor(e);
+  const d = cof ? cof.digits : e.val.length;
+  e._cofDigKey = key;
+  e._cofDig = d;
+  return d;
 }
 
 function buildECMSection(n, e) {
