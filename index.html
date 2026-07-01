@@ -3264,6 +3264,7 @@ function processEcmLogText(text, sourceLabel) {
   const reRunComment = /#\s*run\s+\d+\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
   const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
+  const reStep  = /Step \d took/; // evidence stage 1 (or later) actually ran, not just startup
   let lastMethod = 'ECM';
   let lastCommentN = null;
 
@@ -3273,12 +3274,13 @@ function processEcmLogText(text, sourceLabel) {
     if ((mm = reRunComment.exec(ln))) { lastMethod = mm[2]; lastCommentN = parseInt(mm[1]); }
     if ((mm = reMethod.exec(ln))) lastMethod = mm[1]; // GMP-ECM [METHOD] header (if present)
     if ((mm = reInput.exec(ln))) {
-      cur = { number: mm[1], method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1, sigmas: new Set(), factors: new Map() };
+      cur = { number: mm[1], method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1, sigmas: new Set(), factors: new Map(), hadProgress: false };
       blocks.push(cur);
       lastCommentN = null; // consumed
       continue;
     }
     if (!cur) continue;
+    if (reStep.test(ln)) cur.hadProgress = true; // "Step N took..." — stage actually ran, not just printed setup
     if ((mm = reUsing.exec(ln))) {
       if (cur.b1 == null) cur.b1 = mm[1];
       if (mm[2] && cur.b2 == null) cur.b2 = mm[2];
@@ -3290,12 +3292,15 @@ function processEcmLogText(text, sourceLabel) {
     if ((mm = reRun.exec(ln))) {
       cur.curves = Math.max(cur.curves, parseInt(mm[1]) || 1); // highest completed run #
       cur.declared = parseInt(mm[2]) || cur.curves;
+      cur.hadProgress = true;
     }
     let fm;
     if ((fm = reFacA.exec(ln))) {
       cur.factors.set(fm[2], { value: fm[2], composite: fm[1] === 'composite' });
+      cur.hadProgress = true;
     } else if ((fm = reFacB.exec(ln))) {
       if (!cur.factors.has(fm[1])) cur.factors.set(fm[1], { value: fm[1], composite: false });
+      cur.hadProgress = true;
     }
   }
 
@@ -3342,6 +3347,16 @@ function processEcmLogText(text, sourceLabel) {
     }
     if (nOwner == null) { unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + blk.number.length + 'd) — no matching E(n)'); continue; }
     const owner = entryForN(nOwner);
+
+    // P-1/P+1 have no partial-progress signal (no curve count, no sigma) — either
+    // it ran or it didn't. If the block only has "Input number"/"Using B1" with NO
+    // "Step N took" (or later) line, the process was killed before any real work
+    // happened — recording it as a completed attempt would be wrong (falsely
+    // implying the odds this run represents were actually attempted).
+    if ((blk.method === 'P-1' || blk.method === 'P+1') && !blk.hadProgress && !blk.sigmas.size) {
+      summary.push('• E(' + owner.n + ') ' + blk.method + ' run killed before it started — not recorded');
+      continue;
+    }
 
     // Record the ECM/P±1 attempt. Curve counting uses each curve's unique sigma so
     // separate sessions SUM correctly (20 then 80 -> 100) while re-importing the same
