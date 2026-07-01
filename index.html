@@ -3332,7 +3332,7 @@ function processEcmLogText(text, sourceLabel) {
     // Rebuild entries from the persistent stores so newly-found factors (which may
     // belong to entries outside the current view) are reflected, then re-render.
     // Rebuilding also drops any stale cached cofactor digits.
-    if (factorsNew) { try { allEntries = buildEntries(); } catch(_) {} }
+    if (factorsNew) { try { allEntries = buildEntries(); replayFDBCache(); } catch(_) {} }
     applyFilters(); renderStats(); scheduleECMPush();
   }
 
