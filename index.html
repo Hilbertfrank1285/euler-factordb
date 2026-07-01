@@ -886,7 +886,10 @@ function isProbablePrime(n, rounds = 20) {
 function labelFactor(f) {
   try {
     const big = BigInt(f);
-    return big > 999999999999999n ? 'large' : (isPrime(big) ? 'prime' : 'composite');
+    // Use isProbablePrime (Miller-Rabin) — deterministic for this range and vastly
+    // faster than trial division, which could take tens of millions of BigInt mod
+    // operations (and visibly freeze the modal) for an unlucky ~15-digit semiprime.
+    return big > 999999999999999n ? 'large' : (isProbablePrime(big) ? 'prime' : 'composite');
   } catch { return 'large'; }
 }
 
@@ -1945,10 +1948,16 @@ async function pullECMFile() {
   const text = await r.text();
   const payload = JSON.parse(text);
   const remoteEcm = payload.ecm || payload || {};
+  const before = JSON.stringify(loadECM());
   const merged = mergeEcmData(remoteEcm);
-  saveECM(merged);
-  addLog('ECM runs pulled — ' + Object.keys(merged).length + ' numbers have logged runs', 'ok');
-  return true;
+  const changed = JSON.stringify(merged) !== before;
+  if (changed) {
+    saveECM(merged);
+    addLog('ECM runs pulled — ' + Object.keys(merged).length + ' numbers have logged runs', 'ok');
+  } else {
+    _ecmCache = merged; // keep in-memory cache fresh without marking dirty / scheduling a push
+  }
+  return changed;
 }
 
 // Push local ECM logs to results_ecm.json (separate from results.json).
@@ -2141,12 +2150,15 @@ function mergeSyncPayload(remote) {
   saveFDBCache(merged); // saves slim (n-keyed) to localStorage
   fdbCache = merged;    // in-memory: number-string keyed with full data
 
-  // Changelog: merge by timestamp dedup
+  // Changelog: merge by (n, timestamp) dedup, then cap at 100 — same limit
+  // addChangelogEntry enforces. Without this, repeated pull/push cycles across
+  // devices would let the merged history grow unbounded (union of local+remote
+  // history every time, never trimmed back down).
   const localCL  = loadChangelog();
   const remoteCL = remote.changelog || [];
   const clMap    = new Map();
   [...localCL, ...remoteCL].forEach(e => clMap.set(`${e.n}_${e.ts}`, e));
-  const mergedCL = Array.from(clMap.values()).sort((a,b) => (b.ts||0)-(a.ts||0));
+  const mergedCL = Array.from(clMap.values()).sort((a,b) => (b.ts||0)-(a.ts||0)).slice(0, 100);
   saveChangelog(mergedCL);
 
   // ECM: backward-compat — old results.json files carried an `ecm` field. New files
@@ -2182,8 +2194,19 @@ async function githubPull(skipRender) {
     // raw accept header returns content directly as text
     const text = await r.text();
     const payload = JSON.parse(text);
+    // Snapshot dirty-relevant storage + the dirty flag itself BEFORE merging. The
+    // save functions mergeSyncPayload calls (saveFDBCache/saveChangelog/saveECM)
+    // unconditionally markDirty() as a side effect of their normal write path —
+    // correct for real local edits, but wrong for a PULL that adds nothing new
+    // (which would otherwise silently schedule a spurious auto-push on every load).
+    // If nothing actually changed, restore whatever dirty state existed before the
+    // pull — preserving genuine pending local edits while not manufacturing new ones.
+    const dirtyBefore = _dirty;
+    const snapBefore = (localStorage.getItem(STORAGE_KEY)||'') + '\u0001' + (localStorage.getItem(CHANGELOG_KEY)||'') + '\u0001' + (localStorage.getItem(ECM_KEY)||'');
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
     mergeSyncPayload(payload);
+    const snapAfter = (localStorage.getItem(STORAGE_KEY)||'') + '\u0001' + (localStorage.getItem(CHANGELOG_KEY)||'') + '\u0001' + (localStorage.getItem(ECM_KEY)||'');
+    if (snapAfter === snapBefore) { _dirty = dirtyBefore; updateDirtyIndicator(); }
     if (!skipRender) {
       allEntries = buildEntries();
       replayFDBCache();
@@ -2271,9 +2294,9 @@ async function githubPush() {
       console.log('Push payload stats:',
         'fdbCache=' + Object.keys(payload.fdbCache || {}).length,
         'changelog=' + (payload.changelog || []).length,
-        'ecm=' + Object.keys(payload.ecm || {}).length,
         'jsonSize=' + (jsonStr.length / 1024 / 1024).toFixed(2) + 'MB',
-        'sha=' + sha);
+        'sha=' + sha,
+        '(ECM runs are pushed separately to results_ecm.json — see pushECMFile)');
       const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
       const body    = {
         message: 'Update Euler factorization data — ' + new Date().toISOString().slice(0,10),
@@ -2660,8 +2683,9 @@ async function importFactorsSeed() {
     setStatus(importMsg, 'ok');
     applyFilters(); renderStats();
     scheduleECMPush();
+    if (added > 0) { invalidateNextRunCache(); invalidateCpuTotal(); } // factors changed on `added` entries — cofactor sizes shifted
 
-    if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; } }, 3000); }
+    if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors github'; } }, 3000); }
 
     if (toVerify.length > 0) {
       const msg = 'Verifying ' + toVerify.length + ' entries on FDB…';
@@ -2675,7 +2699,7 @@ async function importFactorsSeed() {
   } catch(err) {
     addLog('Factors import failed: ' + err.message, 'err');
     setStatus('Factors import failed: ' + err.message, 'err');
-    if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors'; }
+    if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors github'; }
   }
 }
 
@@ -3008,19 +3032,23 @@ function exportNextRuns() {
         '',
       ];
       const launchLines = [];
+      let launchedOnThisMachine = 0;
       myCoreIdx.forEach((gi, localIdx) => {
         const lc = localIdx + 1;
+        if (!coreRuns[gi].length) return; // nothing assigned to this core — don't launch an empty window
         launchLines.push('start "ECM m' + machine + ' core ' + lc + '" cmd /c ecm_worker_m' + machine + '_c' + lc + '.bat');
+        launchedOnThisMachine++;
       });
       headerLines.push(...launchLines);
-      headerLines.push('echo Launched ' + cores + ' core windows on machine ' + machine + '.');
+      headerLines.push('echo Launched ' + launchedOnThisMachine + ' core window(s) on machine ' + machine + (launchedOnThisMachine < cores ? ' (' + (cores - launchedOnThisMachine) + ' had no runs to assign — fewer runs than cores)' : '') + '.');
       headerLines.push('echo Each writes ecm_import_m' + machine + '_cN.txt - import them when done.');
       filesToDownload.push({ name: 'ecm_runs_machine' + machine + '.bat', text: headerLines.join('\r\n') + '\r\n' });
 
-      // Worker batch per core on this machine.
+      // Worker batch per core on this machine — skip cores with nothing to do.
       myCoreIdx.forEach((gi, localIdx) => {
         const lc = localIdx + 1;
         const myRuns = coreRuns[gi];
+        if (!myRuns.length) return;
         const importFile = 'ecm_import_m' + machine + '_c' + lc + '.txt';
         const w = [
           '@echo off',
@@ -3127,19 +3155,23 @@ function importEcmFromFiles(files) {
   if (Object.keys(eulerValues).length === 0) { alert('Euler values still loading — please wait and try again.'); return; }
   const readers = files.map(f => new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload  = () => resolve({ name: f.name, text: String(reader.result || '') });
-    reader.onerror = () => resolve({ name: f.name, text: '' });
+    reader.onload  = () => resolve({ name: f.name, text: String(reader.result || ''), success: true });
+    reader.onerror = () => resolve({ name: f.name, text: '', success: false });
     reader.readAsText(f);
   }));
   Promise.all(readers).then(results => {
-    const ok = results.filter(r => r.text);
-    const failed = results.filter(r => !r.text);
+    const ok = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+    const empty = ok.filter(r => !r.text.trim());
     if (failed.length) addLog('Could not read: ' + failed.map(f => f.name).join(', '), 'warn');
+    if (empty.length) addLog('Empty (nothing to import): ' + empty.map(f => f.name).join(', '), '');
     if (!ok.length) { alert('Could not read any of the selected files.'); return; }
+    const nonEmpty = ok.filter(r => r.text.trim());
+    if (!nonEmpty.length) { alert('The selected file(s) were empty — nothing to import.'); return; }
     // Join with a blank line between files so nothing from one file's tail can
     // merge into the next file's first line.
-    const combined = ok.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
-    processEcmLogText(combined, ok.length > 1 ? ok.length + ' files' : ok[0].name);
+    const combined = nonEmpty.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
+    processEcmLogText(combined, nonEmpty.length > 1 ? nonEmpty.length + ' files' : nonEmpty[0].name);
   });
 }
 
@@ -3390,6 +3422,11 @@ function recordEcmFactor(entry, factorStr) {
   // Log to changelog data layer (panel removed, but sync payload still carries it).
   try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]')); } catch(_) {}
 
+  // The cofactor just shrank — the cached "fastest next run" and total-CPU sum for
+  // this entry are stale (both are derived from getCofactorDigits).
+  invalidateNextRunCache();
+  invalidateCpuTotal();
+
   return 'new';
 }
 
@@ -3592,6 +3629,9 @@ function applyFdbResult(data, n, numberStr) {
   let statusChanged = false;
   if (entry) {
     const resolved = ['FF','P','PRP'].includes(status);
+    // FDB just gave us a (possibly) different factor list — the cached "fastest
+    // next run" for this entry was computed against the OLD cofactor size.
+    if ((resolved || status === 'CF') && merged.length !== priorCount) { invalidateNextRunCache(); invalidateCpuTotal(); }
     if (resolved) {
       // Fully factored
       entry.factors  = merged;
@@ -3639,6 +3679,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (polling) return;
   polling = true;
 
+  try {
   // Disable both buttons; animate the one that was clicked
   const mainBtn  = document.getElementById('pollBtn');
   const unknownBtn   = document.getElementById('pollUnknownBtn');
@@ -3717,11 +3758,19 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       // Tally detailed stats per entry
       const entryNow = allEntries.find(x => x.n === target.n);
       if (entryNow) {
+        // If the snapshot fields are missing (e.g. allEntries got rebuilt mid-poll
+        // by a concurrent import/pull, replacing entry objects), default to "no
+        // change" rather than letting undefined look like a transition — the safe
+        // direction is to undercount, not to spuriously flag every entry checked
+        // after the rebuild as newly full/partial/etc.
+        const priorStatusKnown = entryNow._statusBeforePoll !== undefined;
+        const priorCountKnown  = entryNow._priorFactorCount !== undefined;
         const newFactorCount = (entryNow.factors || []).length;
-        const priorCount     = entryNow._priorFactorCount || 0;
+        const priorCount     = priorCountKnown ? entryNow._priorFactorCount : newFactorCount;
         if (newFactorCount > priorCount) factorsAdded += (newFactorCount - priorCount);
         // Status transitions (only count if actually changed)
-        if (entryNow._statusBeforePoll !== entryNow.status) {
+        const priorStatus = priorStatusKnown ? entryNow._statusBeforePoll : entryNow.status;
+        if (priorStatus !== entryNow.status) {
           if (entryNow.status === 'full')        nowFull++;
           else if (entryNow.status === 'partial')   nowPartial++;
           else if (entryNow.status === 'composite') nowComposite++;
@@ -3730,8 +3779,10 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       }
       // "Updated" = a MEANINGFUL change only: entry status transition OR new factors added.
       // A refreshed FDB timestamp or unchanged re-query does NOT count.
-      const statusTransitioned = entryNow && entryNow._statusBeforePoll !== entryNow.status;
-      const gotNewFactors      = entryNow && (entryNow.factors || []).length > (entryNow._priorFactorCount || 0);
+      const priorStatusForChange = entryNow && (entryNow._statusBeforePoll !== undefined ? entryNow._statusBeforePoll : entryNow.status);
+      const priorCountForChange  = entryNow && (entryNow._priorFactorCount !== undefined ? entryNow._priorFactorCount : (entryNow.factors || []).length);
+      const statusTransitioned = entryNow && priorStatusForChange !== entryNow.status;
+      const gotNewFactors      = entryNow && (entryNow.factors || []).length > priorCountForChange;
       const changed = statusTransitioned || gotNewFactors;
       if (changed) {
         updated++;
@@ -3814,6 +3865,21 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
   localStorage.setItem(COOLDOWN_KEY, Date.now());
   applyFilters();
+  } catch (err) {
+    console.error('runPollQueue error:', err);
+    addLog('Poll stopped due to an unexpected error: ' + (err && err.message || err), 'warn');
+  } finally {
+    // Safety net: guarantee the poll UI never gets stuck disabled forever, even if
+    // something above threw before reaching the normal cleanup path. Re-queries
+    // elements fresh rather than depending on try-scoped variables, so this can't
+    // itself fail due to a scoping issue.
+    polling = false;
+    cancelRequested = false;
+    ['pollBtn','pollUnknownBtn','pollCompositeBtn','pollStaleBtn','pollFdbUnknownBtn','pollPartialBtn']
+      .forEach(id => { const b = document.getElementById(id); if (b) { b.disabled = false; b.classList.remove('polling'); } });
+    const qi2 = document.getElementById('queueInfo'); if (qi2) qi2.style.display = 'none';
+    const cb2 = document.getElementById('cancelBtn'); if (cb2) cb2.style.display = 'none';
+  }
 }
 
 let _storageWarningShown = false;
@@ -3964,6 +4030,8 @@ async function verifyAndAddFactor(n) {
       'Manual factor (' + factorStr.length + 'd) → ' + e.status);
     input.value = '';
     scheduleECMPush();
+    invalidateNextRunCache(); // cofactor shrank — cached recommendation is stale
+    invalidateCpuTotal();
     applyFilters(); renderStats();
 
     msg.innerHTML = '<span style="color:var(--green)">✓ Factor verified & saved' + (e.status === 'full' ? ' — now FULLY FACTORED' : '') + '</span>';
@@ -4328,6 +4396,13 @@ function fmtFdbDate(timestamp) {
 
 function renderGrid() {
   const grid  = document.getElementById('grid');
+  // Defensive clamp: if currentPage is ever out of range for the current filtered
+  // set (e.g. it shrank without going through applyFilters' own reset-to-page-1),
+  // pull it back into range so we never show "No entries match your filter" when
+  // matches actually exist — just not on an invalid page number.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
   const start = (currentPage - 1) * PAGE_SIZE;
   const page  = filtered.slice(start, start + PAGE_SIZE);
 
