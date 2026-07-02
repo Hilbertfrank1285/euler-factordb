@@ -5497,14 +5497,15 @@ function buildECMSection(n, e) {
         if (resolveDigits.length) {
           probHtml = `<div style="margin-bottom:12px">
             <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
-              ★ Chance of fully resolving this cofactor
+              ★ Chance of finding a factor of this size
             </div>
             <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;border-left:2px solid var(--accent);padding-left:8px">
               Each cell answers: <em style="color:var(--text)">"What is the probability that this ${digits}-digit number has a prime factor of exactly Nd, AND that your factoring runs would have found it?"</em>
               <br>• <span style="color:var(--text)">exists</span> = how likely a random ${digits}-digit composite has a factor of that size (number theory heuristic)
               <br>• <span style="color:var(--text)">find | exists</span> = if that factor exists, how likely your ECM/P-1/P+1 runs catch it
-              <br>• <span style="color:var(--accent)">main %</span> = both together — the true chance you've resolved that digit range
-              <br><span style="color:var(--text-muted)">Factors larger than ~${halfDigits}d cannot exist as the smaller factor (since p × q = N means the smaller factor ≤ √N ≈ 10^${halfDigits})</span>
+              <br>• <span style="color:var(--accent)">main %</span> = both together — the chance you've found a factor in that digit range
+              <br><span style="color:var(--text-muted)">This is progress, not completion: finding a small factor still leaves a large remaining cofactor that needs further work. Only a factor near ~${halfDigits}d (half the digits) could leave a remainder small enough to plausibly be prime on its own.</span>
+              <br><span style="color:var(--text-muted)">Factors larger than ~${halfDigits}d cannot exist as the SMALLEST remaining factor (whatever's left after removing it must be ≥ itself, so the smallest factor is always ≤ √N ≈ 10^${halfDigits} — this holds regardless of how many factors remain in total)</span>
             </div>
             <div class="prob-grid">
               ${resolveDigits.map(d => {
@@ -5704,7 +5705,7 @@ function buildECMSection(n, e) {
           +   '<span style="font-size:10px;white-space:nowrap">' + cpuStr + '</span>'
           + '</div>'
           + '<div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:3px">' + rec.reason + '</div>'
-          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of factoring this number'
+          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of finding a new factor'
           +   (effStr ? ' <span style="color:var(--text-muted)">· value: ' + effStr + '</span>' : '')
           + '</div>'
           + '</div>';
@@ -5712,7 +5713,7 @@ function buildECMSection(n, e) {
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
         + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— best value first (odds gained per unit time)</span></div>'
         + '<div style="font-size:10px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;border-left:2px solid var(--border2);padding-left:8px">'
-        +   'Two numbers per run, don\'t confuse them: the <span style="color:var(--text)">~63%</span> in the description is how likely the run is to find a factor of that size <em>if one exists</em>. The <span style="color:var(--green)">green %</span> is how much it raises your <span style="color:var(--text)">overall</span> chance of factoring this number — smaller, because a factor of exactly that size probably isn\'t there. Runs are ordered by best value (overall odds gained per unit of CPU time).'
+        +   'Two numbers per run, don\'t confuse them: the <span style="color:var(--text)">~63%</span> in the description is how likely the run is to find a factor of that size <em>if one exists</em>. The <span style="color:var(--green)">green %</span> is how much it raises your <span style="color:var(--text)">overall</span> odds of finding a new factor — smaller, because a factor of exactly that size probably isn\'t there. (Finding one factor is real progress, but a large cofactor may still need more work afterward — this isn\'t the odds of finishing the whole factorization.) Runs are ordered by best value (overall odds gained per unit of CPU time).'
         + '</div>'
         + rows
         + '</div>';
