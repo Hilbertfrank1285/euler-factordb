@@ -3063,7 +3063,7 @@ async function exportNextRuns() {
     return [
       `echo.`,
       `echo [${label}] ${note}`,
-      `powershell -NoProfile -Command "Add-Content -Path ${importFile} -Value '# run ${label} ${note}' -Encoding ASCII; $keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found'; (Get-Content -Path ${numbersFile})[${idx}] | & ecm.exe ${args} 2>&1 | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ -Encoding ASCII } } }"`,
+      `powershell -NoProfile -Command "$exe = if (Test-Path .\\ecm.exe) { '.\\ecm.exe' } else { 'ecm.exe' }; Add-Content -Path ${importFile} -Value '# run ${label} ${note}' -Encoding ASCII; $keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found'; (Get-Content -Path ${numbersFile})[${idx}] | & $exe ${args} 2>&1 | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ -Encoding ASCII } } }"`,
     ];
   }
 
