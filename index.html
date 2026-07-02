@@ -2925,6 +2925,10 @@ function singleBatchText(lines, importFile, runs) {
     '@echo off\r\n' +
     'rem GMP-ECM run list (batch) - ' + runs.length + ' best-value runs - ' + dateStr + '\r\n' +
     'rem Est. total: ' + fmtCpuTime(totalSec) + ' on one core. ecm.exe must be in this folder / on PATH.\r\n' +
+    'rem Requires ecm_numbers.txt (downloaded alongside this file) in the SAME folder —\r\n' +
+    'rem each run reads its number from there instead of embedding it on the command\r\n' +
+    'rem line, since Windows caps a single command line at 8191 characters and E(n)\r\n' +
+    'rem values can run into the tens of thousands of digits.\r\n' +
     'rem Writes ' + importFile + ' (load into the app via "Import ECM results").\r\n' +
     'rem If you Ctrl+C early, everything kept so far is already in ' + importFile + '.\r\n\r\n';
   const footer =
@@ -3032,26 +3036,34 @@ async function exportNextRuns() {
 
   // Build the command lines for ONE run (3 lines: blank, progress echo, the ecm
   // pipe). importFile is per-core so parallel workers never clobber each other.
-  function runLines(r, label, total, importFile) {
+  function runLines(r, label, total, importFile, numbersFile, idx) {
     const args =
       r.method === 'ECM' ? `-v -c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
       r.method === 'P-1' ? `-v -pm1 ${b1int(r)}` :
                            `-v -pp1 ${b1int(r)}`;
     const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
+    // The number to factor is read from numbersFile at runtime (one number per
+    // line, written once at export time) rather than embedded directly in this
+    // command line. Windows cmd.exe has a HARD 8191-character command-line limit —
+    // and worse, exceeding it doesn't always error cleanly, it can silently DELETE
+    // characters at the boundary, corrupting the number without any obvious
+    // failure. E(n) values here can run into the tens of thousands of digits, so
+    // embedding one directly (as earlier versions did) would blow past that limit
+    // for any sufficiently large entry — and since runs are distributed round-robin
+    // across workers, different workers would hit a large-enough entry at
+    // different points in their run list, each failing at a different, seemingly
+    // random time. Reading from a file has no such limit: the actual command line
+    // here stays a few hundred characters regardless of how large the number is.
     // Both the comment line AND the filtered GMP-ECM output are written through the
     // SAME PowerShell Add-Content call, with an EXPLICIT encoding (ASCII — the only
     // content here is plain digits/letters, and ASCII is the one encoding that
-    // behaves identically across every PowerShell version). Previously the comment
-    // used cmd's own ">>" redirect while the data used PowerShell's Add-Content
-    // with NO explicit encoding — two different write paths that can default to
-    // two different encodings depending on Windows/PowerShell version, producing a
-    // file that's part one encoding, part another. FileReader in the browser reads
-    // the whole file as ONE encoding, so a mismatch like that garbles the text and
-    // makes every regex fail to match ("No GMP-ECM run blocks found").
+    // behaves identically across every PowerShell version) — writing them via two
+    // different mechanisms (cmd's ">>" vs PowerShell's default) can silently
+    // produce a file that's part one encoding, part another.
     return [
       `echo.`,
       `echo [${label}] ${note}`,
-      `echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "Add-Content -Path ${importFile} -Value '# run ${label} ${note}' -Encoding ASCII; $keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ -Encoding ASCII } } }"`,
+      `powershell -NoProfile -Command "Add-Content -Path ${importFile} -Value '# run ${label} ${note}' -Encoding ASCII; $keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found'; (Get-Content -Path ${numbersFile})[${idx}] | & ecm.exe ${args} 2>&1 | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ -Encoding ASCII } } }"`,
     ];
   }
 
@@ -3072,8 +3084,10 @@ async function exportNextRuns() {
   if (!multi) {
     // Single core, single machine — one simple batch (original behaviour).
     const importFile = 'ecm_import.txt';
+    const numbersFile = 'ecm_numbers.txt';
     const lines = [];
-    coreRuns[0].forEach((r, i) => lines.push(...runLines(r, (i+1)+'/'+coreRuns[0].length, coreRuns[0].length, importFile)));
+    coreRuns[0].forEach((r, i) => lines.push(...runLines(r, (i+1)+'/'+coreRuns[0].length, coreRuns[0].length, importFile, numbersFile, i)));
+    filesToDownload.push({ name: numbersFile, text: coreRuns[0].map(r => r.val).join('\r\n') + '\r\n' });
     filesToDownload.push({ name: 'ecm_runs.bat', text: singleBatchText(lines, importFile, coreRuns[0]) });
   } else {
     // One launcher .bat per machine. The launcher spawns each of that machine's
@@ -3116,18 +3130,21 @@ async function exportNextRuns() {
         const myRuns = coreRuns[gi];
         if (!myRuns.length) return;
         const importFile = 'ecm_import_m' + machine + '_c' + lc + '.txt';
+        const numbersFile = 'ecm_numbers_m' + machine + '_c' + lc + '.txt';
         const w = [
           '@echo off',
           'rem Worker - machine ' + machine + ' core ' + lc + ' - ' + myRuns.length + ' runs - ' + dateStr,
+          'rem Requires ' + numbersFile + ' (downloaded alongside this file) in the SAME folder.',
           'title ECM m' + machine + ' core ' + lc,
           '',
         ];
         let coreSec = 0;
-        myRuns.forEach((r, i) => { coreSec += r.cpuTime; w.push(...runLines(r, 'm'+machine+'c'+lc+' '+(i+1)+'/'+myRuns.length, myRuns.length, importFile)); });
+        myRuns.forEach((r, i) => { coreSec += r.cpuTime; w.push(...runLines(r, 'm'+machine+'c'+lc+' '+(i+1)+'/'+myRuns.length, myRuns.length, importFile, numbersFile, i)); });
         w.push('echo.');
         w.push('findstr /C:"Found" /C:"Factor found" ' + importFile + ' > ecm_factors_m' + machine + '_c' + lc + '.log');
         w.push('echo Core ' + lc + ' done (~' + fmtCpuTime(coreSec) + '). Import ' + importFile + ' into the app.');
         w.push('pause');
+        filesToDownload.push({ name: numbersFile, text: myRuns.map(r => r.val).join('\r\n') + '\r\n' });
         filesToDownload.push({ name: 'ecm_worker_m' + machine + '_c' + lc + '.bat', text: w.join('\r\n') + '\r\n' });
       });
     });
