@@ -3051,7 +3051,7 @@ async function exportNextRuns() {
     return [
       `echo.`,
       `echo [${label}] ${note}`,
-      `echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "Add-Content -Path ${importFile} -Value '# run ${label} ${note}' -Encoding ASCII; $keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ -Encoding ASCII } } }"`,
+      `echo ${r.val} | ecm.exe ${args} 2>&1 | powershell -NoProfile -Command "Add-Content -Path ${importFile} -Value '# run ${label} ${note}' -Encoding ASCII; $keep='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found|cofactor'; $imp='Input number|Using B1|Run \\d+ out of|Step \\d took|Found .*factor|Factor found'; $input | ForEach-Object { if ($_ -match $keep) { Write-Host $_; if ($_ -match $imp) { Add-Content -Path ${importFile} -Value $_ -Encoding ASCII } } }"`,
     ];
   }
 
@@ -3257,7 +3257,7 @@ function processEcmLogText(text, sourceLabel) {
   // us how many curves were actually completed (so a Ctrl+C'd run records real work).
   const blocks = [];
   let cur = null;
-  const reInput = /Input number is\s+([0-9]+)\s*\(/;
+  const reInput = /Input number is\s+(\S.*?)\s*\((\d+)\s*digits?\)/;
   const reUsing = /Using B1=([0-9.eE+]+)(?:,\s*B2=([0-9.eE+\-]+))?/;
   const reRun   = /Run\s+(\d+)\s+out of\s+(\d+)/;
   const reSigma = /sigma=\d+:(\d+)/;          // unique per curve — used to sum/dedup
@@ -3265,7 +3265,7 @@ function processEcmLogText(text, sourceLabel) {
   // The batch writes a comment line before each run, e.g. "# run 8 E(202) ... - P+1 - ..."
   // This is the most reliable method+E(n) source since the GMP-ECM [METHOD] header
   // line is filtered out of the compact import file.
-  const reRunComment = /#\s*run\s+\d+\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
+  const reRunComment = /#\s*run\s+.+?\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
   const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
   const reStep  = /Step \d took/; // evidence stage 1 (or later) actually ran, not just startup
@@ -3278,7 +3278,19 @@ function processEcmLogText(text, sourceLabel) {
     if ((mm = reRunComment.exec(ln))) { lastMethod = mm[2]; lastCommentN = parseInt(mm[1]); }
     if ((mm = reMethod.exec(ln))) lastMethod = mm[1]; // GMP-ECM [METHOD] header (if present)
     if ((mm = reInput.exec(ln))) {
-      cur = { number: mm[1], method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1, sigmas: new Set(), factors: new Map(), hadProgress: false };
+      const rawNum = mm[1];
+      const declaredDigits = parseInt(mm[2]) || rawNum.replace(/[^0-9]/g, '').length;
+      cur = {
+        number: rawNum,
+        numberIsClean: /^\d+$/.test(rawNum), // GMP-ECM normally echoes pure digits; some
+        // Windows/PowerShell console pipelines have been observed to garble very long
+        // lines (e.g. inserting "..." mid-number) even though GMP-ECM itself never
+        // truncates this line. When that happens we can't BigInt-match the number, so
+        // we fall back to the run-comment's E(n) tag (commentN) to identify the owner.
+        declaredDigits,
+        method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1,
+        sigmas: new Set(), factors: new Map(), hadProgress: false,
+      };
       blocks.push(cur);
       lastCommentN = null; // consumed
       continue;
@@ -3338,18 +3350,31 @@ function processEcmLogText(text, sourceLabel) {
 
   for (const blk of blocks) {
     let nOwner = null;
-    if (valByNum.has(blk.number)) {
+    // 1. PREFERRED: the run-comment already told us exactly which E(n) this run was
+    // for (we wrote that comment ourselves at export time) — trust it directly
+    // rather than re-deriving it from GMP-ECM's echoed-back number, which some
+    // Windows/PowerShell console pipelines can garble on very long lines even
+    // though GMP-ECM itself never truncates this output.
+    if (blk.commentN != null && eulerValues[blk.commentN] != null) {
+      nOwner = blk.commentN;
+    } else if (blk.numberIsClean && valByNum.has(blk.number)) {
       nOwner = valByNum.get(blk.number);
-    } else {
+    } else if (blk.numberIsClean) {
       // maybe we ran a cofactor: find an E(n) the number divides into
-      let bBig; try { bBig = BigInt(blk.number); } catch { continue; }
-      for (const cand of allLoaded) {
-        if (blk.number.length > cand.val.length) continue;
-        let vBig; try { vBig = BigInt(cand.val); } catch { continue; }
-        if (vBig % bBig === 0n) { nOwner = cand.n; break; }
+      let bBig; try { bBig = BigInt(blk.number); } catch { bBig = null; }
+      if (bBig != null) {
+        for (const cand of allLoaded) {
+          if (blk.number.length > cand.val.length) continue;
+          let vBig; try { vBig = BigInt(cand.val); } catch { continue; }
+          if (vBig % bBig === 0n) { nOwner = cand.n; break; }
+        }
       }
     }
-    if (nOwner == null) { unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + blk.number.length + 'd) — no matching E(n)'); continue; }
+    if (nOwner == null) {
+      const digitsNote = blk.declaredDigits ? blk.declaredDigits + 'd' : blk.number.length + ' chars';
+      unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + digitsNote + ') — no matching E(n)' + (blk.numberIsClean ? '' : ' (number looked garbled in the log — no run-comment tag to fall back on)'));
+      continue;
+    }
     const owner = entryForN(nOwner);
 
     // P-1/P+1 have no partial-progress signal (no curve count, no sigma) — either
