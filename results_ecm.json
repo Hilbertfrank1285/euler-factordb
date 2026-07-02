@@ -34730,6 +34730,19 @@
         "tool": "GMP-ECM",
         "note": "HilbertFrank1285",
         "date": "2025-06-01"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-02"
       }
     ],
     "536": [
@@ -34814,6 +34827,19 @@
         "tool": "GMP-ECM",
         "note": "HilbertFrank1285",
         "date": "2025-06-01"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-02"
       }
     ],
     "540": [
@@ -34856,6 +34882,19 @@
         "tool": "GMP-ECM",
         "note": "HilbertFrank1285",
         "date": "2025-06-01"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-02"
       }
     ],
     "542": [
@@ -35276,6 +35315,19 @@
         "tool": "GMP-ECM",
         "note": "HilbertFrank1285",
         "date": "2025-06-01"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-02"
       }
     ],
     "562": [
@@ -186783,5 +186835,5 @@
       }
     ]
   },
-  "updatedAt": "2026-07-02T07:24:29.907Z"
+  "updatedAt": "2026-07-02T07:34:07.895Z"
 }
