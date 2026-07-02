@@ -3286,6 +3286,7 @@ function processEcmLogText(text, sourceLabel) {
   const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
   const reStep  = /Step \d took/; // evidence stage 1 (or later) actually ran, not just startup
+  const reStep2 = /Step 2 took/;  // ECM/P±1's stage 2 completed — see pendingSigma below
   let lastMethod = 'ECM';
   let lastCommentN = null;
 
@@ -3306,7 +3307,7 @@ function processEcmLogText(text, sourceLabel) {
         // we fall back to the run-comment's E(n) tag (commentN) to identify the owner.
         declaredDigits,
         method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1,
-        sigmas: new Set(), factors: new Map(), hadProgress: false,
+        sigmas: new Set(), pendingSigma: null, factors: new Map(), hadProgress: false,
       };
       blocks.push(cur);
       lastCommentN = null; // consumed
@@ -3321,7 +3322,18 @@ function processEcmLogText(text, sourceLabel) {
       //   ECM → "sigma=" ;  P+1 → "x0=" ;  P-1 → "x0=" absent + no sigma (rare here)
       if (/x0=/.test(ln) && cur.method === 'ECM') cur.method = 'P+1';
     }
-    if ((mm = reSigma.exec(ln))) cur.sigmas.add(mm[1]); // collect every curve's sigma
+    if ((mm = reSigma.exec(ln))) {
+      // A new curve started. Whatever sigma was PENDING before this one never got
+      // confirmed (no Step 2, no factor) — meaning that curve was interrupted
+      // mid-run and never actually completed, so it's correctly discarded here,
+      // not counted.
+      cur.pendingSigma = mm[1];
+    }
+    if (reStep2.test(ln) && cur.pendingSigma) {
+      // Stage 2 completed for the pending curve — it genuinely ran to completion.
+      cur.sigmas.add(cur.pendingSigma);
+      cur.pendingSigma = null;
+    }
     if ((mm = reRun.exec(ln))) {
       cur.curves = Math.max(cur.curves, parseInt(mm[1]) || 1); // highest completed run #
       cur.declared = parseInt(mm[2]) || cur.curves;
@@ -3331,9 +3343,13 @@ function processEcmLogText(text, sourceLabel) {
     if ((fm = reFacA.exec(ln))) {
       cur.factors.set(fm[2], { value: fm[2], composite: fm[1] === 'composite' });
       cur.hadProgress = true;
+      // GMP-ECM stops the moment it finds a factor, sometimes before ever printing
+      // "Step 2 took" for that curve — but the curve DID succeed, so confirm it.
+      if (cur.pendingSigma) { cur.sigmas.add(cur.pendingSigma); cur.pendingSigma = null; }
     } else if ((fm = reFacB.exec(ln))) {
       if (!cur.factors.has(fm[1])) cur.factors.set(fm[1], { value: fm[1], composite: false });
       cur.hadProgress = true;
+      if (cur.pendingSigma) { cur.sigmas.add(cur.pendingSigma); cur.pendingSigma = null; }
     }
   }
 
