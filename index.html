@@ -1009,6 +1009,32 @@ function migrateMislabeledEcm() {
   localStorage.setItem('eulerFDB_ecmMethodFix_v2', '1');
 }
 
+// One-time cleanup: remove redundant composite factors (a composite equal to the
+// product of other factors in the same list) from already-persisted fdbCache
+// entries. Historical imports could record an ECM-reported composite AND its
+// split primes side-by-side; besides being untidy, the redundant composite ends
+// up in the FDB submission export and double-counts in the product-based status
+// check. Runs at init after pull; the flag stops it re-running every load, and
+// the same dedupe now also happens at every merge point, so new data stays clean.
+function migrateRedundantComposites() {
+  if (localStorage.getItem('eulerFDB_compositeDedup_v1')) return;
+  let cleaned = 0;
+  for (const [key, rec] of Object.entries(fdbCache)) {
+    if (!rec || !Array.isArray(rec.factors) || rec.factors.length < 2) continue;
+    const deduped = dedupeCompositeFactors(rec.factors);
+    if (deduped.length !== rec.factors.length) {
+      rec.factors = sortFactorsAsc(deduped);
+      if (fdbFactors[key]) fdbFactors[key].factors = rec.factors;
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    saveFDBCache(fdbCache);
+    addLog('Removed redundant composite factors from ' + cleaned + ' entr' + (cleaned===1?'y':'ies'), 'ok');
+  }
+  localStorage.setItem('eulerFDB_compositeDedup_v1', '1');
+}
+
 // Dedicated storage for fdb-unknown n values — persists independently of eulerValues loading
 function loadFdbUnknownSet() {
   try { return new Set(JSON.parse(localStorage.getItem('eulerFDB_fdbUnknown_v1') || '[]')); }
@@ -2918,7 +2944,9 @@ function exportFDBSubmission() {
 
   let skippedFdb = 0;
   for (const e of allEntries) {
-    const factors = (e.factors || []).filter(f => f && f !== '1');
+    // Dedupe here too (not just at write time): factor lists can arrive via GitHub
+    // pull from a device that hasn't run the one-time cleanup migration yet.
+    const factors = dedupeCompositeFactors((e.factors || []).filter(f => f && f !== '1'));
     if (!factors.length) continue;
     if (!e.val) { skippedNoVal++; continue; }
 
@@ -3343,12 +3371,16 @@ async function processEcmLogText(text, sourceLabel) {
   // This is the most reliable method+E(n) source since the GMP-ECM [METHOD] header
   // line is filtered out of the compact import file.
   const reRunComment = /#\s*run\s+.+?\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
+  const reStepTime = /Step \d took (\d+)ms/; // real measured time, for the CPU-time summary stat
   const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
   const reStep  = /Step \d took/; // evidence stage 1 (or later) actually ran, not just startup
   const reStep2 = /Step 2 took/;  // ECM/P±1's stage 2 completed — see pendingSigma below
   let lastMethod = 'ECM';
   let lastCommentN = null;
+  let totalTimeMs = 0; // real measured CPU time across every Step line in the whole log,
+                        // regardless of which block it belongs to or whether that run
+                        // ends up fully recorded — this reflects actual compute spent.
 
   for (const ln of lines) {
     let mm;
@@ -3375,6 +3407,7 @@ async function processEcmLogText(text, sourceLabel) {
     }
     if (!cur) continue;
     if (reStep.test(ln)) cur.hadProgress = true; // "Step N took..." — stage actually ran, not just printed setup
+    if ((mm = reStepTime.exec(ln))) totalTimeMs += parseInt(mm[1]) || 0;
     if ((mm = reUsing.exec(ln))) {
       if (cur.b1 == null) cur.b1 = mm[1];
       if (mm[2] && cur.b2 == null) cur.b2 = mm[2];
@@ -3430,7 +3463,8 @@ async function processEcmLogText(text, sourceLabel) {
   }
   const ecmData = loadECM();
 
-  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0;
+  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0, killedRuns = 0;
+  let ecmRuns = 0, pm1Runs = 0, pp1Runs = 0, totalCurves = 0;
   const summary = [];
   const dirtyN = new Set();
 
@@ -3474,9 +3508,10 @@ async function processEcmLogText(text, sourceLabel) {
     // it ran or it didn't. If the block only has "Input number"/"Using B1" with NO
     // "Step N took" (or later) line, the process was killed before any real work
     // happened — recording it as a completed attempt would be wrong (falsely
-    // implying the odds this run represents were actually attempted).
+    // implying the odds this run represents were actually attempted). Counted in
+    // the summary's aggregate stats rather than spelled out per-occurrence.
     if ((blk.method === 'P-1' || blk.method === 'P+1') && !blk.hadProgress && !blk.sigmas.size) {
-      summary.push('• E(' + owner.n + ') ' + blk.method + ' run killed before it started — not recorded');
+      killedRuns++;
       continue;
     }
 
@@ -3523,6 +3558,9 @@ async function processEcmLogText(text, sourceLabel) {
         });
       }
       runsRecorded++;
+      if (blk.method === 'ECM') { ecmRuns++; totalCurves += blkSigmas.length || blk.curves; }
+      else if (blk.method === 'P-1') pm1Runs++;
+      else if (blk.method === 'P+1') pp1Runs++;
       dirtyN.add(owner.n);
     }
 
@@ -3587,15 +3625,27 @@ async function processEcmLogText(text, sourceLabel) {
     applyFilters(); renderStats(); scheduleECMPush();
   }
 
+  const cpuTimeStr = totalTimeMs > 0 ? fmtCpuTime(totalTimeMs / 1000) : null;
   const msg = 'Imported ' + runsRecorded + ' run' + (runsRecorded===1?'':'s')
     + (sourceLabel ? ' from ' + sourceLabel : '')
     + ' across ' + dirtyN.size + ' number' + (dirtyN.size===1?'':'s')
     + (factorsNew ? ', ' + factorsNew + ' new factor' + (factorsNew===1?'':'s') : '')
     + (factorsDup ? ', ' + factorsDup + ' factor' + (factorsDup===1?'':'s') + ' already known' : '')
-    + (unmatched ? ', ' + unmatched + ' unmatched block' + (unmatched===1?'':'s') : '');
+    + (unmatched ? ', ' + unmatched + ' unmatched block' + (unmatched===1?'':'s') : '')
+    + (cpuTimeStr ? ', ~' + cpuTimeStr + ' CPU time' : '');
+
+  // Method breakdown and other notable stats, shown as a second line in the popup
+  // rather than spelled out per-occurrence in the detailed summary below.
+  const statsParts = [];
+  if (ecmRuns) statsParts.push(ecmRuns + ' ECM run' + (ecmRuns===1?'':'s') + (totalCurves ? ' (' + totalCurves.toLocaleString() + ' curves)' : ''));
+  if (pm1Runs) statsParts.push(pm1Runs + ' P-1');
+  if (pp1Runs) statsParts.push(pp1Runs + ' P+1');
+  if (killedRuns) statsParts.push(killedRuns + ' interrupted before completing (not counted)');
+  const statsLine = statsParts.length ? statsParts.join(' · ') : '';
+
   addLog(msg, runsRecorded ? 'ok' : 'warn');
   setStatus(msg, runsRecorded ? 'ok' : 'warn');
-  alert(msg + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
+  alert(msg + (statsLine ? '\n' + statsLine : '') + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
     + (summary.length ? '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : '') : ''));
 }
 
@@ -3615,7 +3665,7 @@ function recordEcmFactor(entry, factorStr) {
   let isPrime = true;
   if (factorStr.length <= 19) { try { isPrime = isProbablePrime(BigInt(factorStr)); } catch { isPrime = true; } }
 
-  const merged = sortFactorsAsc([...existing, factorStr]);
+  const merged = sortFactorsAsc(dedupeCompositeFactors([...existing, factorStr]));
 
   // Recompute status: does the product of known primes equal the full value?
   let status = entry.status;
@@ -3823,7 +3873,7 @@ function applyFdbResult(data, n, numberStr) {
   };
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
-  const merged = sortFactorsAsc(collapsePowers([...priorOwn, ...fdbPrimes]));
+  const merged = sortFactorsAsc(dedupeCompositeFactors(collapsePowers([...priorOwn, ...fdbPrimes])));
 
   // Source: 'fdb' only if FDB covers every prime base we hold, at >= the power
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
@@ -4188,6 +4238,52 @@ function sortFactorsAsc(list) {
       return av < bv ? -1 : av > bv ? 1 : 0;
     } catch { return String(a).length - String(b).length; }
   });
+}
+
+// Remove REDUNDANT composite factors from a factor list — i.e. a composite that is
+// exactly the product of other factors already in the same list. This happens when
+// a composite (e.g. an ECM-reported "composite factor") got recorded directly, and
+// then a later import correctly split it into its primes and added those too:
+// [79, 563, 1199714371, 53359696078967] where 53359696078967 = 79×563×1199714371.
+// Keeping both is worse than just untidy — the product-of-factors check that
+// derives entry status double-counts those primes and overshoots, and the FDB
+// submission export sends the redundant composite as if it were a distinct factor.
+// Detection: for each composite candidate c (largest first), divide c by each of
+// the OTHER factors at most once each (a factor's value already includes its
+// exponent); if they divide c down to exactly 1, c is fully reconstructable →
+// drop it. Exact here because the list holds primes/prime-powers — no subset
+// ambiguity like general subset-product.
+function dedupeCompositeFactors(list) {
+  const factors = (list || []).filter(f => f && f !== '1');
+  if (factors.length < 2) return factors;
+  const parsePow = f => { const mm = /^(\d+)\^(\d+)$/.exec(String(f)); return mm ? { base: BigInt(mm[1]), exp: BigInt(mm[2]) } : { base: BigInt(f), exp: 1n }; };
+  let values;
+  try { values = factors.map(f => { const { base, exp } = parsePow(f); return base ** exp; }); }
+  catch { return factors; } // unparsable → leave untouched
+  const drop = new Set();
+  // Largest-first so a big redundant composite is tested against the smaller parts.
+  const order = values.map((v, i) => i).sort((a, b) => (values[a] < values[b] ? 1 : -1));
+  for (const i of order) {
+    const v = values[i];
+    // Only composites can be redundant; primality check is cheap at ≤19 digits and
+    // conservative above (assume prime → keep) since ECM-found large factors are
+    // near-always prime and false removal would lose real data.
+    let composite = false;
+    if (v.toString().length <= 19) { try { composite = !isProbablePrime(v); } catch { composite = false; } }
+    if (!composite) continue;
+    let rem = v;
+    for (let j = 0; j < values.length && rem > 1n; j++) {
+      if (j === i || drop.has(j)) continue;
+      // Each other factor contributes AT MOST once (its recorded value already
+      // includes its exponent, e.g. "5^3" parsed to 125). Dividing repeatedly by
+      // the same list slot would let a single recorded "79" wrongly account for
+      // 79² inside the composite, falsely claiming reconstructability.
+      if (rem % values[j] === 0n) rem /= values[j];
+    }
+    if (rem === 1n) drop.add(i);
+  }
+  if (!drop.size) return factors;
+  return factors.filter((_, i) => !drop.has(i));
 }
 
 async function verifyAndAddFactor(n) {
@@ -5364,7 +5460,25 @@ function getCofactor(e) {
     try { bBig = BigInt(base); } catch { continue; }
     product *= bBig ** BigInt(exp);
   }
-  if (product !== 0n && product !== 1n && vBig % product === 0n) vBig /= product;
+  if (product !== 0n && product !== 1n && vBig % product === 0n) {
+    vBig /= product;
+  } else if (product !== 1n) {
+    // Combined product does NOT divide — some factor in the list is wrong or
+    // overstated (e.g. a duplicate entry, or "5^2" recorded when only one 5
+    // divides). Fall back to per-factor division so every GOOD factor still gets
+    // removed instead of silently skipping division entirely (which would report
+    // the full value as the cofactor and distort difficulty/recommendations).
+    for (const f of factors) {
+      const mm = /^(\d+)\^(\d+)$/.exec(String(f));
+      const base = mm ? mm[1] : String(f);
+      const exp  = mm ? parseInt(mm[2]) : 1;
+      let bBig;
+      try { bBig = BigInt(base); } catch { continue; }
+      for (let i = 0; i < exp; i++) {
+        if (bBig > 1n && vBig % bBig === 0n) vBig /= bBig;
+      }
+    }
+  }
   const str = vBig.toString();
   return { big: vBig, str, digits: str.length };
 }
@@ -5427,7 +5541,19 @@ function getCofactorDigits(e) {
     product *= bBig ** BigInt(exp);
   }
   let cof = vBig;
-  if (product !== 0n && product !== 1n && vBig % product === 0n) cof = vBig / product;
+  if (product !== 0n && product !== 1n && vBig % product === 0n) {
+    cof = vBig / product;
+  } else if (product !== 1n) {
+    // Combined product doesn't divide (some factor is wrong/overstated) — delegate
+    // to getCofactor, which falls back to per-factor division so every good factor
+    // is still removed. Rare bad-data path, so its exact decimal cost is fine.
+    const gc = getCofactor(e);
+    const d0 = gc ? gc.digits : e.val.length;
+    e._cofDigKey = key; e._cofDig = d0;
+    persisted[e.n] = { d: d0, k: key };
+    saveCofDigitsCacheQuiet();
+    return d0;
+  }
   const bits = cof.toString(2).length;
   const est  = Math.floor(bits * Math.log10(2)) + 1;
   const d = _nearCofDigBoundary(est) ? cof.toString().length : est;
@@ -6370,6 +6496,7 @@ setTimeout(async () => {
   try {
     try { migrateMislabeledEcm(); } catch(_) {}  // one-time P±1→ECM relabel fix
     fdbCache    = loadFDBCache();
+    try { migrateRedundantComposites(); } catch(_) {}  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
     allEntries  = buildEntries();
     // Step 1's premature render (before eulerValues had loaded) computed and
     // permanently cached "no recommendation" / "no CPU total" for every entry that
