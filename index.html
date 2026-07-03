@@ -1545,6 +1545,13 @@ function ecmProbabilityWithI(d, b1_0, curves, I_val) {
 //   Success after k curves ≈ 1 - exp(-k / C_opt(d))   (Poisson model; 63% at k=C_opt)
 // ─────────────────────────────────────────────────────────────────────────────
 const ECM_TABLE = [
+  // 15d added from Zimmermann's authoritative measured params (50 bits ≈ 15
+  // digits: B1=12322, 9 curves — https://members.loria.fr/PZimmermann/records/ecm/params.html,
+  // the more accurate, later-generation dataset). Deliberately no 10d entry: the
+  // measured data at that size is explicitly flagged as noisy/unreliable by the
+  // researchers who compiled it, and factors that tiny are better caught by trial
+  // division / Pollard's rho (factorizeSmall) than dedicated ECM curves anyway.
+  { d: 15, B1: 12322, curves: 9     },
   { d: 20, B1: 11e3,  curves: 74    },
   { d: 25, B1: 5e4,   curves: 214   },
   { d: 30, B1: 25e4,  curves: 430   },
@@ -1561,7 +1568,7 @@ const ECM_TABLE = [
 function ecmOptimalCurves(d) {
   const T = ECM_TABLE;
   if (d <= T[0].d) {
-    // extrapolate below 20d from first two points
+    // extrapolate below the table's first point (15d)
     const a = T[0], b = T[1];
     const slope = (Math.log(b.curves) - Math.log(a.curves)) / (b.d - a.d);
     return Math.max(1, Math.exp(Math.log(a.curves) + slope * (d - a.d)));
@@ -2954,8 +2961,12 @@ async function exportNextRuns() {
   const runs = [];
 
   // Candidates first (cheap: no BigInt yet), so we know how many entries actually
-  // need cofactor-digit computation and can report real progress.
-  const candidates = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length <= 52000);
+  // need cofactor-digit computation and can report real progress. No digit-size cap
+  // here — QUERY_MAX_DIGITS (52000) is a FactorDB network/URL-length limit, not an
+  // ECM one. GMP-ECM has no such limit, and the export writes numbers to a separate
+  // file specifically so arbitrarily large entries work fine — these are exactly
+  // the numbers where FactorDB can't help at all and your own ECM work matters most.
+  const candidates = allEntries.filter(e => e.status !== 'full' && e.val);
 
   const CHUNK = 25; // entries per tick — small enough to keep the UI responsive
   for (let i = 0; i < candidates.length; i += CHUNK) {
@@ -5072,7 +5083,9 @@ function recommendNextRun(digits, attempts) {
 
   // The largest factor that could be the SMALLER of two is sqrt(N) ~ digits/2.
   const maxUseful = Math.min(Math.floor(digits / 2), 65);
-  const levels = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65].filter(d => d <= maxUseful);
+  // Derived from ECM_TABLE itself (not a separately hardcoded list) so adding a
+  // new table entry — e.g. the 15d level — actually takes effect here too.
+  const levels = ECM_TABLE.map(t => t.d).filter(d => d <= maxUseful);
 
   // How "complete" is each ECM level? Use the efficiency-aware probability of the
   // user's actual runs at that digit size (ecmProbForDigit accounts for B1 — a
@@ -5098,7 +5111,12 @@ function recommendNextRun(digits, attempts) {
     // effective curves already done at this level (invert the probability model)
     const haveEff  = Math.round(-Math.log(1 - Math.min(pBefore, 0.99)) * Copt);
     const targetCv = Math.round(Copt);              // ~63% completion
-    const addCurves = Math.max(targetCv - haveEff, 50);
+    // Batch up to at least 50 curves when there's only a small amount LEFT on an
+    // otherwise-large level (avoids recommending a trivial "5 more curves" leftover
+    // batch) — but never push the recommendation ABOVE the level's own full target.
+    // Without this cap, a level whose entire target is naturally small (t15 needs
+    // only 9 curves total) would get inflated to 50 for no reason.
+    const addCurves = Math.max(targetCv - haveEff, Math.min(50, targetCv));
     const pAfter   = ecmProbability(d, haveEff + addCurves, b1);
     const pExists  = pFactorExists(d, digits);
     const gain     = pExists * (pAfter - pBefore) * 100;
@@ -5120,7 +5138,7 @@ function recommendNextRun(digits, attempts) {
   // score their gain by summing the existence-weighted find-probability over all
   // plausible factor sizes — not at a single "optimal" digit (which gave +0.00%).
   const pmGain = (method, b1, b2) => {
-    let g = 0, bestD = levels[0] || 20, bestContrib = -1;
+    let g = 0, bestD = levels[0] || 15, bestContrib = -1;
     for (const d of levels) {
       const contrib = pFactorExists(d, digits) * pm1Probability(d, b1, b2, method);
       g += contrib;
@@ -5291,7 +5309,7 @@ function getCofactor(e) {
 // off by 1 elsewhere never changes anything (levels are 10 digits apart, since
 // maxUseful = floor(digits/2)), so exact confirmation is only ever needed when the
 // fast estimate lands within a couple digits of one of those breakpoints.
-const _COFDIG_BOUNDARIES = [40,50,60,70,80,90,100,110,120,130];
+const _COFDIG_BOUNDARIES = [30,40,50,60,70,80,90,100,110,120,130];
 function _nearCofDigBoundary(est) {
   // The +1 uncertainty only ever changes recommendNextRun's OUTCOME when the
   // estimate lands exactly on one of these values (proven: floor(d/2) only crosses
