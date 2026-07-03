@@ -911,36 +911,49 @@ function factorizeSmall(n) {
 
   const absBig = (x) => (x < 0n ? -x : x);
   const gcd = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
-  // Pollard's rho with Brent's improvement.
-  const rho = (m) => {
+  // Pollard's rho with Brent's improvement. Bounded by a WALL-CLOCK deadline
+  // (shared across every attempt AND every recursive split below) rather than a
+  // fixed iteration count. Rho's expected work to find a factor p is ~sqrt(p) by
+  // the birthday paradox — for two ~18-digit factors that's ~10^9 iterations,
+  // which a fixed 2,000,000-iteration-per-attempt cap (the previous approach)
+  // doesn't reach OR fail fast on: it just grinds through tens of millions of
+  // expensive BigInt GCD calls before giving up, which measured out at 30+
+  // seconds for a single call on a real composite from an ECM log — enough to
+  // make the whole import look hung. A wall-clock deadline gives a predictable
+  // bound regardless of how hard the composite turns out to be.
+  const rho = (m, deadline) => {
     if (m % 2n === 0n) return 2n;
-    let attempt = 0;
-    while (attempt < 40) {
+    while (Date.now() < deadline) {
       const c = 1n + BigInt(Math.floor(Math.random() * 1e9)) % (m - 1n);
       let x = 2n, y = 2n, d = 1n;
       const f = (v) => (v * v + c) % m;
       let guard = 0;
-      while (d === 1n && guard++ < 2_000_000) {
+      while (d === 1n) {
         x = f(x);
         y = f(f(y));
         d = gcd(absBig(x - y), m);
+        // Checking Date.now() every iteration would itself be real overhead across
+        // millions of iterations, so only check every 4096.
+        if ((++guard & 0xFFF) === 0 && Date.now() >= deadline) return null;
       }
       if (d !== 1n && d !== m) return d;
-      attempt++;
     }
-    return null; // failed to find a factor
+    return null; // deadline reached without finding a factor
   };
 
-  // Recursively split with a work stack.
+  // Recursively split with a work stack, sharing ONE overall time budget across
+  // every split attempt — not a fresh budget per attempt, so total time spent on
+  // any single composite (however many pieces it splits into) stays bounded.
+  const deadline = Date.now() + 800;
   const stack = [n];
   let steps = 0;
   while (stack.length) {
-    if (++steps > 500) return null; // effort budget exceeded → give up
+    if (++steps > 500 || Date.now() >= deadline) return null; // effort/time budget exceeded → give up
     const m = stack.pop();
     if (m === 1n) continue;
     if (isProbablePrime(m)) { out.push(m); continue; }
-    const d = rho(m);
-    if (!d) return null; // couldn't split a composite piece
+    const d = rho(m, deadline);
+    if (!d) return null; // couldn't split a composite piece within the time budget
     stack.push(d, m / d);
   }
   out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -1491,6 +1504,42 @@ async function queryFactorDB(numberStr) {
     }
   }
   throw new Error('All query routes failed (' + numberStr.length + 'd number): ' + lastErr);
+}
+
+// Query FactorDB for a standalone composite number that isn't itself an E(n)
+// entry — e.g. a composite ECM/GMP-ECM reported as a factor, which our own
+// Pollard's-rho (factorizeSmall) couldn't split within its time budget. FDB is
+// a shared, community-built database, so it's entirely possible someone has
+// already submitted or fully factored this exact number even though our own
+// quick local attempt couldn't. Returns an array of known prime factor strings
+// (possibly empty if FDB has nothing useful) — never throws, since this is a
+// best-effort fallback, not a required step; a failure here just means the
+// composite stays unsplit, same as before this fallback existed.
+async function tryResolveCompositeViaFDB(compositeStr) {
+  try {
+    const data = await queryFactorDB(compositeStr);
+    const status = data.status === 'UN' ? 'FF' : (data.status || 'U');
+    const allFactors = (data.factors || [])
+      .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
+      .filter(f => f && f !== '1');
+    if (!allFactors.length) return [];
+    // Same handling as applyFdbResult: for a partial (CF) result, the LAST listed
+    // factor might be an unfactored composite cofactor rather than a real prime —
+    // strip it unless it's small enough to test and actually turns out prime.
+    if (status === 'CF' && allFactors.length > 1) {
+      const last = allFactors[allFactors.length - 1];
+      let lastIsComposite = true;
+      const m = /^(\d+)(?:\^(\d+))?$/.exec(last);
+      if (m && m[1].length <= 19) {
+        try { lastIsComposite = !isProbablePrime(BigInt(m[1])); } catch { lastIsComposite = true; }
+      }
+      return lastIsComposite ? allFactors.slice(0, -1) : allFactors;
+    }
+    return allFactors;
+  } catch (e) {
+    console.warn('FDB composite lookup failed for ' + compositeStr.slice(0, 20) + '...:', e.message);
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3248,7 +3297,7 @@ function importEcmFromFiles(files) {
     reader.onerror = () => resolve({ name: f.name, text: '', success: false });
     reader.readAsText(f);
   }));
-  Promise.all(readers).then(results => {
+  Promise.all(readers).then(async results => {
     const ok = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
     const empty = ok.filter(r => !r.text.trim());
@@ -3260,7 +3309,7 @@ function importEcmFromFiles(files) {
     // Join with a blank line between files so nothing from one file's tail can
     // merge into the next file's first line.
     const combined = nonEmpty.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
-    processEcmLogText(combined, nonEmpty.length > 1 ? nonEmpty.length + ' files' : nonEmpty[0].name);
+    await processEcmLogText(combined, nonEmpty.length > 1 ? nonEmpty.length + ' files' : nonEmpty[0].name);
   });
 }
 
@@ -3271,7 +3320,7 @@ function importEcmFromFile(file) {
   importEcmFromFiles([file]);
 }
 
-function processEcmLogText(text, sourceLabel) {
+async function processEcmLogText(text, sourceLabel) {
   if (!text) return;
 
   const lines = text.split(/\r?\n/);
@@ -3381,7 +3430,7 @@ function processEcmLogText(text, sourceLabel) {
   }
   const ecmData = loadECM();
 
-  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0;
+  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0;
   const summary = [];
   const dirtyN = new Set();
 
@@ -3479,12 +3528,37 @@ function processEcmLogText(text, sourceLabel) {
 
     // Record any factors found in this block. Primes are recorded directly;
     // composites are split into their primes first (ECM composites are products of
-    // small primes, so they factor quickly). If a composite can't be split within
-    // the effort budget, the run is still logged and the composite is skipped.
+    // small primes, so they factor quickly). If our own attempt can't split it
+    // within its time budget, fall back to asking FactorDB — it's a shared,
+    // community-built database, so someone may already have factored this exact
+    // number even though a quick local Pollard's-rho attempt couldn't. If FDB
+    // doesn't have it either, the run is still logged and the composite is kept.
     for (const f of blk.factors.values()) {
       if (f.composite) {
         let primes = null;
         try { primes = factorizeSmall(BigInt(f.value)); } catch(_) { primes = null; }
+        let viaFdb = false;
+        if ((!primes || !primes.length)) {
+          if (fdbCompositeLookups > 0) await cancellableSleep(REQUEST_DELAY_MS); // be gentle with FDB's API
+          fdbCompositeLookups++;
+          setStatus('Checking FactorDB for an unresolved composite (' + f.value.length + 'd)…');
+          const fdbPrimesFound = await tryResolveCompositeViaFDB(f.value);
+          if (fdbPrimesFound.length) {
+            // Expand any "base^exp" notation back into repeated plain values, to
+            // match factorizeSmall's own output format (one BigInt per prime
+            // factor instance, not prime-power notation).
+            const expanded = [];
+            for (const pf of fdbPrimesFound) {
+              const m = /^(\d+)\^(\d+)$/.exec(pf);
+              if (m) { for (let i = 0; i < parseInt(m[2]); i++) expanded.push(BigInt(m[1])); }
+              else expanded.push(BigInt(pf));
+            }
+            // Only trust this if it actually reconstructs the original composite —
+            // guards against a partial/CF result that didn't fully resolve it.
+            let product = 1n; for (const p of expanded) product *= p;
+            try { if (product === BigInt(f.value)) { primes = expanded; viaFdb = true; } } catch(_) {}
+          }
+        }
         if (primes && primes.length) {
           const recorded = [];
           for (const p of primes) {
@@ -3492,9 +3566,9 @@ function processEcmLogText(text, sourceLabel) {
             if (res === 'new') { factorsNew++; recorded.push(p.toString()); }
             else if (res === 'dup') { factorsDup++; }
           }
-          if (recorded.length) summary.push('• E(' + owner.n + ') ← composite ' + f.value + ' split into ' + recorded.join(' × '));
+          if (recorded.length) summary.push('• E(' + owner.n + ') ← composite ' + f.value + ' split into ' + recorded.join(' × ') + (viaFdb ? ' (via FactorDB)' : ''));
         } else {
-          summary.push('• E(' + owner.n + ') found COMPOSITE ' + f.value + ' (' + f.value.length + 'd) — could not split, run logged');
+          summary.push('• E(' + owner.n + ') found COMPOSITE ' + f.value + ' (' + f.value.length + 'd) — could not split (tried locally + FactorDB), run logged');
         }
         continue;
       }
