@@ -5328,12 +5328,21 @@ function recommendNextRun(digits, attempts) {
     // effective curves already done at this level (invert the probability model)
     const haveEff  = Math.round(-Math.log(1 - Math.min(pBefore, 0.99)) * Copt);
     const targetCv = Math.round(Copt);              // ~63% completion
-    // Batch up to at least 50 curves when there's only a small amount LEFT on an
-    // otherwise-large level (avoids recommending a trivial "5 more curves" leftover
-    // batch) — but never push the recommendation ABOVE the level's own full target.
-    // Without this cap, a level whose entire target is naturally small (t15 needs
-    // only 9 curves total) would get inflated to 50 for no reason.
-    const addCurves = Math.max(targetCv - haveEff, Math.min(50, targetCv));
+    const remaining = targetCv - haveEff;
+    // Batch up to at least 50 curves ONLY when there's a genuinely tiny leftover
+    // on an otherwise-LARGE level (e.g. "5 more curves needed out of 430 total for
+    // t30") — not whenever the level's own full target happens to be ≤50. The
+    // previous version applied Math.min(50, targetCv) unconditionally, which
+    // equals targetCv itself whenever targetCv≤50 — so a small level like t15
+    // (target 26) would always recommend the FULL 26 again regardless of
+    // progress, e.g. recommending "26 more" even after 7 of 26 were already done
+    // (should be 19 more). Now: only inflate to 50 when the level is genuinely
+    // large (>50) AND what's left is a small tail (<50); otherwise just recommend
+    // the actual remaining amount, however small — that's already correct and
+    // proportionate when the whole level is naturally small.
+    const addCurves = remaining <= 0
+      ? Math.min(50, targetCv)
+      : (targetCv > 50 && remaining < 50 ? 50 : remaining);
     const pAfter   = ecmProbability(d, haveEff + addCurves, b1);
     const pExists  = pFactorExists(d, digits);
     const gain     = pExists * (pAfter - pBefore) * 100;
