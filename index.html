@@ -3080,7 +3080,13 @@ async function exportNextRuns() {
   const candidates = allEntries.filter(e => e.status !== 'full' && e.val && e.n >= rangeMin && e.n <= rangeMax);
   if (!candidates.length) { alert('No entries in that range (or all already fully factored).'); return; }
 
-  const CHUNK = 25; // entries per tick — small enough to keep the UI responsive
+  const CHUNK = 150; // entries per tick. Benchmarked worst case (cold cache, ~40%
+  // of entries factored, values up to 70,000 digits): ~0.66ms/entry average, so a
+  // 150-entry chunk is ~100ms — still well under where lag becomes noticeable, but
+  // ~6x fewer forced yields than the previous CHUNK=25. Each yield has a real cost:
+  // browsers clamp setTimeout to a minimum delay (commonly ~4ms, sometimes more),
+  // so yielding far more often than needed just adds pure overhead with no benefit
+  // to responsiveness.
   for (let i = 0; i < candidates.length; i += CHUNK) {
     const chunk = candidates.slice(i, i + CHUNK);
     for (const e of chunk) {
