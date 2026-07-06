@@ -3039,6 +3039,20 @@ async function exportNextRuns() {
   if (capInput === null) return; // cancelled
   const CAP = Math.max(1, parseInt(capInput.replace(/[^0-9]/g, '')) || lastCap);
   try { localStorage.setItem('eulerFDB_exportCap_v1', String(CAP)); } catch(_) {}
+
+  // Range always defaults to "all" (not remembered) — a range restriction is a
+  // one-off adjustment for this export, not a standing preference; remembering it
+  // would risk silently narrowing a LATER export the user forgot they'd limited.
+  const rangeInput = prompt('E(n) range to export? e.g. "500-600" — leave blank for all', '');
+  if (rangeInput === null) return; // cancelled
+  let rangeMin = -Infinity, rangeMax = Infinity;
+  const rm = rangeInput.trim().match(/(\d+)?\s*[-–—to,]+\s*(\d+)?/i) || (rangeInput.trim() ? [null, rangeInput.trim(), rangeInput.trim()] : null);
+  if (rangeInput.trim() && rm) {
+    if (rm[1] != null) rangeMin = parseInt(rm[1]);
+    if (rm[2] != null) rangeMax = parseInt(rm[2]);
+    if (rangeMin > rangeMax) [rangeMin, rangeMax] = [rangeMax, rangeMin];
+  }
+
   const ecmData = loadECM();
   const runs = [];
 
@@ -3048,7 +3062,8 @@ async function exportNextRuns() {
   // ECM one. GMP-ECM has no such limit, and the export writes numbers to a separate
   // file specifically so arbitrarily large entries work fine — these are exactly
   // the numbers where FactorDB can't help at all and your own ECM work matters most.
-  const candidates = allEntries.filter(e => e.status !== 'full' && e.val);
+  const candidates = allEntries.filter(e => e.status !== 'full' && e.val && e.n >= rangeMin && e.n <= rangeMax);
+  if (!candidates.length) { alert('No entries in that range (or all already fully factored).'); return; }
 
   const CHUNK = 25; // entries per tick — small enough to keep the UI responsive
   for (let i = 0; i < candidates.length; i += CHUNK) {
@@ -3272,9 +3287,12 @@ async function exportNextRuns() {
   filesToDownload.forEach((f, i) => setTimeout(() => downloadText(f.name, f.text), i * 350));
 
   const fileList = filesToDownload.map(f => f.name).join(', ');
-  const msg = multi
+  const rangeStr = (rangeMin > -Infinity || rangeMax < Infinity)
+    ? ' [E(' + (rangeMin > -Infinity ? rangeMin : '0') + ')–E(' + (rangeMax < Infinity ? rangeMax : '∞') + ') only]'
+    : '';
+  const msg = (multi
     ? 'Exported ' + top.length + ' runs across ' + totalCores + ' cores / ' + coresPerMachine.length + ' machine(s) → ' + filesToDownload.length + ' files'
-    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.bat + ecm_runs_summary.txt';
+    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.bat + ecm_runs_summary.txt') + rangeStr;
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
