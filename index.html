@@ -562,8 +562,8 @@
   <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)" title="Generate a file to paste into factordb.com/report.php">
     ↓ Export FDB submission
   </button>
-  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the 1000 best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands">
-    ↓ Export runs (top 1000)
+  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands — asks how many">
+    ↓ Export runs
   </button>
   <button class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
@@ -2999,7 +2999,8 @@ function exportFDBSubmission() {
 }
 
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
-// GMP-ECM commands + a human summary. Ranked by value (odds/time), capped at 1000.
+// GMP-ECM commands + a human summary. Ranked by value (odds/time), capped at a
+// user-chosen count (asked for at export time, default/remembered value 1000).
 // Wrap a single core's run lines in the standard header/footer (single-machine,
 // single-core export — the original behaviour).
 function singleBatchText(lines, importFile, runs) {
@@ -3033,7 +3034,11 @@ async function exportNextRuns() {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
-  const CAP = 1000;
+  const lastCap = parseInt(localStorage.getItem('eulerFDB_exportCap_v1')) || 1000;
+  const capInput = prompt('How many best-value runs to export?', String(lastCap));
+  if (capInput === null) return; // cancelled
+  const CAP = Math.max(1, parseInt(capInput.replace(/[^0-9]/g, '')) || lastCap);
+  try { localStorage.setItem('eulerFDB_exportCap_v1', String(CAP)); } catch(_) {}
   const ecmData = loadECM();
   const runs = [];
 
@@ -3078,7 +3083,7 @@ async function exportNextRuns() {
 
   if (!runs.length) { alert('No recommended runs found.'); return; }
 
-  // Rank by EFFICIENCY — overall-odds gained per second of CPU — so the top 1000
+  // Rank by EFFICIENCY — overall-odds gained per second of CPU — so the top CAP
   // are the best-value runs, not merely the quickest. Tiebreak by speed (faster
   // first) so equal-value runs still surface the cheaper one.
   const eff = r => r.gain / Math.max(r.cpuTime, 1);
@@ -3087,7 +3092,7 @@ async function exportNextRuns() {
   const totalSec = top.reduce((s, r) => s + (r.cpuTime || 0), 0);
 
   // Now resolve the exact cofactor VALUE for just the top runs (BigInt division is
-  // expensive, so we do it here — at most ~1000 entries — not for all candidates).
+  // expensive, so we do it here — at most CAP entries — not for all candidates).
   // Cache per entry so multiple runs on the same number divide only once.
   const cofValCache = new Map();
   for (const r of top) {
