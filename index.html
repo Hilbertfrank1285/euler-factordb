@@ -1035,6 +1035,49 @@ function migrateRedundantComposites() {
   localStorage.setItem('eulerFDB_compositeDedup_v1', '1');
 }
 
+// One-time migration: re-hash sigmas that were stored in their original raw
+// decimal form (from before sigma hashing existed) down to the compact form.
+// Critical that this runs on EVERY device, not just wherever the fix was first
+// deployed — the fix itself only hashes sigmas parsed from a NEW log going
+// forward; it does nothing for data that's already sitting in results_ecm.json
+// on GitHub or already loaded locally. Without this migration, "Clear all local
+// data" only empties storage momentarily — the very next automatic pull on
+// reload brings the same full-size raw sigmas straight back down from GitHub,
+// hitting the same quota wall again immediately, which is why clearing alone
+// didn't fix it. A raw (never-hashed) sigma is a long pure-digit string; the
+// hash output is a base36 string at most 7 characters — so "pure digits AND
+// longer than 8 chars" reliably identifies what still needs converting, with a
+// safety margin past the hash's own max length even in the rare case a hash
+// happens to come out all-numeric.
+function migrateSigmaHashes() {
+  if (localStorage.getItem('eulerFDB_sigmaHash_v1')) return;
+  const data = loadECM();
+  let convertedSigmas = 0, touchedAttempts = 0;
+  for (const attempts of Object.values(data)) {
+    if (!Array.isArray(attempts)) continue;
+    for (const a of attempts) {
+      if (!Array.isArray(a.sigmas) || !a.sigmas.length) continue;
+      let changed = false;
+      const rehashed = a.sigmas.map(s => {
+        if (/^\d{9,}$/.test(String(s))) { changed = true; convertedSigmas++; return _hashStr(String(s)); }
+        return s;
+      });
+      if (changed) {
+        // Dedup again after hashing — two distinct raw sigmas could (astronomically
+        // rarely) hash to the same value; a Set here just means that rare case
+        // costs one lost dedup slot, not a crash or corrupted count.
+        a.sigmas = Array.from(new Set(rehashed));
+        touchedAttempts++;
+      }
+    }
+  }
+  if (touchedAttempts > 0) {
+    saveECM(data);
+    addLog('Compacted ' + convertedSigmas + ' sigma value' + (convertedSigmas===1?'':'s') + ' across ' + touchedAttempts + ' run' + (touchedAttempts===1?'':'s') + ' (storage size reduction)', 'ok');
+  }
+  localStorage.setItem('eulerFDB_sigmaHash_v1', '1');
+}
+
 // Dedicated storage for fdb-unknown n values — persists independently of eulerValues loading
 function loadFdbUnknownSet() {
   try { return new Set(JSON.parse(localStorage.getItem('eulerFDB_fdbUnknown_v1') || '[]')); }
@@ -6597,6 +6640,7 @@ setTimeout(async () => {
     try { migrateMislabeledEcm(); } catch(_) {}  // one-time P±1→ECM relabel fix
     fdbCache    = loadFDBCache();
     try { migrateRedundantComposites(); } catch(_) {}  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
+    try { migrateSigmaHashes(); } catch(_) {}  // one-time raw-sigma→hash compaction (storage size fix)
     allEntries  = buildEntries();
     // Step 1's premature render (before eulerValues had loaded) computed and
     // permanently cached "no recommendation" / "no CPU total" for every entry that
