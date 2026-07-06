@@ -1620,13 +1620,17 @@ function ecmProbabilityWithI(d, b1_0, curves, I_val) {
 //   Success after k curves ≈ 1 - exp(-k / C_opt(d))   (Poisson model; 63% at k=C_opt)
 // ─────────────────────────────────────────────────────────────────────────────
 const ECM_TABLE = [
-  // 15d added from Zimmermann's authoritative measured params (50 bits ≈ 15
-  // digits: B1=12322, 9 curves — https://members.loria.fr/PZimmermann/records/ecm/params.html,
-  // the more accurate, later-generation dataset). Deliberately no 10d entry: the
-  // measured data at that size is explicitly flagged as noisy/unreliable by the
-  // researchers who compiled it, and factors that tiny are better caught by trial
-  // division / Pollard's rho (factorizeSmall) than dedicated ECM curves anyway.
-  { d: 15, B1: 12322, curves: 9     },
+  // NOTE: this table intentionally starts at 20d. An earlier version added a 15d
+  // entry sourced from a DIFFERENT Zimmermann dataset (the "bits-indexed" table,
+  // B1=12322/9 curves) than the rest of this table (the "digit-indexed" one). The
+  // two datasets don't agree at nearby points, and splicing one point from a
+  // different methodology into this table produced a non-monotonic B1 — 15d
+  // showing a HIGHER B1 than 20d, which makes no sense (a larger target factor
+  // always needs an equal-or-larger smoothness bound). Below-the-table values
+  // (e.g. 15d, 10d) are now handled by properly extrapolating this table's OWN
+  // observed trend (see ecmTableB1/ecmOptimalCurves below) instead of importing a
+  // foreign, inconsistent data point — guaranteed monotonic since it's the same
+  // dataset's own slope, just extended, not a splice from elsewhere.
   { d: 20, B1: 11e3,  curves: 74    },
   { d: 25, B1: 5e4,   curves: 214   },
   { d: 30, B1: 25e4,  curves: 430   },
@@ -1666,7 +1670,18 @@ function ecmOptimalCurves(d) {
 // Optimal B1 for a d-digit factor (interpolated from the same table).
 function ecmTableB1(d) {
   const T = ECM_TABLE;
-  if (d <= T[0].d) return T[0].B1;
+  if (d <= T[0].d) {
+    // Extrapolate DOWNWARD using this table's own observed log-log slope between
+    // its first two points — same approach as the above-table case below, just
+    // mirrored. This is what guarantees B1 keeps decreasing for smaller targets
+    // instead of going flat (a flat clamp would still be "consistent" in the sense
+    // of never increasing, but throws away real cost savings for small targets —
+    // and going through this table's own trend, rather than importing a value
+    // from a different dataset, is what keeps it internally consistent).
+    const a = T[0], b = T[1];
+    const slope = (Math.log(b.B1) - Math.log(a.B1)) / (b.d - a.d);
+    return Math.max(1, Math.exp(Math.log(a.B1) + slope * (d - a.d)));
+  }
   if (d >= T[T.length - 1].d) {
     const a = T[T.length - 2], b = T[T.length - 1];
     const slope = (Math.log(b.B1) - Math.log(a.B1)) / (b.d - a.d);
@@ -5278,7 +5293,16 @@ function recommendNextRun(digits, attempts) {
   const maxUseful = Math.min(Math.floor(digits / 2), 65);
   // Derived from ECM_TABLE itself (not a separately hardcoded list) so adding a
   // new table entry — e.g. the 15d level — actually takes effect here too.
-  const levels = ECM_TABLE.map(t => t.d).filter(d => d <= maxUseful);
+  // 15d is deliberately NOT a row in ECM_TABLE (that table is a single, clean,
+  // internally-consistent digit-indexed dataset — see the comment on ECM_TABLE
+  // for why splicing in a value from elsewhere caused a real bug before). Instead
+  // it's added here as an extra level, computed by ecmTableB1/ecmOptimalCurves'
+  // own downward extrapolation of the table's trend — guaranteed monotonic (never
+  // a higher B1 than 20d) since it's the same dataset's own slope, just extended.
+  // No 10d: that's far enough outside the table's fitted range (20-65d) that the
+  // extrapolation becomes unreliable, and factors that tiny are better caught by
+  // trial division / Pollard's rho (factorizeSmall) than dedicated ECM anyway.
+  const levels = [15, ...ECM_TABLE.map(t => t.d)].filter(d => d <= maxUseful);
 
   // How "complete" is each ECM level? Use the efficiency-aware probability of the
   // user's actual runs at that digit size (ecmProbForDigit accounts for B1 — a
