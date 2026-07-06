@@ -3464,7 +3464,7 @@ async function processEcmLogText(text, sourceLabel) {
       // confirmed (no Step 2, no factor) — meaning that curve was interrupted
       // mid-run and never actually completed, so it's correctly discarded here,
       // not counted.
-      cur.pendingSigma = mm[1];
+      cur.pendingSigma = _hashStr(mm[1]);
     }
     if (reStep2.test(ln) && cur.pendingSigma) {
       // Stage 2 completed for the pending curve — it genuinely ran to completion.
@@ -4202,6 +4202,7 @@ function showStorageWarning() {
   const used = Object.keys(localStorage).reduce((sum, k) => sum + localStorage.getItem(k).length, 0);
   const usedMB = (used / 1024 / 1024).toFixed(2);
   console.error('localStorage quota exceeded! Used: ' + usedMB + 'MB');
+  console.error('Breakdown (what\'s actually taking up space):', getStorageBreakdown());
   setStatus('⚠ localStorage full (' + usedMB + 'MB) — data NOT being saved! Push to GitHub then clear cache.', 'err');
 }
 
@@ -4213,15 +4214,27 @@ function getStorageBreakdown() {
     [LOG_KEY]:       'activityLog',
     [COOLDOWN_KEY]:  'cooldown',
     [GH_SETTINGS_KEY]: 'ghSettings',
+    [COFDIG_KEY]:    'cofactorDigitsCache',
   };
   const breakdown = {};
-  let total = 0;
+  let total = 0, accountedFor = 0;
   for (const [k, label] of Object.entries(keys)) {
     const val = localStorage.getItem(k) || '';
     const kb = (val.length / 1024).toFixed(1);
     breakdown[label] = kb + ' KB';
-    total += val.length;
+    accountedFor += val.length;
   }
+  // Catch anything else under this origin not explicitly listed above (e.g. the
+  // fdb-unknown/seed-new sets, one-time migration flags, export-cap setting) —
+  // keeps this breakdown accurate as new small keys get added over time instead
+  // of silently going stale like this function did before.
+  for (const k of Object.keys(localStorage)) {
+    if (keys[k] !== undefined) continue;
+    total += (localStorage.getItem(k) || '').length;
+  }
+  total += accountedFor;
+  const other = total - accountedFor;
+  if (other > 0) breakdown['other (misc small keys)'] = (other / 1024).toFixed(1) + ' KB';
   breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
   return breakdown;
 }
@@ -5560,6 +5573,31 @@ function getCofactor(e) {
 // maxUseful = floor(digits/2)), so exact confirmation is only ever needed when the
 // fast estimate lands within a couple digits of one of those breakpoints.
 const _COFDIG_BOUNDARIES = [30,40,50,60,70,80,90,100,110,120,130];
+// Compact 32-bit FNV-1a hash of a string, encoded as a short base-36 string.
+// Used anywhere a value only ever needs EQUALITY/set-membership checks, never
+// its own content back out — e.g. detecting "did this entry's factors change"
+// or deduplicating ECM curve sigmas. Collisions are astronomically unlikely for
+// these purposes, and even a false match would just be silently self-correcting
+// (a cache recomputes, or a duplicate curve is harmlessly treated as already-seen)
+// rather than causing any real data loss or corruption.
+function _hashStr(s) {
+  let h = 0x811c9dc5; // FNV-1a 32-bit offset basis
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+// Compact fingerprint for a factor list — used only to detect "have this entry's
+// factors changed since we cached its cofactor digit count", never to reconstruct
+// the factors themselves (those already live in fdbCache). Storing the full
+// factors.join(',') string as the fingerprint was needlessly expensive: across
+// thousands of factored entries, each with several potentially-large factors,
+// that adds up to a real fraction of localStorage's quota for something that
+// only ever needs to answer a yes/no "did this change" question.
+function _factorsFingerprint(factors) {
+  return _hashStr(factors.join(','));
+}
 function _nearCofDigBoundary(est) {
   // The +1 uncertainty only ever changes recommendNextRun's OUTCOME when the
   // estimate lands exactly on one of these values (proven: floor(d/2) only crosses
@@ -5577,7 +5615,7 @@ function getCofactorDigits(e) {
   // No known factors → cofactor IS the full number; skip BigInt entirely (the
   // common case for most entries — this alone avoids the original load-time cost).
   if (factors.length === 0) return e.val.length;
-  const key = factors.join(',');
+  const key = _factorsFingerprint(factors);
   // 1. In-memory entry cache — instant, no lookup, survives for this session.
   if (e._cofDigKey === key && e._cofDig != null) return e._cofDig;
   // 2. Persisted, GitHub-synced cache — a pure function of (value, factors), so
