@@ -5434,31 +5434,71 @@ function recommendNextRun(digits, attempts) {
   // smooth-p∓1 primes across MANY sizes at once (strongest at small factors). So
   // score their gain by summing the existence-weighted find-probability over all
   // plausible factor sizes — not at a single "optimal" digit (which gave +0.00%).
-  const pmGain = (method, b1, b2) => {
+  // gain(method, newB1, newB2, priorB1, priorB2) = MARGINAL probability gained by
+  // moving from the prior bound to the new one — NOT the new attempt's raw
+  // probability alone. P-1/P+1 are deterministic for a given (unknown) factor: a
+  // higher bound's success set is a strict SUPERSET of a lower bound's (anything
+  // smooth at B1 is automatically smooth at B1'>B1), so re-running at the SAME or
+  // a LOWER bound would find nothing new, and the value of running at a HIGHER
+  // bound is only the slice of probability space the prior attempt didn't already
+  // cover — matching bestPm1Prob's own "take the best attempt, don't compound as
+  // independent" logic, just applied to a proposed future attempt instead of only
+  // to attempts already made.
+  const pmGain = (method, newB1, newB2, priorB1, priorB2) => {
     let g = 0, bestD = levels[0] || 15, bestContrib = -1;
     for (const d of levels) {
-      const contrib = pFactorExists(d, digits) * pm1Probability(d, b1, b2, method);
+      const pNew   = pm1Probability(d, newB1, newB2, method);
+      const pPrior = priorB1 != null ? pm1Probability(d, priorB1, priorB2, method) : 0;
+      const marginal = Math.max(0, pNew - pPrior);
+      const contrib = pFactorExists(d, digits) * marginal;
       g += contrib;
       if (contrib > bestContrib) { bestContrib = contrib; bestD = d; }
     }
     return { gain: g * 100, bestD };
   };
-  const hasP1  = pm1Attempts.some(a => a.method === 'P-1' && parseB1(a.b1) >= 1e6);
-  const hasPp1 = pm1Attempts.some(a => a.method === 'P+1' && parseB1(a.b1) >= 1e6);
-  if (!hasP1) {
-    const b1 = 1e7, { gain, bestD } = pmGain('P-1', b1, 18 * b1);
-    candidates.push({
-      method: 'P-1', b1: fmtB1(b1), b2: 'auto', rawB1: b1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
-      gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', b1, null, 1, digits),
-      reason: 'A single P-1 run is fast and catches primes p where p−1 is smooth (best at small factors) — a class ECM can miss. Worth doing once.',
-    });
-  } else if (!hasPp1) {
-    const b1 = 1e7, { gain, bestD } = pmGain('P+1', b1, 18 * b1);
-    candidates.push({
-      method: 'P+1', b1: fmtB1(b1), b2: 'auto', rawB1: b1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
-      gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', b1, null, 1, digits),
-      reason: 'You\'ve done P-1 but not P+1. P+1 hits the complementary half of primes (smooth p+1) for little extra cost.',
-    });
+  // Best EXISTING attempt per method (if any) — a later, higher-B1 attempt
+  // subsumes an earlier lower one, so only the highest B1 tried matters here.
+  const bestExistingPm1 = (method) => {
+    let best = null;
+    for (const a of pm1Attempts) {
+      if (a.method !== method) continue;
+      const b1n = parseB1(a.b1);
+      if (!best || b1n > best.b1) best = { b1: b1n, b2: a.b2 ? parseB1(a.b2) : null };
+    }
+    return best;
+  };
+  const priorP1  = bestExistingPm1('P-1');
+  const priorPp1 = bestExistingPm1('P+1');
+  // Escalate to 10x the existing best B1 (a standard step-up factor), or start at
+  // the usual 1e7 default if this method has never been tried at all. Both P-1
+  // and P+1 are proposed as separate candidates rather than gating one behind the
+  // other — the efficiency ranking below already picks whichever (if either)
+  // is actually worth including in the final top-3.
+  {
+    const newB1 = priorP1 ? priorP1.b1 * 10 : 1e7;
+    const { gain, bestD } = pmGain('P-1', newB1, 18 * newB1, priorP1 && priorP1.b1, priorP1 && priorP1.b2);
+    if (gain > 0.0005) { // skip proposing a near-zero-value escalation
+      candidates.push({
+        method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
+        gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', newB1, null, 1, digits),
+        reason: priorP1
+          ? 'You already tried P-1 at B1=' + fmtB1(priorP1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p−1 values — only worth it because the smaller bound didn\'t already catch it.'
+          : 'A single P-1 run is fast and catches primes p where p−1 is smooth (best at small factors) — a class ECM can miss. Worth doing once.',
+      });
+    }
+  }
+  {
+    const newB1 = priorPp1 ? priorPp1.b1 * 10 : 1e7;
+    const { gain, bestD } = pmGain('P+1', newB1, 18 * newB1, priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
+    if (gain > 0.0005) {
+      candidates.push({
+        method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
+        gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', newB1, null, 1, digits),
+        reason: priorPp1
+          ? 'You already tried P+1 at B1=' + fmtB1(priorPp1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p+1 values — only worth it because the smaller bound didn\'t already catch it.'
+          : 'P+1 hits the complementary half of primes (smooth p+1) for little extra cost — a class both ECM and P-1 can miss.',
+      });
+    }
   }
 
   if (!candidates.length) return null;
