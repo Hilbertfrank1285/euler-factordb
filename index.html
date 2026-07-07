@@ -1825,7 +1825,16 @@ function dickmanRho(u) {
     rho[i] = s / x;
   }
   const result = Math.max(rho[N], 0);
-  if (_dickmanCache.size < 5000) _dickmanCache.set(key, result);
+  // Cap raised from 5000: the P-1/P+1 escalation logic (recommendNextRun) snaps B1
+  // to one of ~10 standard values specifically so the resulting (digit-level, B1)
+  // combinations stay bounded and cacheable — but pm1Probability's stage-2 loop
+  // calls this 100+ times per combination (once per integration step), and across
+  // ~11 digit levels x 2 methods that bounded set alone needs roughly 20k slots.
+  // Below this cap, the cache fills up and stops retaining ANYTHING new, so most
+  // of that otherwise-bounded set never actually gets cached — thrashing again
+  // despite the input space being bounded. 30000 comfortably covers it with room
+  // for ECM's own (smaller) usage too.
+  if (_dickmanCache.size < 30000) _dickmanCache.set(key, result);
   return result;
 }
 
@@ -5469,13 +5478,42 @@ function recommendNextRun(digits, attempts) {
   };
   const priorP1  = bestExistingPm1('P-1');
   const priorPp1 = bestExistingPm1('P+1');
-  // Escalate to 10x the existing best B1 (a standard step-up factor), or start at
-  // the usual 1e7 default if this method has never been tried at all. Both P-1
-  // and P+1 are proposed as separate candidates rather than gating one behind the
-  // other — the efficiency ranking below already picks whichever (if either)
-  // is actually worth including in the final top-3.
+  // Snap the escalated B1 to one of ECM_TABLE's own standard values (already a
+  // well-spaced set spanning the practical range) instead of a continuous
+  // "priorB1 * 10". A continuous value derived from each entry's own arbitrary
+  // historical B1 makes every entry's escalation target UNIQUE — which thrashes
+  // dickmanRho's cache (keyed on a value derived from B1): benchmarked this
+  // directly and it turned a ~0.15ms/entry ranking pass into over 200ms/entry,
+  // i.e. what would be a full working day to rank a few thousand candidates.
+  // Snapping bounds the number of distinct B1 values ever evaluated across ALL
+  // entries to the table's own size (~10), restoring the cache hit rate the old
+  // fixed "always B1=1e7" behavior had — and produces more conventional B1
+  // values in the exported commands too, instead of odd numbers like 13712300.
+  //
+  // The PRIOR B1 (what the user actually already ran) needs the same treatment —
+  // it's just as entry-specific, and pmGain uses it too (to compute how much
+  // probability space is already covered). Snapping it DOWN to the nearest
+  // standard value at or below the real one is the conservative direction: it
+  // can only UNDERSTATE prior coverage, never overstate it, so a genuinely
+  // worthwhile escalation is never masked as "already covered, skip it."
+  const _STANDARD_B1S = ECM_TABLE.map(t => t.B1);
+  const snapDownB1 = (b1) => {
+    let best = _STANDARD_B1S[0];
+    for (const b of _STANDARD_B1S) if (b <= b1) best = b; else break;
+    return best;
+  };
+  if (priorP1)  { priorP1.b1  = snapDownB1(priorP1.b1);  priorP1.b2  = priorP1.b1  * 18; }
+  if (priorPp1) { priorPp1.b1 = snapDownB1(priorPp1.b1); priorPp1.b2 = priorPp1.b1 * 18; }
+  const nextStandardB1 = (priorB1) => {
+    const target = (priorB1 || 0) * 5; // require at least a 5x step to be worthwhile
+    for (const b of _STANDARD_B1S) if (b >= target) return b;
+    return _STANDARD_B1S[_STANDARD_B1S.length - 1] * 10; // beyond the table, still bounded
+  };
+  // Both P-1 and P+1 are proposed as separate candidates rather than gating one
+  // behind the other — the efficiency ranking below already picks whichever (if
+  // either) is actually worth including in the final top-3.
   {
-    const newB1 = priorP1 ? priorP1.b1 * 10 : 1e7;
+    const newB1 = priorP1 ? nextStandardB1(priorP1.b1) : 1e7;
     const { gain, bestD } = pmGain('P-1', newB1, 18 * newB1, priorP1 && priorP1.b1, priorP1 && priorP1.b2);
     if (gain > 0.0005) { // skip proposing a near-zero-value escalation
       candidates.push({
@@ -5488,7 +5526,7 @@ function recommendNextRun(digits, attempts) {
     }
   }
   {
-    const newB1 = priorPp1 ? priorPp1.b1 * 10 : 1e7;
+    const newB1 = priorPp1 ? nextStandardB1(priorPp1.b1) : 1e7;
     const { gain, bestD } = pmGain('P+1', newB1, 18 * newB1, priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
     if (gain > 0.0005) {
       candidates.push({
