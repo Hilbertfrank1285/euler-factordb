@@ -2062,6 +2062,15 @@ function normalizeEcmAttempts(attempts) {
   const out = [];
   const seen = new Map();
   for (const a of attempts) {
+    // Compact any raw (un-hashed) sigma HERE, at the one place every ECM attempt
+    // list passes through — imports, merges, and GitHub pulls all call this. This
+    // is what actually stops a pull from re-introducing full-size raw sigmas into
+    // the very save that happens immediately after merging: a one-time migration
+    // run separately (in Phase 3, after the pull already saved) was too late to
+    // prevent that first save from already being oversized on a tight-quota device.
+    if (Array.isArray(a.sigmas) && a.sigmas.length) {
+      a.sigmas = Array.from(new Set(a.sigmas.map(s => /^\d{9,}$/.test(String(s)) ? _hashStr(String(s)) : s)));
+    }
     const looksLikeEcm = (Array.isArray(a.sigmas) && a.sigmas.length > 0) || (parseInt(a.curves) || 0) > 1;
     if ((a.method === 'P-1' || a.method === 'P+1') && looksLikeEcm) a.method = 'ECM';
     const key = a.method + '|' + parseB1(a.b1);
