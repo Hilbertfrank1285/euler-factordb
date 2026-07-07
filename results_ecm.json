@@ -225064,7 +225064,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "7",
+        "curves": "16",
         "sigmas": [
           "1cb1dai",
           "1brji3r",
@@ -225072,7 +225072,16 @@
           "1vkws9p",
           "obv19e",
           "1vpkuom",
-          "okdo1q"
+          "okdo1q",
+          "3f2pj",
+          "xdwbkg",
+          "19lwk21",
+          "qoo5a",
+          "xf955",
+          "1nl0oqz",
+          "1ms2mc4",
+          "1bkkijf",
+          "1a4z700"
         ],
         "poly": "",
         "I": "",
@@ -225358,7 +225367,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "10",
+        "curves": "16",
         "sigmas": [
           "1yqwqsn",
           "wdnyqq",
@@ -225369,7 +225378,13 @@
           "x981ge",
           "1kbzfyw",
           "kpmxi0",
-          "xjp2su"
+          "xjp2su",
+          "1nmfco3",
+          "168z20h",
+          "z5fz4c",
+          "wauf1d",
+          "ofl5nu",
+          "4ywt9k"
         ],
         "poly": "",
         "I": "",
@@ -227370,7 +227385,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "8",
+        "curves": "16",
         "sigmas": [
           "2bt8l3",
           "px221j",
@@ -227379,7 +227394,15 @@
           "1dehs8a",
           "6lw6s9",
           "11hzwkq",
-          "907sve"
+          "907sve",
+          "1i8ep1j",
+          "pn717z",
+          "1500z1o",
+          "1rghpv6",
+          "cnq22",
+          "gnfzt8",
+          "6cev2u",
+          "68dcy2"
         ],
         "poly": "",
         "I": "",
@@ -227437,7 +227460,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "8",
+        "curves": "16",
         "sigmas": [
           "1qzeaq7",
           "119gk5",
@@ -227446,7 +227469,15 @@
           "pw83du",
           "1roh5jn",
           "1wiitfk",
-          "1yvzf2g"
+          "1yvzf2g",
+          "1l33lqr",
+          "iwa3gs",
+          "4b9t5c",
+          "1qvr5ot",
+          "1muv5ba",
+          "2mvi1g",
+          "g8z4dt",
+          "be8ogk"
         ],
         "poly": "",
         "I": "",
@@ -227579,7 +227610,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "8",
+        "curves": "16",
         "sigmas": [
           "si0m8",
           "nqgfnb",
@@ -227588,7 +227619,15 @@
           "1mrcg1h",
           "10z16is",
           "1iijl8p",
-          "uy96i4"
+          "uy96i4",
+          "dfk3bb",
+          "ekyapg",
+          "cuzkbl",
+          "hh49bv",
+          "vo3fc7",
+          "19c9nkc",
+          "1jjfcmp",
+          "19t4ej4"
         ],
         "poly": "",
         "I": "",
@@ -227646,7 +227685,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "10",
+        "curves": "16",
         "sigmas": [
           "14tgi77",
           "1ymjl8g",
@@ -227657,7 +227696,13 @@
           "a956c",
           "1uy7tak",
           "4cpixr",
-          "1v4a58a"
+          "1v4a58a",
+          "nxl4zb",
+          "8p2whr",
+          "p43myr",
+          "17mlndg",
+          "pzelni",
+          "hm4cxn"
         ],
         "poly": "",
         "I": "",
@@ -227785,7 +227830,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "8",
+        "curves": "16",
         "sigmas": [
           "199yqpl",
           "wuow77",
@@ -227794,7 +227839,15 @@
           "1kvwbr8",
           "302gir",
           "wn23lm",
-          "1pndeey"
+          "1pndeey",
+          "10ez3rr",
+          "ag47co",
+          "1ikogb3",
+          "5mdf2t",
+          "rk8jwz",
+          "sopktm",
+          "1uh4lwe",
+          "1n8f74r"
         ],
         "poly": "",
         "I": "",
@@ -227852,14 +227905,24 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "6",
+        "curves": "16",
         "sigmas": [
           "r05cmo",
           "xv2dv1",
           "1rp83w9",
           "129kdp9",
           "y3f2bo",
-          "1bbm4h9"
+          "1bbm4h9",
+          "408ivh",
+          "1396b5g",
+          "1p2319x",
+          "1a5smls",
+          "18d1vmf",
+          "8m50t",
+          "1hnaq67",
+          "tpf336",
+          "1xks4te",
+          "e3fapa"
         ],
         "poly": "",
         "I": "",
@@ -227912,6 +227975,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "ma5ozv",
+          "19e41u4",
+          "aygnit",
+          "17mh6ai",
+          "u8ip59",
+          "nkvqeu",
+          "1e4xrc3",
+          "n16kka",
+          "e30fek",
+          "10v39sl",
+          "16zfakp",
+          "cvhcn7",
+          "s3mpw",
+          "yo8j2c",
+          "jr3fia",
+          "4xpwr3"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8826": [
@@ -227962,7 +228055,7 @@
         "method": "ECM",
         "b1": "2420",
         "b2": "257260",
-        "curves": "8",
+        "curves": "16",
         "sigmas": [
           "2wt9ru",
           "1uk62o1",
@@ -227971,7 +228064,15 @@
           "oneitm",
           "1jn3u4v",
           "1r512b0",
-          "1311ghd"
+          "1311ghd",
+          "1mor49m",
+          "1u6vk9o",
+          "1tw5fxa",
+          "49oa2b",
+          "g68r6l",
+          "16sr437",
+          "hkl2uq",
+          "oa0cvh"
         ],
         "poly": "",
         "I": "",
@@ -228024,6 +228125,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "xq25o4",
+          "m3xkwa",
+          "1j8v6cl",
+          "1a3yzd9",
+          "p9stls",
+          "4rh8zp",
+          "12y0xc8",
+          "1oblvw8",
+          "1pmawgm",
+          "imroyy",
+          "1s0hojb",
+          "1h0gsb9",
+          "9w3o5o",
+          "165j92z",
+          "13wwb9e",
+          "11r7wps"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8830": [
@@ -228069,6 +228200,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1oc7zzf",
+          "j4zl5c",
+          "v7r48i",
+          "1t131u6",
+          "onbd4p",
+          "101o0h4",
+          "1tx2s3c",
+          "1yoc5p0",
+          "1oumhcd",
+          "qcqjck",
+          "1b8c7zl",
+          "1p1th30",
+          "1otm41v",
+          "4sxp67",
+          "1ku3bkb",
+          "1qbeyqw"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8832": [
@@ -228114,6 +228275,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "33pycc",
+          "9fuxuw",
+          "1f529oe",
+          "ueljpu",
+          "1h64dxk",
+          "1y16t39",
+          "1esnulo",
+          "2cpve3",
+          "f3ey43",
+          "nvyres",
+          "1xclgic",
+          "1u5s2dm",
+          "1s8ltiz",
+          "1os5iek",
+          "1xm0h7g",
+          "umnccd"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8834": [
@@ -228159,6 +228350,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "59ogcx",
+          "1bbfzg6",
+          "1yvunnb",
+          "pv3z9d",
+          "14yizju",
+          "ijv54o",
+          "1otktaq",
+          "idxlc7",
+          "1365vde",
+          "11ru27o",
+          "1lpt5ya",
+          "sbnm13",
+          "kmqxtr",
+          "1rkz1wl",
+          "c5wuaj",
+          "18gyvsh"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8836": [
@@ -228204,6 +228425,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "36juso",
+          "13q8s2",
+          "1wn7l4c",
+          "1d2txy5",
+          "4nkfil",
+          "klrd3j",
+          "1hcn62k",
+          "1xgzi1c",
+          "s70bcd",
+          "my4dfv",
+          "bn9k5z",
+          "1h7deu8",
+          "1nmax7e",
+          "n6ulny",
+          "1g5boa5",
+          "11bb5gj"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8838": [
@@ -228249,6 +228500,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "18nhdhq",
+          "1ru296z",
+          "1wgolb3",
+          "1nl51fk",
+          "1lhs5pl",
+          "1dhrhlb",
+          "6n2x18",
+          "17dnjxv",
+          "r0zit9",
+          "1h8zq74",
+          "wyss1q",
+          "h4aroi",
+          "1dfmpau",
+          "tazw4a",
+          "1d7y3s7",
+          "zegaum"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8840": [
@@ -228294,6 +228575,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1uoyyiy",
+          "1wgy5mt",
+          "lbiedp",
+          "1ch48kv",
+          "abn1i8",
+          "zzlf3w",
+          "1rny1r9",
+          "1xv2vmk",
+          "1gy4y1t",
+          "17mioc3",
+          "9roevm",
+          "d7l2px",
+          "1px2o2g",
+          "7p3skf",
+          "wqd089",
+          "18qlke2"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8842": [
@@ -228339,6 +228650,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "pf6yul",
+          "qvdyja",
+          "ks03db",
+          "t4zfz9",
+          "xqaf6l",
+          "170dp5z",
+          "7pg545",
+          "1qmv4bs",
+          "1dtbewy",
+          "hfh47y",
+          "1krwp99",
+          "18iaphj",
+          "1tfmxlh",
+          "1r4ztkj",
+          "5w33n6",
+          "292azx"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8844": [
@@ -228384,6 +228725,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1a9b42g",
+          "1s07nie",
+          "1w44mtx",
+          "1o3htti",
+          "1tt9qg2",
+          "1qam9jm",
+          "s2dvpk",
+          "sckwgf",
+          "fpu5tg",
+          "mgww5o",
+          "26c8ew",
+          "gjn2n5",
+          "9y6dot",
+          "1hkhqra",
+          "13pedw2",
+          "1jonk5u"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8846": [
@@ -228429,6 +228800,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "16kqi80",
+          "jpmvc2",
+          "js8ro1",
+          "1kch9fh",
+          "cuzrnu",
+          "184wi9t",
+          "r4f5uk",
+          "1w1673a",
+          "pdzjh",
+          "k8nn7j",
+          "chxhao",
+          "1qm1fvn",
+          "slwark",
+          "398m48",
+          "cxxswi",
+          "qpc0we"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8848": [
@@ -228474,6 +228875,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1b3onul",
+          "iobbu3",
+          "isg5rl",
+          "u43mx2",
+          "1gghlby",
+          "1bybsgt",
+          "apvtyb",
+          "1y2jqvx",
+          "1t07gak",
+          "1tm9ar",
+          "1w6jw16",
+          "5otdn3",
+          "1uiy00p",
+          "u9ptbh",
+          "b8m2w6",
+          "qw4zbo"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8850": [
@@ -228519,6 +228950,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1k99vbd",
+          "zd2b8a",
+          "w60yxs",
+          "rxcmkf",
+          "1az95eq",
+          "1o3u1e4",
+          "15q9hvy",
+          "4n6g57",
+          "1ggattk",
+          "4fqpla",
+          "6pwt9e",
+          "v6ublr",
+          "honq5o",
+          "59a1n5",
+          "pdkusb",
+          "1jd3yi6"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8852": [
@@ -228564,6 +229025,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "15d92r8",
+          "1io3mlk",
+          "9e5mrj",
+          "1pwo34p",
+          "fwxrcc",
+          "3rybm",
+          "1fmwsta",
+          "1m1ifju",
+          "198uprx",
+          "o9d266",
+          "2qxx8q",
+          "1el0x69",
+          "134k49a",
+          "1e4o2sc",
+          "1tdi7e7",
+          "1nr2g3a"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8854": [
@@ -228609,6 +229100,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "ty3dkq",
+          "klwyg3",
+          "1p1zavc",
+          "1m4l08d",
+          "zx1u6w",
+          "98g4w0",
+          "1aiw0av",
+          "1vsoepl",
+          "1hwou12",
+          "1psjzr9",
+          "1jjv5df",
+          "klcpba",
+          "62o08d",
+          "1csxwzr",
+          "1pkj8q2",
+          "rdfr"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8856": [
@@ -228654,6 +229175,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "ihvjap",
+          "1yg4el7",
+          "gus5y7",
+          "1ssx79s",
+          "bophtq",
+          "97mqju",
+          "dp7dij",
+          "1immwq3",
+          "1asguvx",
+          "wat434",
+          "14vgz0m",
+          "z9buit",
+          "1i42107",
+          "1sz2dff",
+          "1f32zx",
+          "1qc6oe"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8858": [
@@ -228699,6 +229250,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1q8s9ul",
+          "13gg0ff",
+          "1q2prgr",
+          "9qdww0",
+          "13lcl9c",
+          "15j1q6x",
+          "14od3x5",
+          "1vdncup",
+          "hi1krh",
+          "1xbwjsf",
+          "16zd071",
+          "1fn93sj",
+          "gez3ey",
+          "7mk1hm",
+          "15qf22z",
+          "1fbhwob"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8860": [
@@ -228744,6 +229325,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "f92qtl",
+          "1y3hzzw",
+          "519vwc",
+          "1rf6149",
+          "1fakxlx",
+          "ufx94z",
+          "17d57c2",
+          "6szvb6",
+          "1gewazo",
+          "9qn4pn",
+          "1bdwmja",
+          "o7makt",
+          "sci2oy",
+          "7mjayn",
+          "bgsl36",
+          "dqw75p"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8862": [
@@ -228789,6 +229400,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1edk1qe",
+          "1yqegx",
+          "1xi31q1",
+          "1pdg4ym",
+          "yasi8z",
+          "lt2w31",
+          "1mtmsre",
+          "41mmdz",
+          "iihyby",
+          "1p0vjok",
+          "1lcjjeu",
+          "1br88o4",
+          "1qdbgyi",
+          "7tpd2b",
+          "1ht4uly",
+          "4yqcf5"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8864": [
@@ -228834,6 +229475,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "132mttt",
+          "1jiupl1",
+          "1245zck",
+          "1a9apev",
+          "17jnk5b",
+          "l0wc2",
+          "4aytfm",
+          "vud5rs",
+          "t841pi",
+          "1sls13a",
+          "2eeley",
+          "hqc7me",
+          "ps49b5",
+          "1eyjn4m",
+          "1a33vcw",
+          "pqh2sb"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8866": [
@@ -228879,6 +229550,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "d2h1nh",
+          "us9j4a",
+          "1i4l5io",
+          "o7x5ta",
+          "18wipiz",
+          "1c9035i",
+          "15dlzcu",
+          "d3n2fd",
+          "iycr6f",
+          "1wav7bq",
+          "u382ip",
+          "i0cd12",
+          "lggz56",
+          "kryds2",
+          "tysnd8",
+          "1wqfvy0"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8868": [
@@ -228924,6 +229625,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "11y82xd",
+          "10pab5b",
+          "17gil7d",
+          "1x91i9h",
+          "pq6izy",
+          "mnr017",
+          "9u585c",
+          "30r8pi",
+          "15ej0jo",
+          "18njb1k",
+          "1cjce13",
+          "14a66f2",
+          "7pt0yz",
+          "imkqnd",
+          "9jfrjd",
+          "1k00en"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8870": [
@@ -228969,6 +229700,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "172qfff",
+          "zhltxl",
+          "1du27x0",
+          "zgcmo3",
+          "41qgvu",
+          "1608lv3",
+          "15gfcph",
+          "mbvsr9",
+          "11v5cly",
+          "fnmibb",
+          "10q5vrc",
+          "1yy23lx",
+          "19abnwt",
+          "oir2ix",
+          "18y19x3",
+          "1zh72k"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8872": [
@@ -229014,6 +229775,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1lj5l51",
+          "15mfky2",
+          "1olh2tw",
+          "11eh6eo",
+          "39hmcx",
+          "5qxm6r",
+          "11zxm1l",
+          "87ebbt",
+          "98r7fw",
+          "1dpa1xv",
+          "1ds5kjw",
+          "1fiitez",
+          "1ereprt",
+          "13dbwcc",
+          "1xln7j2",
+          "8447mb"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8874": [
@@ -229059,6 +229850,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1yh22bt",
+          "2z8ah9",
+          "1umtx7v",
+          "1v0frlc",
+          "wyyh81",
+          "1ug4q2q",
+          "uzssdp",
+          "9753vi",
+          "j01rhm",
+          "5t0mb6",
+          "1jfz2b0",
+          "1qm9w8u",
+          "gfsdju",
+          "1azhx6z",
+          "dpybdv",
+          "uqdtbb"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8876": [
@@ -229104,6 +229925,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1d4xfvn",
+          "1mmnk4t",
+          "wn6eon",
+          "s2mcrc",
+          "bu6yew",
+          "w538wm",
+          "2ujw3o",
+          "7ael51",
+          "1nn8vmu",
+          "18gnwrp",
+          "o2fh6x",
+          "soctlb",
+          "ov3w7c",
+          "1lwzftm",
+          "lxosh2",
+          "1h7bx7d"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8878": [
@@ -229149,6 +230000,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1mhm1hl",
+          "8d96sb",
+          "1fne3ny",
+          "5f5rfs",
+          "1c8ky39",
+          "1qs27uu",
+          "qspdr3",
+          "16lweq4",
+          "gzqt0z",
+          "9tfiq7",
+          "1vdk5vi",
+          "19mmjih",
+          "16mwhto",
+          "fl4g7y",
+          "1h6cjqk",
+          "ssj1v4"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8880": [
@@ -229194,6 +230075,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "s13jmd",
+          "1xd38tt",
+          "1c7my1l",
+          "p5s510",
+          "icetnh",
+          "bueeat",
+          "5818xk",
+          "cfynkk",
+          "b9xmmv",
+          "16g5cly",
+          "8rnj25",
+          "17i65qx",
+          "6do1yr",
+          "10v2min",
+          "sgnb54",
+          "nxl5jo"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8882": [
@@ -229239,6 +230150,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1nag94b",
+          "m3buoi",
+          "9tvlit",
+          "1tjtga9",
+          "8sz1ny",
+          "njvrrr",
+          "1252yp9",
+          "12zilq6",
+          "1u9hh78",
+          "1pnmi6v",
+          "hsy49u",
+          "i7g53m",
+          "1jgouxm",
+          "lx20kl",
+          "zb7ok9",
+          "d9wy57"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8884": [
@@ -229284,6 +230225,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "eoil5j",
+          "puq2dq",
+          "1l15dp2",
+          "1nvzhm9",
+          "1ptj4wl",
+          "1cnjvkt",
+          "1axzygs",
+          "khfa7x",
+          "hadw4n",
+          "184cp3r",
+          "1ht8ry7",
+          "7e7kk9",
+          "1q6bbhb",
+          "2yh55o",
+          "1mt663n",
+          "1dzqh7z"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8886": [
@@ -229329,6 +230300,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "126lwve",
+          "oge3t1",
+          "10lhjou",
+          "qrrfrx",
+          "tjmrzu",
+          "1d383wx",
+          "1q8hrzz",
+          "1bi9hiu",
+          "33gbvj",
+          "rnoy40",
+          "y91u43",
+          "1an455w",
+          "6m7yu1",
+          "ffbwtz",
+          "bnvhjb",
+          "1eu2a2r"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8888": [
@@ -229374,6 +230375,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "um194t",
+          "yk5h6m",
+          "1b3m7ms",
+          "1l7u0ll",
+          "1kw5bju",
+          "13e8td0",
+          "1bsb8hj",
+          "1mwb7g2",
+          "xla026",
+          "gk15wg",
+          "1jjidod",
+          "1mwdbaa",
+          "1npw2wp",
+          "11nak1x",
+          "1rq2pyl",
+          "7rld07"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8890": [
@@ -229419,6 +230450,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1q6f99s",
+          "1x6n77i",
+          "1na4xa6",
+          "1igz4z3",
+          "1a7bc19",
+          "17osjm7",
+          "15pvs9j",
+          "21rjtz",
+          "1je8f3d",
+          "rrlntz",
+          "1t6dsja",
+          "488e7q",
+          "1aydc1d",
+          "18g8rih",
+          "1hksksa",
+          "1keqvq6"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8892": [
@@ -229464,6 +230525,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "c5evj9",
+          "z51jam",
+          "whs5a2",
+          "1ihygjj",
+          "153j2yw",
+          "1lzwgyb",
+          "dpc9ci",
+          "20movk",
+          "1fzftc8",
+          "1x5fp3f",
+          "1mzl3eg",
+          "1yjrudb",
+          "1bp4tma",
+          "101ddrv",
+          "1kej820",
+          "1cpui54"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8894": [
@@ -229509,6 +230600,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1r4enut",
+          "3g3r2l",
+          "1f9c5fp",
+          "1x3o2ho",
+          "vtf4g3",
+          "k4e0rd",
+          "mwp34l",
+          "nuwmnj",
+          "1trml70",
+          "1w2erw4",
+          "1xodw26",
+          "12w3h8l",
+          "1fb6o9w",
+          "9j3252",
+          "1scd52i",
+          "r4qs7x"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8896": [
@@ -229554,6 +230675,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "10hznpl",
+          "1gk66a2",
+          "k5bd1j",
+          "dx6jzs",
+          "eoza09",
+          "z5n6ey",
+          "nj70xm",
+          "1vjiav6",
+          "1dud6t3",
+          "jtgv2r",
+          "1rjb615",
+          "f7yfmq",
+          "1nh5ow6",
+          "wzttho",
+          "1oit7rf",
+          "1y6ua84"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8898": [
@@ -229599,6 +230750,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "18memi",
+          "acysw5",
+          "ht2t4o",
+          "1ralb5k",
+          "1sr8eyk",
+          "ly6etr",
+          "1mm3sb1",
+          "9y07bc",
+          "uksoz5",
+          "1ozvoy4",
+          "1e4bz47",
+          "1ti8b0q",
+          "1g4ji44",
+          "joifse",
+          "1o6io27",
+          "mrio6t"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8900": [
@@ -229644,6 +230825,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "qxbhn7",
+          "1wnq81c",
+          "8ftlc3",
+          "1gl4oss",
+          "uv9vt9",
+          "1c89syp",
+          "arand1",
+          "1b765ra",
+          "2975lq",
+          "6yju6k",
+          "xfiof4",
+          "1ps6ttd",
+          "120nckx",
+          "1fd3ze2",
+          "p8n8t2",
+          "1m1vdan"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8902": [
@@ -229689,6 +230900,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "nfr0az",
+          "3u0qef",
+          "149ohxs",
+          "1e9gjkv",
+          "2vrccv",
+          "142gpsb",
+          "xqdx1d",
+          "13balvx",
+          "45qwtk",
+          "xo5xvo",
+          "ew4q21",
+          "1hm1po7",
+          "1l8a7pn",
+          "cm1z79",
+          "kqohes",
+          "1kf2fg8"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8904": [
@@ -229734,6 +230975,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "2a9cq",
+          "mm0hop",
+          "1bucp6s",
+          "42lypg",
+          "t8smmz",
+          "1rblqax",
+          "5feq7r",
+          "1nq06l2",
+          "12tjayj",
+          "70yqvn",
+          "gweokk",
+          "5al4kl",
+          "1sugvvg",
+          "16hl0td",
+          "ltu7ag",
+          "1hs44wb"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8906": [
@@ -229779,6 +231050,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "phoaw8",
+          "12fisa9",
+          "1oxv6nq",
+          "8u83lp",
+          "1t4gw36",
+          "1tn8xs5",
+          "1x05iuk",
+          "19dsize",
+          "1qdxdrq",
+          "1lrnqk5",
+          "i7svw9",
+          "1bi5nji",
+          "1wyczhe",
+          "1x3uldz",
+          "1l6onwv",
+          "9qj3c2"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8908": [
@@ -229824,6 +231125,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "httmrm",
+          "17avhgx",
+          "1ko7v9q",
+          "4fmlb5",
+          "1eq39iv",
+          "1z0p1lc",
+          "ys09yy",
+          "bu7vd3",
+          "1852urj",
+          "1kajasc",
+          "1xwl79j",
+          "ccvrir",
+          "1rklllh",
+          "ytadln",
+          "huu7w7",
+          "y9rf"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8910": [
@@ -229869,6 +231200,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "g609g",
+          "ran3vu",
+          "nmdflz",
+          "1ani0cd",
+          "y8ipzl",
+          "1dzn2f0",
+          "8be2rg",
+          "9foh9j",
+          "bedn8j",
+          "1q2rzjf",
+          "1luzcgo",
+          "xixfge",
+          "k19els",
+          "mw8dbm",
+          "1k7kzrf",
+          "1g7wt7k"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8912": [
@@ -229914,6 +231275,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1s7j0j5",
+          "1yd28mx",
+          "1iqkn10",
+          "1kecpvd",
+          "107ercq",
+          "1792o2e",
+          "1thqvef",
+          "11zfxv3",
+          "juiiba",
+          "1swycwu",
+          "1eb4lof",
+          "147fj1s",
+          "xegxhj",
+          "1aabmhj",
+          "eqwsxy",
+          "1rhlliu"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8914": [
@@ -229959,6 +231350,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "giw7j3",
+          "1ite7xs",
+          "10ztwki",
+          "1tgp78h",
+          "50xnfl",
+          "15p1bxl",
+          "v3i6lb",
+          "1dh6v98",
+          "ahucy0",
+          "1ujg06e",
+          "g44z9x",
+          "ftu7si",
+          "1bocvzr",
+          "1ox9zi8",
+          "f9di2o",
+          "qz6fxe"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8916": [
@@ -230004,6 +231425,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "qz9eur",
+          "17ypd0t",
+          "rcdx4r",
+          "h0idsm",
+          "xu5ay9",
+          "5qm4i9",
+          "bghdv5",
+          "1vw66f3",
+          "12iu047",
+          "10pln73",
+          "fkv808",
+          "1v69y40",
+          "11zmq3k",
+          "uav80q",
+          "1h3ohoj",
+          "1q87ib6"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8918": [
@@ -230049,6 +231500,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "d88z0z",
+          "1vrxs85",
+          "yfebaf",
+          "15x6ffx",
+          "5fv8v5",
+          "1ielkru",
+          "1gfyy2l",
+          "e16fcv",
+          "1qnp33a",
+          "1nnxb4k",
+          "19hnhvo",
+          "gdurb3",
+          "1nrxvxa",
+          "1n0giml",
+          "12spcs5",
+          "byk0r"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8920": [
@@ -230094,6 +231575,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "cwxuaw",
+          "8bdpfz",
+          "1ydivap",
+          "73n5gb",
+          "1rpw5bb",
+          "k27ckc",
+          "145rsu4",
+          "ypv5wp",
+          "1uld9lw",
+          "e3o9fv",
+          "l4ovc8",
+          "zhi08e",
+          "1nxlu72",
+          "1fw7prg",
+          "v60m58",
+          "11j9tlm"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8922": [
@@ -230139,6 +231650,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1akd93t",
+          "1mzje02",
+          "vlk0zl",
+          "fk3v7f",
+          "c6cvx2",
+          "1kp539h",
+          "1w5f3tl",
+          "zi3cya",
+          "1vwr7jb",
+          "1c4aakn",
+          "p9alyv",
+          "1dew6n6",
+          "1cks4nm",
+          "1ulvi5e",
+          "1nko7s4",
+          "17dywjb"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8924": [
@@ -230184,6 +231725,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1wa8sni",
+          "zs4v24",
+          "1vc19vn",
+          "xeadtn",
+          "be8pri",
+          "1kr91rw",
+          "1u1rf4o",
+          "17nvhn3",
+          "1nmngat",
+          "qmdqcg",
+          "1tyjrm3",
+          "15t2n4m",
+          "1rgvrkc",
+          "1w3bg0j",
+          "rygkej",
+          "9fm5md"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8926": [
@@ -230229,6 +231800,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1m59zw1",
+          "16ofc38",
+          "18nk2aa",
+          "1iq3udj",
+          "z3s46r",
+          "zrs4vw",
+          "1tw5vig",
+          "1sjbn1j",
+          "1d612i6",
+          "1n5rc7x",
+          "1kiz9w7",
+          "1bnuuk3",
+          "1pzedm9",
+          "wrgr8w",
+          "llyao3",
+          "1rtoksp"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8928": [
@@ -230274,6 +231875,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1bnz571",
+          "w0ia7y",
+          "1mx85e",
+          "1l4ocgl",
+          "71888k",
+          "20loz4",
+          "qag8vi",
+          "1b0ae7m",
+          "kxmrcj",
+          "mhifm4",
+          "ih6hnm",
+          "10be6gz",
+          "gqqe9i",
+          "117t2n4",
+          "1stnc83",
+          "1xs392b"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8930": [
@@ -230319,6 +231950,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "suj7hm",
+          "gn2wra",
+          "1plmn2q",
+          "8a5n75",
+          "ydv219",
+          "ei5uza",
+          "15qcyfe",
+          "axn17w",
+          "1jfkzkv",
+          "f3c795",
+          "qk1xhb",
+          "pyltbs",
+          "186lcyc",
+          "p9lsj1",
+          "1p8fymy",
+          "1v5hdvi"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8932": [
@@ -230364,6 +232025,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "gigt6h",
+          "podtsl",
+          "131zt9h",
+          "16pspki",
+          "10aql8e",
+          "2lo1g2",
+          "bgxpbc",
+          "gf6n3b",
+          "14nbakt",
+          "y9mxz6",
+          "1f2omiw",
+          "wah5qe",
+          "1b47f3a",
+          "1itwlci",
+          "i0cvru",
+          "349hsy"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8934": [
@@ -230409,6 +232100,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "19gc6ls",
+          "yi2g4n",
+          "1rcuvrb",
+          "63uq63",
+          "12j7zzg",
+          "sn0q9w",
+          "wpicwz",
+          "13ctgz8",
+          "jv20pf",
+          "1s0b7gd",
+          "twxcxu",
+          "1f7ncvz",
+          "qill71",
+          "n909o7",
+          "ade0c5",
+          "j6wwz0"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8936": [
@@ -230454,6 +232175,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "12z01o0",
+          "1pxlb2u",
+          "1vdgctg",
+          "evt3yk",
+          "19xftke",
+          "6jyjix",
+          "lg3ew9",
+          "104ozht",
+          "17wr2au",
+          "k35inl",
+          "1pkyj8q",
+          "129gdcj",
+          "bpkwbz",
+          "1um7rz",
+          "cq9r3c",
+          "1uy0kn9"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8938": [
@@ -230499,6 +232250,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "kykh8h",
+          "nkqz2q",
+          "1y4f4cn",
+          "foafub",
+          "17kt801",
+          "1p76po5",
+          "1vkzcnr",
+          "1d0wy9k",
+          "y2gua7",
+          "1xx5mj5",
+          "17fw7ud",
+          "cnxl2j",
+          "17ymaq3",
+          "7q9yk3",
+          "13quiv8",
+          "j26qgn"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8940": [
@@ -230544,6 +232325,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1m3ye20",
+          "1x3cw9u",
+          "1p586ng",
+          "e7h2n8",
+          "1komszd",
+          "6gmzaj",
+          "f3tb17",
+          "1am14fs",
+          "1ikum68",
+          "23wk02",
+          "12j2xqh",
+          "l70jqr",
+          "djpube",
+          "19fuepv",
+          "1k9t132",
+          "7jt08d"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8942": [
@@ -230589,6 +232400,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "nod4iu",
+          "1skmu7i",
+          "r1e3oo",
+          "124i920",
+          "1oru40",
+          "rhyyjt",
+          "6ypd9c",
+          "t18zgd",
+          "jlarzl",
+          "2x9ff1",
+          "4ppd2q",
+          "1fcfbr0",
+          "1bgugu7",
+          "ttfxsu",
+          "1cijs6",
+          "1g4m48l"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8944": [
@@ -230634,6 +232475,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "kjhvc",
+          "1fg0twg",
+          "1tgqc72",
+          "st3ad8",
+          "81f8h",
+          "pitjdr",
+          "15ofqcm",
+          "1sz9r4x",
+          "1bvwk1r",
+          "15qdtkc",
+          "72nprm",
+          "ddxv00",
+          "jfscll",
+          "1aljnj2",
+          "10vq3uu",
+          "99gev8"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8946": [
@@ -230679,6 +232550,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1alviw",
+          "1njyqfb",
+          "3ukr4",
+          "19umhbn",
+          "1uo5bct",
+          "1i8x4ge",
+          "1ma4bpc",
+          "1ioxvrm",
+          "gy17rm",
+          "1drrhs2",
+          "1irkwxb",
+          "1vtwmeh",
+          "1luswfw",
+          "q2kpmq",
+          "1j8f5rk",
+          "1w4g00k"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8948": [
@@ -230724,6 +232625,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1adtiix",
+          "ahs0y4",
+          "2uzwi6",
+          "12kyz3q",
+          "1ll0qgr",
+          "flwcy3",
+          "16f53c9",
+          "1ru3zvu",
+          "1u8whqz",
+          "112jrlv",
+          "jzrnn5",
+          "po0yry",
+          "1g5prv7",
+          "1i8qrr5",
+          "xximxr",
+          "by48ye"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8950": [
@@ -230769,6 +232700,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1pubuz1",
+          "1cnfxcd",
+          "1glj7b9",
+          "q06vmc",
+          "1hr85zq",
+          "vb7mv8",
+          "drqm4u",
+          "1ec4kwz",
+          "1xqvcky",
+          "121m5ph",
+          "1i3o9pi",
+          "858rqc",
+          "1i2k0rd",
+          "1rsnqln",
+          "1g2jzkl",
+          "r19k0q"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8952": [
@@ -230814,6 +232775,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1gh7i12",
+          "5q4s6d",
+          "au8va6",
+          "3ge0z7",
+          "13dgcmn",
+          "1slg6gb",
+          "grdc7z",
+          "1pciv6u",
+          "6gffjq",
+          "1voeg9a",
+          "turgvn",
+          "1rrn3ri",
+          "ncqrvc",
+          "or33xh",
+          "fmp1ld",
+          "ruz8tv"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8954": [
@@ -230859,6 +232850,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "4342ic",
+          "1prx2v5",
+          "ai9nnl",
+          "1ajcjfd",
+          "qmbgv2",
+          "d56b34",
+          "1bb25pc",
+          "qmiwgg",
+          "1jvid67",
+          "1qcsloo",
+          "1pi3cpf",
+          "1twlzli",
+          "1xpa89a",
+          "18d1ht9",
+          "1m09tnn",
+          "1yzc2os"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8956": [
@@ -230904,6 +232925,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "wygthg",
+          "h1orpk",
+          "zilomd",
+          "bmmfon",
+          "1fz6tof",
+          "jzv83y",
+          "1fvfkdx",
+          "toos6q",
+          "3w6kaj",
+          "1tqczm3",
+          "1ldfmh9",
+          "10to13c",
+          "1blaw6t",
+          "13skorh",
+          "12d794",
+          "1osjvy"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8958": [
@@ -230949,6 +233000,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "w0p5vf",
+          "3z85zn",
+          "8vvilk",
+          "47k2kz",
+          "kxkz0n",
+          "1whp7w7",
+          "u0f00i",
+          "1v043m0",
+          "1cbnjbf",
+          "c9aiyk",
+          "1uth5cm",
+          "1v5dw1v",
+          "1vcz0xe",
+          "scz417",
+          "1ka5drx",
+          "o7g0gq"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8960": [
@@ -230994,6 +233075,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "cboh7i",
+          "i07gbf",
+          "1n0m9hs",
+          "tbzus1",
+          "125uiq4",
+          "gvm31m",
+          "1uw15w4",
+          "zbnn0a",
+          "8buii",
+          "1mkhsa2",
+          "1jq2s2b",
+          "871euy",
+          "1avxn8c",
+          "zdljep",
+          "1pt0sl4",
+          "bo3xmr"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8962": [
@@ -231039,6 +233150,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1y17hh",
+          "1kcifyj",
+          "1w2rir0",
+          "bk7jps",
+          "mj1jzs",
+          "z1fqu0",
+          "umld1n",
+          "kndyg0",
+          "65yfdw",
+          "1psxklu",
+          "fczr8n",
+          "alexxg",
+          "1svnwju",
+          "zveadt",
+          "90k8o3",
+          "bpgu54"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8964": [
@@ -231084,6 +233225,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1dbtv6x",
+          "jgixqx",
+          "1wj6a85",
+          "8n6ho1",
+          "1r50qj",
+          "1xtzh5r",
+          "1wkvw6a",
+          "1rxajuv",
+          "tvzrc6",
+          "7yx1ue",
+          "ip53s5",
+          "14iqcp1",
+          "1ai1k29",
+          "jl4ch1",
+          "1dzqlum",
+          "12e7w7k"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8966": [
@@ -231129,6 +233300,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "2xwp9z",
+          "lzozf6",
+          "1e6197u",
+          "1x9nnn6",
+          "1x0nln0",
+          "nc70l2",
+          "vtd9jx",
+          "jp6cyz",
+          "1lyl88m",
+          "1l1jbhm",
+          "j1p87w",
+          "gvinv4",
+          "1ihlaez",
+          "1gr58ue",
+          "11xx6mx",
+          "1um4rza"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8968": [
@@ -231174,6 +233375,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1mmnu8c",
+          "boks2s",
+          "1axkt8",
+          "1ue2xjb",
+          "1jwazdc",
+          "llk6p1",
+          "13zt2wm",
+          "19z25wm",
+          "dyib8m",
+          "glo0cj",
+          "qn4qw5",
+          "4y1bv5",
+          "1x6zc4s",
+          "1jrn0v3",
+          "18viyb",
+          "1lhh2ma"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8970": [
@@ -231219,6 +233450,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "3q0y2l",
+          "1qv83ce",
+          "xi3uys",
+          "yu8rx9",
+          "wbnbt0",
+          "rn5mpo",
+          "19oeweu",
+          "rv0efm",
+          "fn4ae",
+          "ag8iy4",
+          "1wwyso2",
+          "8io36w",
+          "ngssoh",
+          "1u3n1mh",
+          "1hoiswi",
+          "or4dk4"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8972": [
@@ -231264,6 +233525,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1crzc7t",
+          "1u8bk0p",
+          "19dufg9",
+          "12dyc42",
+          "1pjsmtf",
+          "ndd6s1",
+          "1t330cu",
+          "1j097fv",
+          "17da6ca",
+          "p0hxvy",
+          "1qspfmq",
+          "17e4g1b",
+          "xycmcb",
+          "txoy3j",
+          "1nzsw9l",
+          "1ob2xnc"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8974": [
@@ -231309,6 +233600,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "15tasfb",
+          "1sy7wra",
+          "ogtcc2",
+          "lh38ck",
+          "lyeadt",
+          "6n8pfg",
+          "8gqvaw",
+          "w4otdx",
+          "mkkora",
+          "7t99g3",
+          "1vlxsqy",
+          "1otnoc6",
+          "19n12cf",
+          "uj26lc",
+          "k4myt4",
+          "4gp2n"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8976": [
@@ -231354,6 +233675,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "fxtwd",
+          "i3h0sw",
+          "1m8px4v",
+          "1islgch",
+          "1gjzoce",
+          "9jzsan",
+          "kalspf",
+          "1tzam8l",
+          "uunu4j",
+          "2b426a",
+          "1yqrfzu",
+          "14lq9gj",
+          "qdn8wi",
+          "ml1ykx",
+          "10ypf60",
+          "18llzf7"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8978": [
@@ -231399,6 +233750,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "168hndb",
+          "1s196oi",
+          "wf1ueq",
+          "41z56a",
+          "1jcz3ee",
+          "rsthkt",
+          "164l31o",
+          "1o3efhi",
+          "1lxohpr",
+          "1t1t4iq",
+          "1ecl5pg",
+          "1d2mi4o",
+          "hf8m77",
+          "17v8hr3",
+          "1hz7sug",
+          "cmlcav"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8980": [
@@ -231444,6 +233825,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "tpllrq",
+          "14m4r6l",
+          "116zpxi",
+          "6u5yuk",
+          "brc8zq",
+          "3zqb5v",
+          "vpl9o4",
+          "1c6k21j",
+          "s5tsxw",
+          "1njpfc5",
+          "1dvuaum",
+          "aqrdax",
+          "2h5qoa",
+          "1oyy9sg",
+          "140dimg",
+          "8s6anm"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8982": [
@@ -231489,6 +233900,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "tsy46k",
+          "1kzyzz8",
+          "67kltz",
+          "1s7dwj2",
+          "1a2j4on",
+          "1malzcm",
+          "1kqc7qo",
+          "1ycizkg",
+          "5uqfod",
+          "hgm6ih",
+          "3i46b2",
+          "10l1ah9",
+          "i9ykc9",
+          "96j9j9",
+          "raj1e5",
+          "e0wk38"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8984": [
@@ -231534,6 +233975,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "14andzg",
+          "yq6u1b",
+          "17xnli1",
+          "4y4m95",
+          "1taiqt3",
+          "1nffmav",
+          "1efpc11",
+          "1bxc3pt",
+          "1waubgj",
+          "1ic63e4",
+          "fpztys",
+          "1sp25x4",
+          "1egsn5i",
+          "u9q942",
+          "zifvdb",
+          "1k46v1t"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8986": [
@@ -231579,6 +234050,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "e4cf4z",
+          "35kd5e",
+          "kbvc2d",
+          "xxqe64",
+          "hyzzm9",
+          "vlh3do",
+          "1hbrfaa",
+          "1k2at70",
+          "1v2y0d3",
+          "1ee2ics",
+          "hsti1w",
+          "or9fyf",
+          "1w3xuun",
+          "73rc8v",
+          "qly85b",
+          "rwykey"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8988": [
@@ -231624,6 +234125,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1gas086",
+          "pz5bre",
+          "14sdl81",
+          "1qjf2kx",
+          "1mpib9s",
+          "gdxcv",
+          "4gxicz",
+          "gy3r7y",
+          "u0se5z",
+          "i29ryd",
+          "1xf0cg1",
+          "q4wlt",
+          "1sh4xw8",
+          "18uqhxr",
+          "1ikhqiz",
+          "clzq40"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8990": [
@@ -231669,6 +234200,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "mmgggt",
+          "1l4zwtz",
+          "11rlsbs",
+          "1ce1vs",
+          "2pa0of",
+          "1733198",
+          "57zcg0",
+          "11il2u1",
+          "5iiedz",
+          "17e3kj0",
+          "1rr6fck",
+          "8dl9wu",
+          "oad3ax",
+          "2l6jdj",
+          "qjozw1",
+          "xhb7mm"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8992": [
@@ -231714,6 +234275,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1sxcllh",
+          "1uhhfdu",
+          "196rqkd",
+          "1bpn711",
+          "5xnjdg",
+          "49g8yo",
+          "r9o1n0",
+          "34k2pm",
+          "1cyb3b1",
+          "p6ct1c",
+          "1p200n6",
+          "1xfc0aj",
+          "qcj61h",
+          "19x1317",
+          "6zgd2v",
+          "q5syzi"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8994": [
@@ -231759,6 +234350,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "9bjlaf",
+          "9k0z7n",
+          "1rklx62",
+          "1o3h706",
+          "1r9jod8",
+          "1jv3jxm",
+          "1mikqzq",
+          "1w8te2s",
+          "vsz1bf",
+          "9zjekz",
+          "1n50tzg",
+          "2ojbcm",
+          "14axezb",
+          "a031mv",
+          "ozq7qh",
+          "khs6fz"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8996": [
@@ -231804,6 +234425,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "7xp1vu",
+          "b9la2f",
+          "1q3byqb",
+          "dof24s",
+          "cq02xu",
+          "4jwmdt",
+          "ivz19k",
+          "s6k83f",
+          "guw5d9",
+          "zrru4p",
+          "1mcbjyh",
+          "1irt953",
+          "1ugo5fb",
+          "9mgc8n",
+          "19thuo",
+          "lh20z1"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "8998": [
@@ -231849,6 +234500,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1550ale",
+          "1wv5c4p",
+          "gljcmr",
+          "qdxbnu",
+          "1gyjp0n",
+          "1j7ashi",
+          "1ahqtil",
+          "6qed62",
+          "23gzuv",
+          "1oty6es",
+          "g61gk1",
+          "rxdm05",
+          "19qmnak",
+          "1nxb4q2",
+          "1e01ihs",
+          "xnad9o"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9000": [
@@ -231894,6 +234575,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1cv4q3w",
+          "1k5ra5u",
+          "1d2j77h",
+          "1n37u8n",
+          "bxs9xo",
+          "17fmxk1",
+          "1tk98la",
+          "1elitps",
+          "az2yap",
+          "17j8kpz",
+          "9hnfos",
+          "t8acf8",
+          "14d0ayf",
+          "1hfy94h",
+          "lsrceb",
+          "15mqwzr"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9002": [
@@ -234595,6 +237306,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1humb4y",
+          "1fj4jc8",
+          "78fp2y",
+          "19nko9z",
+          "epnmap",
+          "vulwsl",
+          "1mkl3o2",
+          "1c616j5",
+          "1ku1as1",
+          "16ltum7",
+          "g5yv69",
+          "18l8wmv",
+          "1l78znr",
+          "83umd1",
+          "apj9yg",
+          "1pj0zaj"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9170": [
@@ -234640,6 +237381,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "13o2y4h",
+          "1hmqsgt",
+          "1h9d6uf",
+          "1td4jh8",
+          "cl6blr",
+          "7ug1sr",
+          "mfmzl",
+          "1udr0el",
+          "1xmtxn",
+          "6edgl1",
+          "jxhx6a",
+          "1mnpypp",
+          "9rmi9r",
+          "ov07ps",
+          "tr8901",
+          "1szdh0u"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9172": [
@@ -234685,6 +237456,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1hspbi2",
+          "3l3hcw",
+          "45jxax",
+          "1yr2hl6",
+          "1w50tme",
+          "1fmx44n",
+          "1jrvpd9",
+          "8kcoan",
+          "lqb8za",
+          "1iwg5qp",
+          "2uq2bx",
+          "10k1oyb",
+          "1t99qfe",
+          "1tashb5",
+          "ik4a2q",
+          "1z0mmwk"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9174": [
@@ -234730,6 +237531,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1naf95n",
+          "1c2j4y1",
+          "mn7dp7",
+          "1x1epnz",
+          "1g3i4ld",
+          "1tziid2",
+          "1qrjsew",
+          "xnht5o",
+          "1vcek1h",
+          "2kcczo",
+          "fnmrb9",
+          "1a29dip",
+          "dq38n0",
+          "a4uxyn",
+          "1e1w8p3",
+          "11d0739"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9176": [
@@ -234775,6 +237606,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "120c3nx",
+          "omyfa2",
+          "lfilcx",
+          "y45pfc",
+          "1vhryfy",
+          "1fyrb8y",
+          "h2iivo",
+          "16vjf2p",
+          "1wujgpv",
+          "169cjge",
+          "1978zn3",
+          "1kr5163",
+          "4wv26v",
+          "o66ajg",
+          "st5fll",
+          "nlrrgf"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9178": [
@@ -234820,6 +237681,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1blxett",
+          "1x09hpj",
+          "eq2vfm",
+          "dv5v02",
+          "173q0es",
+          "1gyxlse",
+          "12yh2mn",
+          "1jf1p75",
+          "1dv2vka",
+          "1ww3iez",
+          "4zlpje",
+          "12zbwlx",
+          "s40bg7",
+          "19ze8fg",
+          "vt6k3b",
+          "toerus"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9180": [
@@ -234919,6 +237810,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1covmuy",
+          "1r1mq9d",
+          "1qaveld",
+          "8rcmn9",
+          "1eiwv43",
+          "1x7od0i",
+          "186n8fo",
+          "1e4cl6t",
+          "1ihyoct",
+          "yff3gc",
+          "138s5sl",
+          "19ru06r",
+          "1st3q6k",
+          "1t0ym0c",
+          "d4csay",
+          "xe34c5"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9184": [
@@ -234964,6 +237885,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1fmwkp",
+          "1h22p95",
+          "vmm5jh",
+          "1s2bapf",
+          "il5qsd",
+          "14urzbg",
+          "v8lt8y",
+          "18847l7",
+          "1nea4u0",
+          "1q3st6j",
+          "w53x5l",
+          "qvdji9",
+          "le0eob",
+          "q4nlwa",
+          "xs0ho5",
+          "1gvxuqu"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9186": [
@@ -235009,6 +237960,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "x6necb",
+          "pvcs78",
+          "gzm08k",
+          "oxjk1i",
+          "w5bx8a",
+          "8fx03l",
+          "1r3jb9t",
+          "1z0riym",
+          "1f58c8m",
+          "1ieyk3y",
+          "1cg753k",
+          "y942m6",
+          "xn9s6j",
+          "1s3nnx8",
+          "5ylj3z",
+          "npov2w"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9188": [
@@ -235134,6 +238115,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1uhhvd9",
+          "z9oz4r",
+          "3akt5l",
+          "7tahlu",
+          "yrnnnt",
+          "15z41ke",
+          "1f6syim",
+          "1sgufxn",
+          "1sqnaeb",
+          "1hths7h",
+          "o20jn4",
+          "9qiexa",
+          "1r5qprh",
+          "w1bvuq",
+          "19v8v40",
+          "1gxk2k0"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9192": [
@@ -235179,6 +238190,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1dde4sm",
+          "n5fi56",
+          "3b23xw",
+          "ge9zny",
+          "w6jtl7",
+          "1g6gbb0",
+          "ygq2rz",
+          "1h45h1r",
+          "hh3i7l",
+          "q18iyk",
+          "1elprsr",
+          "1r4v7gd",
+          "1wycdrp",
+          "1yuy3na",
+          "1wycux7",
+          "m8ep4a"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9194": [
@@ -235224,6 +238265,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "k5gqnr",
+          "v9ejnj",
+          "1nmuvuk",
+          "1yqd9s1",
+          "15ubgla",
+          "1yk3s8m",
+          "12gie1z",
+          "i3310m",
+          "1l0ufc8",
+          "1ahjk9q",
+          "1wqkk4d",
+          "11b647m",
+          "176jora",
+          "1gf2r7z",
+          "1hmt1kb",
+          "124j3xa"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9196": [
@@ -235269,6 +238340,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1wmzx49",
+          "b8l1pl",
+          "13ao0s5",
+          "ap795x",
+          "ktxgsi",
+          "uhycr7",
+          "12nu1zw",
+          "1udbx7f",
+          "12topv2",
+          "knw8q6",
+          "cxm9gj",
+          "1ihyjxu",
+          "1rkzs2y",
+          "k0ps4r",
+          "18y9fbh",
+          "1ai6eg7"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9198": [
@@ -235314,6 +238415,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "fi919r",
+          "nhs87q",
+          "7xkexg",
+          "1ucggxl",
+          "1aav4o7",
+          "79ozcu",
+          "1fg8qdj",
+          "1wjovxf",
+          "1h6h7sw",
+          "1i25k0z",
+          "1lor0dh",
+          "1nvj9v6",
+          "z3umhc",
+          "kid4yx",
+          "ts2psf",
+          "nbsn1w"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9200": [
@@ -235359,6 +238490,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1f3wi7m",
+          "a5nat2",
+          "r56myh",
+          "10nsmn8",
+          "v8q4a5",
+          "3n38zc",
+          "nkalnz",
+          "1wa7ugk",
+          "19ps52r",
+          "5a26j0",
+          "1ax271l",
+          "vlv02m",
+          "o0rprs",
+          "13vyjb3",
+          "ar8h7t",
+          "1k9e9x8"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9202": [
@@ -235404,6 +238565,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "2zdsdm",
+          "2bnhk6",
+          "1ol3lcv",
+          "1tg5tfj",
+          "1dmsrg3",
+          "ncjnd9",
+          "1ijjckp",
+          "1bjnsmh",
+          "l6okyu",
+          "1sur1ln",
+          "1ntiynf",
+          "m4i7i9",
+          "1v6aotk",
+          "1lgcxxw",
+          "zdhcs0",
+          "16x1n38"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9204": [
@@ -235449,6 +238640,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "y72yg0",
+          "1apbx1d",
+          "em48zs",
+          "1v16wp",
+          "1lef7uh",
+          "18jm25c",
+          "1v4sfq4",
+          "1iwaqap",
+          "awd6wp",
+          "15h2unc",
+          "rtf8x4",
+          "jzkxs1",
+          "uw4y9q",
+          "m9l0bx",
+          "1w9icj2",
+          "tpvtnk"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9206": [
@@ -235627,6 +238848,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1nnbo76",
+          "9v2l0p",
+          "e39yfk",
+          "5lkshi",
+          "1j786br",
+          "1nto9d6",
+          "1dd76g9",
+          "hviv0o",
+          "rbz8xf",
+          "1e6huin",
+          "lvi7f2",
+          "1djb2ju",
+          "1wfn6vj",
+          "11ikjgi",
+          "a1vn43",
+          "cj6h1c"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9212": [
@@ -235726,6 +238977,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "u3i06d",
+          "1lsqn2z",
+          "1fk78nf",
+          "1ajtw2c",
+          "1ftkj6u",
+          "nfxerh",
+          "7g64z8",
+          "16ihg02",
+          "1s4umeq",
+          "1j0h86z",
+          "py6ucc",
+          "g6qm7d",
+          "1sv7wzw",
+          "4o4j95",
+          "22q70m",
+          "1ibir93"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9216": [
@@ -235771,6 +239052,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "etvui4",
+          "1xzsxv2",
+          "1ft4auq",
+          "n2ihb5",
+          "523xen",
+          "1glb8qt",
+          "1t9xaho",
+          "1vv1m9i",
+          "uxsw3z",
+          "p3y86v",
+          "pcqkvy",
+          "2zzva",
+          "15qgpg4",
+          "121zz1i",
+          "vy8fxh",
+          "pih2ve"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9218": [
@@ -235949,6 +239260,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "xzpgqd",
+          "5vr7mv",
+          "fdu0tz",
+          "15fog53",
+          "5qyvh9",
+          "1iktzrl",
+          "1hgtoee",
+          "7yre7h",
+          "1beod6",
+          "v09rib",
+          "r149gi",
+          "16jrvtc",
+          "rafli0",
+          "5sqr5o",
+          "cdln8u",
+          "18c00om"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9224": [
@@ -235994,6 +239335,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "4g4r77",
+          "lcy275",
+          "1wexpj0",
+          "3tp6bg",
+          "212d3u",
+          "1ro5xsg",
+          "fx8o19",
+          "dymi4",
+          "pxmg7q",
+          "1s1taex",
+          "11xihse",
+          "uo6mwv",
+          "k2t018",
+          "1b6yod8",
+          "1ofhygl",
+          "1ecaoga"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9226": [
@@ -236147,6 +239518,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "yajljt",
+          "o37fgl",
+          "1lkk7se",
+          "14mbihf",
+          "i4xadn",
+          "d0e23w",
+          "3x0fdj",
+          "pdw60e",
+          "viq0ii",
+          "12vpo1s",
+          "1k8omjr",
+          "197r2tr",
+          "1t7jgrs",
+          "1b9cjge",
+          "1fpj1il",
+          "1nvpxgq"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9232": [
@@ -236300,6 +239701,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "9klg8x",
+          "19e6emu",
+          "1d6kk1z",
+          "1plp7mp",
+          "lojga9",
+          "c1v4l8",
+          "5utw1s",
+          "1xgicgd",
+          "15z5ge8",
+          "3aslmx",
+          "1b04f7w",
+          "y3r7xl",
+          "sukep",
+          "4d2dbh",
+          "2hcns4",
+          "1ixiszx"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9238": [
@@ -236345,6 +239776,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "iqyr30",
+          "1r7uu12",
+          "18b7cqv",
+          "1dsab2i",
+          "1375eu5",
+          "j794tl",
+          "mct9pm",
+          "bln00r",
+          "ct6pri",
+          "1mg4f0a",
+          "m62r3j",
+          "6j1sil",
+          "1k91kbk",
+          "dpqicu",
+          "1d9i5uc",
+          "15gj487"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9240": [
@@ -236390,6 +239851,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "97tvmu",
+          "if127w",
+          "1d3a0ig",
+          "gjnjsg",
+          "evx4mz",
+          "1lgcwlf",
+          "957yhu",
+          "h5gxz4",
+          "1uirbou",
+          "12phfqb",
+          "1930m4p",
+          "wurb8d",
+          "xhiiir",
+          "ui51vp",
+          "pe3po7",
+          "kpvqod"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9242": [
@@ -236435,6 +239926,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "iynn0d",
+          "deenzt",
+          "1sg3u8x",
+          "1rczzkj",
+          "1y9e98b",
+          "1ohvk8f",
+          "1xjna5m",
+          "1qte1ti",
+          "1vedlw2",
+          "17tg7su",
+          "wsptzw",
+          "7wanr2",
+          "8e0v8d",
+          "1mt8u6h",
+          "18vrd72",
+          "egcfm6"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9244": [
@@ -236560,6 +240081,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "k0pjn1",
+          "1pf8o6i",
+          "6i2qu7",
+          "1x7pqm2",
+          "1xze90w",
+          "1w8bben",
+          "13at3uz",
+          "1vj90xk",
+          "1qzkg2w",
+          "1ampo9z",
+          "9axsfq",
+          "1lszrw9",
+          "1ic45kd",
+          "1qdewu",
+          "i3dh6c",
+          "1j84fr2"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9248": [
@@ -236848,6 +240399,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "120sbx7",
+          "mvhfjv",
+          "1bexzch",
+          "cu8009",
+          "iui474",
+          "1fn6yl4",
+          "hwkyp2",
+          "kj335x",
+          "3bvsay",
+          "ttlkz0",
+          "xg44cq",
+          "68kh8n",
+          "1bn6f5a",
+          "uqotun",
+          "n8opsh",
+          "1k0pjb"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9258": [
@@ -237443,6 +241024,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1wqde7x",
+          "wnfh08",
+          "6j859w",
+          "1b7vri8",
+          "1hbz0me",
+          "j8d1hs",
+          "c1ok6i",
+          "1f3md7m",
+          "12m0cak",
+          "1kxis61",
+          "gsdumb",
+          "12lksvw",
+          "b1s4e0",
+          "1utcohj",
+          "dsmp74",
+          "1crgc62"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9280": [
@@ -237596,6 +241207,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1m7p6s5",
+          "q0nlie",
+          "18dnjjz",
+          "1pvgi2z",
+          "yxztgt",
+          "1673k9z",
+          "1870s3v",
+          "1b11jnu",
+          "rnjjlu",
+          "il9ivd",
+          "1z03zuv",
+          "otkkyw",
+          "v4m3kq",
+          "uvfv89",
+          "rqjqx4",
+          "13xnaq8"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9286": [
@@ -237803,6 +241444,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "uktytv",
+          "1n4naum",
+          "t5n8hf",
+          "esmng8",
+          "4guo3p",
+          "pl2iq0",
+          "1ffc8ho",
+          "1o4z0ke",
+          "q5cl2g",
+          "8rasgr",
+          "1bapsbi",
+          "1vtklke",
+          "csjtei",
+          "1cmb7ww",
+          "1w7ub8w",
+          "1qrbrgj"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9294": [
@@ -238442,6 +242113,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1vhml4c",
+          "1y2lf1p",
+          "n4rxp7",
+          "10rv9o9",
+          "1swrm6n",
+          "qrfbsr",
+          "hapkhq",
+          "ra1it0",
+          "f6cyfr",
+          "1dyi85m",
+          "ap6jo",
+          "hj8vpn",
+          "h0rj1g",
+          "scwsfj",
+          "1nun0ne",
+          "12fo8rv"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9318": [
@@ -238865,6 +242566,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "tfturx",
+          "cnar9l",
+          "552sm5",
+          "3hvthe",
+          "11uxgkq",
+          "17p800d",
+          "1vyhcie",
+          "12zn0om",
+          "1tbeb1m",
+          "156z0gq",
+          "cx9734",
+          "1bdwc25",
+          "1u8kowt",
+          "1ar6zi5",
+          "2maa5t",
+          "adh5i"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9334": [
@@ -239882,6 +243613,36 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "1839pnx",
+          "u614q1",
+          "11h8uib",
+          "1edujm7",
+          "df9e38",
+          "1b932rh",
+          "kg5fop",
+          "1u6h0yl",
+          "19qdngn",
+          "icre8v",
+          "1urrg28",
+          "ef6inp",
+          "1ncfwjq",
+          "14a9nje",
+          "18vceqq",
+          "1l3uyyo"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9372": [
@@ -243773,6 +247534,26 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "6",
+        "sigmas": [
+          "1mjx6ug",
+          "l5uc5b",
+          "1ehxgxl",
+          "6dhx0v",
+          "mn017",
+          "i3h643"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9580": [
@@ -243926,6 +247707,27 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "7",
+        "sigmas": [
+          "3gbh03",
+          "eofg6o",
+          "14hjl4l",
+          "1ub1dkv",
+          "1475dd1",
+          "1r6rhal",
+          "115o73b"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9586": [
@@ -245105,6 +248907,33 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "13",
+        "sigmas": [
+          "4d2x7p",
+          "18gsmrx",
+          "1t9bl8p",
+          "95a5l3",
+          "ulk7sv",
+          "1r6n7r5",
+          "hjyd9k",
+          "11d95ur",
+          "1yp806n",
+          "1ms2zkk",
+          "fn1ulq",
+          "142a9h9",
+          "mu8e4h"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9630": [
@@ -245528,6 +249357,24 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "4",
+        "sigmas": [
+          "qblfln",
+          "1l8peox",
+          "a7xp7p",
+          "jessnl"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9646": [
@@ -246005,6 +249852,27 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "7",
+        "sigmas": [
+          "13wfrq2",
+          "f1yc7",
+          "i5uuuc",
+          "v90ztx",
+          "1iuo44f",
+          "1hydt15",
+          "5jb3dh"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9664": [
@@ -247562,6 +251430,35 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "15",
+        "sigmas": [
+          "toz31c",
+          "utk06y",
+          "1dunx2c",
+          "1yu58qx",
+          "m2fs6r",
+          "lv6pt2",
+          "p68045",
+          "1lxyoic",
+          "5w7qt1",
+          "1mibq1v",
+          "i1mlcf",
+          "167gz9t",
+          "uvgk4t",
+          "sos5go",
+          "126fyr3"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9722": [
@@ -247769,6 +251666,26 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "6",
+        "sigmas": [
+          "oantnh",
+          "1z081jl",
+          "1l5k9n2",
+          "fp1hta",
+          "1oommie",
+          "ll83sl"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9730": [
@@ -248550,6 +252467,42 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-03"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "22",
+        "sigmas": [
+          "d9e1qd",
+          "1ll1u55",
+          "10hk3e9",
+          "1afxqsz",
+          "ovinxt",
+          "1g9hfvt",
+          "bma6e2",
+          "15fkloe",
+          "1rs6rq8",
+          "hggn2d",
+          "1bpamv8",
+          "15hqw2j",
+          "djb9oi",
+          "1g3l3z1",
+          "1oxqv5z",
+          "b7icvc",
+          "w8qbza",
+          "urzohy",
+          "r56r20",
+          "f4i6fr",
+          "17vx51",
+          "1fpmuhx"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9762": [
@@ -248881,6 +252834,34 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "14",
+        "sigmas": [
+          "vprn17",
+          "1a627wm",
+          "1cbcz6n",
+          "wlnlla",
+          "11rs1hu",
+          "133yhbk",
+          "s5ky5y",
+          "7izd7v",
+          "qcv0e2",
+          "pw8t4d",
+          "v0bs39",
+          "1w72ude",
+          "5q5niw",
+          "1c1iptl"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9782": [
@@ -249246,6 +253227,34 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "14",
+        "sigmas": [
+          "gob00q",
+          "1lgql3x",
+          "ztal19",
+          "1au7pj3",
+          "14t0h7k",
+          "1nnmvug",
+          "1uzpl3y",
+          "1aud3xp",
+          "o8g9uh",
+          "1e044yv",
+          "16au0r0",
+          "3u7kqk",
+          "mpzfgt",
+          "1b05tph"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9804": [
@@ -249611,6 +253620,34 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-05"
+      },
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "14",
+        "sigmas": [
+          "gznsel",
+          "xszm8j",
+          "1jxwcnr",
+          "1y7hryb",
+          "tcpkyl",
+          "gj3jx8",
+          "9n6tys",
+          "1h69sm0",
+          "djanab",
+          "7qmdk9",
+          "bq94on",
+          "16r5qdt",
+          "mxg6hm",
+          "1owrslu"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "9826": [
@@ -264416,6 +268453,38 @@
         "date": "2026-07-04"
       }
     ],
+    "10736": [
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "16",
+        "sigmas": [
+          "e663o0",
+          "1n4nnw1",
+          "g947oq",
+          "16nvp78",
+          "1e7ip6",
+          "1nqmnlf",
+          "1u2dpu1",
+          "isrb2q",
+          "1pz4e4n",
+          "1ivtgiy",
+          "1llszyn",
+          "1ioaw8x",
+          "8o0p9e",
+          "lmw4hi",
+          "1lcqvh",
+          "jzyqlp"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
+      }
+    ],
     "10738": [
       {
         "method": "ECM",
@@ -264534,6 +268603,23 @@
         "source": "log",
         "note": "imported from log",
         "date": "2026-07-04"
+      }
+    ],
+    "10750": [
+      {
+        "method": "ECM",
+        "b1": "2420",
+        "b2": "257260",
+        "curves": "1",
+        "sigmas": [
+          "chlw9y"
+        ],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-07"
       }
     ],
     "10752": [
@@ -265775,5 +269861,5 @@
       }
     ]
   },
-  "updatedAt": "2026-07-07T09:47:18.039Z"
+  "updatedAt": "2026-07-07T10:52:43.283Z"
 }
