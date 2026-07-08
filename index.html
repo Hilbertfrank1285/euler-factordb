@@ -1674,17 +1674,57 @@ const ECM_TABLE = [
   // observed trend (see ecmTableB1/ecmOptimalCurves below) instead of importing a
   // foreign, inconsistent data point — guaranteed monotonic since it's the same
   // dataset's own slope, just extended, not a splice from elsewhere.
-  { d: 20, B1: 11e3,  curves: 74    },
-  { d: 25, B1: 5e4,   curves: 214   },
-  { d: 30, B1: 25e4,  curves: 430   },
-  { d: 35, B1: 1e6,   curves: 904   },
-  { d: 40, B1: 3e6,   curves: 2350  },
-  { d: 45, B1: 11e6,  curves: 4480  },
-  { d: 50, B1: 43e6,  curves: 7553  },
-  { d: 55, B1: 11e7,  curves: 17769 },
-  { d: 60, B1: 26e7,  curves: 42017 },
-  { d: 65, B1: 85e7,  curves: 69408 },
+  { d: 20, B1: 11e3,  curves: 74,    B2: 1.9e6  },
+  { d: 25, B1: 5e4,   curves: 214,   B2: 1.3e7  },
+  { d: 30, B1: 25e4,  curves: 430,   B2: 1.3e8  },
+  { d: 35, B1: 1e6,   curves: 904,   B2: 1.0e9  },
+  { d: 40, B1: 3e6,   curves: 2350,  B2: 5.7e9  },
+  { d: 45, B1: 11e6,  curves: 4480,  B2: 3.5e10 },
+  { d: 50, B1: 43e6,  curves: 7553,  B2: 2.4e11 },
+  { d: 55, B1: 11e7,  curves: 17769, B2: 7.8e11 },
+  { d: 60, B1: 26e7,  curves: 42017, B2: 3.2e12 },
+  { d: 65, B1: 85e7,  curves: 69408, B2: 1.6e13 },
 ];
+
+// Default B2 GMP-ECM picks for a given B1 when B2 isn't given explicitly — this
+// differs meaningfully by method (ECM vs P-1 vs P+1), confirmed both by GMP-ECM's
+// own docs ("the default B2 might differ between ECM, P-1, and P+1") and directly:
+// a real P-1 run at B1=110,000,000 had an actual B2 of 4,537,600,561,228 — about
+// 5.8x LARGER than ECM_TABLE's own verified default B2 at that same B1 (7.8e11).
+// For ECM: log-log interpolated/extrapolated from ECM_TABLE's own verified B2
+// column (same table Zimmermann publishes B1/curves from) — same technique
+// ecmTableB1 already uses for B1 itself.
+function ecmDefaultB2(b1) {
+  const T = ECM_TABLE;
+  const lx = T.map(t => Math.log(t.B1)), ly = T.map(t => Math.log(t.B2));
+  const lb1 = Math.log(Math.max(b1, 2));
+  if (lb1 <= lx[0]) {
+    const s = (ly[1]-ly[0])/(lx[1]-lx[0]);
+    return Math.exp(ly[0] + s*(lb1-lx[0]));
+  }
+  if (lb1 >= lx[lx.length-1]) {
+    const n = lx.length;
+    const s = (ly[n-1]-ly[n-2])/(lx[n-1]-lx[n-2]);
+    return Math.exp(ly[n-1] + s*(lb1-lx[n-1]));
+  }
+  for (let i = 0; i < lx.length-1; i++) {
+    if (lb1 >= lx[i] && lb1 <= lx[i+1]) {
+      const f = (lb1-lx[i])/(lx[i+1]-lx[i]);
+      return Math.exp(ly[i] + f*(ly[i+1]-ly[i]));
+    }
+  }
+  return b1 * 100; // unreachable fallback
+}
+
+// For P-1/P+1: no equivalent published table exists, so this is anchored to the
+// one verified real data point available (the P-1 run above) via a power-law fit
+// consistent in FORM with GMP-ECM's own source-code comment describing a
+// power-law B2 relationship (see the ECM-mode derivation this same file's
+// history already confirmed: B2 ~ (c*B1)^1.365-1.424) — the exact constant here
+// is P-1-specific and single-point-calibrated, so treat it as an approximation,
+// not a certainty, but still dramatically closer than a flat multiplier that was
+// off by a factor of 2000+ at the verified point.
+function pm1DefaultB2(b1) { return 24.8 * Math.pow(b1, 1.4); }
 
 // Expected curves to find a d-digit factor at OPTIMAL B1 (log-space interpolation).
 function ecmOptimalCurves(d) {
@@ -5329,10 +5369,22 @@ function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
   const stage1 = methodCost * k_s1 * b1 * Math.pow(d, 1.5);
 
   // Stage 2: scales with sqrt(B2/B1) and sqrt(d). When B2 isn't given explicitly,
-  // GMP-ECM picks its own default — empirically ~18×B1 on this setup. Divisor
-  // calibrated to the same run (B2≈1.8e8, d=289 → Step 2 = 3.31s).
-  const b2eff = b2 || (18 * b1);
-  const stage2 = stage1 * Math.sqrt(b2eff / b1) / 9.76 * Math.sqrt(d / 100);
+  // GMP-ECM picks its own default that differs meaningfully by method (confirmed
+  // directly: a real P-1 run at B1=110,000,000 had an actual B2 of
+  // 4,537,600,561,228 — nowhere close to a flat 18xB1, which was the previous
+  // assumption here and is off by a factor of 2000+ at that scale). ecmDefaultB2
+  // uses ECM_TABLE's own verified default-B2 column for ECM mode; pm1DefaultB2 is
+  // a single-point-calibrated approximation for P-1/P+1 (no published table
+  // exists for those). The divisor below is RE-DERIVED (not the original 9.76)
+  // to still match the one real, directly-observed calibration measurement this
+  // whole formula is anchored to (B1=1e7, P+1, d=289 → Step 2 = 3.31s) — but now
+  // computed using the corrected B2 estimate at that point instead of the old
+  // wrong 1.8e8 guess. This means the divisor itself inherits pm1DefaultB2's own
+  // uncertainty (it assumes that formula is also accurate at B1=1e7, not just at
+  // the B1=110M point it was directly verified against) — better than a
+  // confirmed-wrong constant, but still an approximation, not a certainty.
+  const b2eff = b2 || (method === 'ECM' ? ecmDefaultB2(b1) : pm1DefaultB2(b1));
+  const stage2 = stage1 * Math.sqrt(b2eff / b1) / 285.97 * Math.sqrt(d / 100);
 
   const perCurve = stage1 + stage2;
 
@@ -5502,8 +5554,18 @@ function recommendNextRun(digits, attempts) {
     for (const b of _STANDARD_B1S) if (b <= b1) best = b; else break;
     return best;
   };
-  if (priorP1)  { priorP1.b1  = snapDownB1(priorP1.b1);  priorP1.b2  = priorP1.b1  * 18; }
-  if (priorPp1) { priorPp1.b1 = snapDownB1(priorPp1.b1); priorPp1.b2 = priorPp1.b1 * 18; }
+  // GMP-ECM's default B2 (when not given explicitly) is NOT a flat multiple of
+  // B1 — verified directly against a real P-1 run: B1=110,000,000 had an actual
+  // B2 of 4,537,600,561,228, a ratio of ~41,251x, not the ~18x this code assumed
+  // before (off by a factor of over 2000 at that scale). Applied uniformly per
+  // (rounded) B1 rather than using each entry's own real ratio, since GMP-ECM's
+  // default is a deterministic function of B1 — entries sharing a snapped bucket
+  // should have similar real ratios anyway, and this keeps the calculation
+  // cache-safe (a per-entry ratio would just reintroduce the thrashing problem
+  // fixed above). See pm1DefaultB2's own definition (top-level, shared with
+  // estimateCpuSeconds) for the formula and its derivation.
+  if (priorP1)  { priorP1.b1  = snapDownB1(priorP1.b1);  priorP1.b2  = pm1DefaultB2(priorP1.b1); }
+  if (priorPp1) { priorPp1.b1 = snapDownB1(priorPp1.b1); priorPp1.b2 = pm1DefaultB2(priorPp1.b1); }
   const nextStandardB1 = (priorB1) => {
     const target = (priorB1 || 0) * 5; // require at least a 5x step to be worthwhile
     for (const b of _STANDARD_B1S) if (b >= target) return b;
@@ -5514,7 +5576,7 @@ function recommendNextRun(digits, attempts) {
   // either) is actually worth including in the final top-3.
   {
     const newB1 = priorP1 ? nextStandardB1(priorP1.b1) : 1e7;
-    const { gain, bestD } = pmGain('P-1', newB1, 18 * newB1, priorP1 && priorP1.b1, priorP1 && priorP1.b2);
+    const { gain, bestD } = pmGain('P-1', newB1, pm1DefaultB2(newB1), priorP1 && priorP1.b1, priorP1 && priorP1.b2);
     if (gain > 0.0005) { // skip proposing a near-zero-value escalation
       candidates.push({
         method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
@@ -5527,7 +5589,7 @@ function recommendNextRun(digits, attempts) {
   }
   {
     const newB1 = priorPp1 ? nextStandardB1(priorPp1.b1) : 1e7;
-    const { gain, bestD } = pmGain('P+1', newB1, 18 * newB1, priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
+    const { gain, bestD } = pmGain('P+1', newB1, pm1DefaultB2(newB1), priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
     if (gain > 0.0005) {
       candidates.push({
         method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
