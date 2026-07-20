@@ -1116,7 +1116,32 @@ function saveECM(d) {
   invalidateCpuTotal(); // ECM changed → recompute total CPU on next renderStats
   invalidateNextRunCache(); // ECM changed → recompute recommended-run times
   try {
-    localStorage.setItem(ECM_KEY, JSON.stringify(d));
+    // Slim each attempt before persisting — every read-site of these fields
+    // already falls back gracefully when a key is missing (a.poly||'—',
+    // a.I?...:0, a.b2?...:null), so omitting empty ones changes nothing visible
+    // but saves real space repeated across potentially thousands of attempts:
+    // poly/I are usually '' (empty), b2 is often '' (auto-picked by GMP-ECM,
+    // never explicitly set), and tool is *almost* always the literal string
+    // 'GMP-ECM' — confirmed while investigating a persistent quota problem that
+    // survived even a full clear+pull+push cycle, which pointed here since this
+    // structure had never been slimmed at all (unlike fdbCache's own "slim"
+    // save, this just JSON.stringify'd the raw, verbose objects directly).
+    // 'note' and 'source' are left untouched — note is genuinely user-variable
+    // in some entry paths, not a safe-to-omit constant.
+    const slimmed = {};
+    for (const [key, attempts] of Object.entries(d)) {
+      slimmed[key] = (attempts || []).map(a => {
+        const out = { method: a.method, b1: a.b1, curves: a.curves, sigmas: a.sigmas };
+        if (a.b2) out.b2 = a.b2;
+        if (a.poly) out.poly = a.poly;
+        if (a.I) out.I = a.I;
+        if (a.tool && a.tool !== 'GMP-ECM') out.tool = a.tool;
+        if (a.source) out.source = a.source;
+        if (a.note) out.note = a.note;
+        return out;
+      });
+    }
+    localStorage.setItem(ECM_KEY, JSON.stringify(slimmed));
     markDirty();
   } catch(e) {
     console.error('saveECM failed:', e.name, e.message);
@@ -1213,7 +1238,7 @@ function loadFDBCache() {
     const full = {};
     for (const [nStr, v] of Object.entries(slim)) {
       const n   = parseInt(nStr);
-      const num = eulerValues[n] || v.numKey || '';
+      const num = eulerValues[n] || '';
       if (!num) continue;
       // Restore factors: prefer in-memory fdbFactors, fall back to slim-persisted factors
       const memFactors  = fdbFactors[num]?.factors;
@@ -1238,7 +1263,16 @@ function saveFDBCache(c) {
     const key = String(v.n);  // key by n, not by number string
     // Persist prime factors too (only ≤100 digit ones — keeps localStorage small)
     const slimFactors = (v.factors || []).filter(f => String(f).length <= 100);
-    slim[key] = { status: v.status, timestamp: v.timestamp, numKey: k.slice(0, 20),
+    // NOTE: no numKey field here (removed). It stored the first 20 chars of the
+    // number string as a load-time fallback for when eulerValues[n] wasn't yet
+    // available — but a 20-char PREFIX of a number that's often thousands of
+    // digits long was never usable for anything requiring the real value anyway,
+    // and eulerValues is reliably loaded by the time this cache is read for real
+    // (any brief early-init gap self-corrects on the next render pass). Across a
+    // project with thousands of entries, storing this on every single one added
+    // up to a meaningful chunk of localStorage for a field that was effectively
+    // dead weight — confirmed while investigating a persistent quota problem.
+    slim[key] = { status: v.status, timestamp: v.timestamp,
                   source: v.source || null,
                   factors: slimFactors.length ? slimFactors : undefined };
     // Store full factors in memory keyed by number string (for fast replay lookup)
@@ -6123,7 +6157,7 @@ function buildECMSection(n, e) {
             <td>${a.curves||'—'}</td>
             <td>${a.poly||'—'}</td>
             <td style="font-size:10px;color:var(--text-muted)">${a.I||'—'}</td>
-            <td style="font-size:10px;color:var(--text-muted)">${a.tool||'—'}</td>
+            <td style="font-size:10px;color:var(--text-muted)">${a.tool||'GMP-ECM'}</td>
             <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
             <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${(() => {
               const b1n = parseB1(a.b1);
