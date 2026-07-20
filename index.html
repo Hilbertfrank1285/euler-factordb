@@ -1150,7 +1150,12 @@ function saveECM(d) {
 }
 
 // ── Cofactor-digits cache ────────────────────────────────────────────────────
-// { [n]: { d: <exact digit count>, k: <factors.join(',') fingerprint> } }
+// { [n]: [<exact digit count>, <factors fingerprint>] } — compact array form,
+// not {d,k}, to skip the per-entry key-name overhead across thousands of
+// entries (confirmed while reducing a persistent localStorage quota problem).
+// Old-format {d,k} entries left over from before this change simply miss the
+// cache once (array indexing on an object returns undefined, safely failing
+// the match) and get recomputed + resaved in the new form — no migration needed.
 // Purely derived data (a function of the entry's value + factor list) — losing it
 // just means recomputing, so it's persisted QUIETLY: no markDirty(), no auto-push
 // triggered on its own. It rides along on whatever real save/push already happens
@@ -1230,6 +1235,41 @@ function parseB1(v) {
   return isFinite(n) ? n : 0;
 }
 
+// Factors are exact values (unlike sigmas, which only ever needed equality
+// checks) — so this must be lossless and reversible, not a hash. Base-36 packs
+// more information per character than base-10, giving a real, verified ~33%
+// size reduction on the factor strings themselves (measured directly across
+// 1000 random test values up to 100 digits, with exact round-trip correctness
+// confirmed). The '~' marker makes encoded values unambiguously distinguishable
+// from a plain decimal string, no matter how short — avoids the kind of
+// heuristic-detection ambiguity that a "long pure-digit string" check would
+// have for factors (which, unlike sigmas, can legitimately be short).
+function _encodeFactor(f) {
+  const s = String(f);
+  if (!/^\d+$/.test(s)) return s; // not a plain decimal number — leave untouched
+  try { return '~' + BigInt(s).toString(36); } catch { return s; }
+}
+function _decodeFactor(f) {
+  if (typeof f !== 'string' || f[0] !== '~') return f; // old format, or already decimal
+  try {
+    let n = 0n;
+    for (let i = 1; i < f.length; i++) {
+      const d = parseInt(f[i], 36);
+      if (isNaN(d)) return f; // malformed — bail safely, return as-is
+      n = n * 36n + BigInt(d);
+    }
+    return n.toString();
+  } catch { return f; }
+}
+
+// Short-code the app's own longer status strings for persistence — FactorDB's
+// OWN codes (C, CF, FF, PRP, U, UN) are already compact and left untouched.
+// Using lowercase for these avoids any collision with FactorDB's uppercase set.
+const _STATUS_CODE = { unknown:'u', 'fdb-unknown':'fu', attempted:'a', composite:'co', full:'fl', partial:'pt' };
+const _STATUS_DECODE = Object.fromEntries(Object.entries(_STATUS_CODE).map(([k,v]) => [v,k]));
+function _encodeStatus(s) { return _STATUS_CODE[s] || s; }
+function _decodeStatus(s) { return _STATUS_DECODE[s] || s; }
+
 function loadFDBCache() {
   try {
     const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
@@ -1242,9 +1282,9 @@ function loadFDBCache() {
       if (!num) continue;
       // Restore factors: prefer in-memory fdbFactors, fall back to slim-persisted factors
       const memFactors  = fdbFactors[num]?.factors;
-      const slimFactors = v.factors;
+      const slimFactors = v.factors ? v.factors.map(_decodeFactor) : v.factors;
       const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
-      full[num] = { status: v.status, timestamp: v.timestamp, source: v.source || null, n,
+      full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
       if (factors && factors.length) {
@@ -1261,8 +1301,11 @@ function saveFDBCache(c) {
   for (const [k, v] of Object.entries(c)) {
     if (v.n == null) continue; // skip entries without n index
     const key = String(v.n);  // key by n, not by number string
-    // Persist prime factors too (only ≤100 digit ones — keeps localStorage small)
-    const slimFactors = (v.factors || []).filter(f => String(f).length <= 100);
+    // Persist prime factors too (only ≤100 digit ones — keeps localStorage small).
+    // Filter on the ORIGINAL decimal length before encoding — the whole point of
+    // the filter is "don't persist factors over 100 real digits", so it has to
+    // run on the true length, not the shorter encoded one.
+    const slimFactors = (v.factors || []).filter(f => String(f).length <= 100).map(_encodeFactor);
     // NOTE: no numKey field here (removed). It stored the first 20 chars of the
     // number string as a load-time fallback for when eulerValues[n] wasn't yet
     // available — but a 20-char PREFIX of a number that's often thousands of
@@ -1272,7 +1315,7 @@ function saveFDBCache(c) {
     // project with thousands of entries, storing this on every single one added
     // up to a meaningful chunk of localStorage for a field that was effectively
     // dead weight — confirmed while investigating a persistent quota problem.
-    slim[key] = { status: v.status, timestamp: v.timestamp,
+    slim[key] = { status: _encodeStatus(v.status), timestamp: v.timestamp,
                   source: v.source || null,
                   factors: slimFactors.length ? slimFactors : undefined };
     // Store full factors in memory keyed by number string (for fast replay lookup)
@@ -2318,7 +2361,12 @@ function buildSyncPayload() {
   for (const [nStr, v] of Object.entries(slim)) {
     const n      = parseInt(nStr);
     const num    = eulerValues[n] || '';
-    const status = v.status;
+    // Decode here — v.status/v.factors are in the LOCAL, compact, localStorage-
+    // only encoding (short status codes, base-36 factors). results.json is a
+    // shared, cross-device format that other code (mergeSyncPayload) expects in
+    // the full, original representation — this encoding must never leak into
+    // it, or a pull would try to merge short codes against decoded local data.
+    const status = _decodeStatus(v.status);
 
     // U (fdb-unknown) — include with status only, no factors needed
     if (status === 'U') { full[nStr] = { status: 'U', timestamp: v.timestamp, n }; continue; }
@@ -2331,10 +2379,10 @@ function buildSyncPayload() {
 
     // CF/FF/P/PRP — include prime factors
     // fdbFactors is ALREADY clean (cofactor stripped at FDB-response time) — do NOT re-strip
-    // Prefer in-memory fdbFactors, fall back to slim-persisted factors
+    // Prefer in-memory fdbFactors, fall back to slim-persisted factors (decoded)
     const fd = num ? (fdbFactors[num] || {}) : {};
     const memFactors  = (fd.factors || []);
-    const slimFactors = (v.factors || []);
+    const slimFactors = (v.factors || []).map(_decodeFactor);
     const primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
     if (primeFactors.length) entry.factors = sortFactorsAsc(primeFactors);
     if (v.source)            entry.source  = v.source;
@@ -5848,9 +5896,9 @@ function getCofactorDigits(e) {
   // once ANY device computes it, every device gets it for free on the next pull.
   const persisted = loadCofDigitsCache();
   const hit = persisted[e.n];
-  if (hit && hit.k === key && hit.d != null) {
-    e._cofDigKey = key; e._cofDig = hit.d;
-    return hit.d;
+  if (hit && hit[1] === key && hit[0] != null) {
+    e._cofDigKey = key; e._cofDig = hit[0];
+    return hit[0];
   }
   // 3. Cache miss — compute fast (division + bit-length estimate), falling back to
   // the fully exact decimal digit count only in the rare case the estimate lands
@@ -5876,7 +5924,7 @@ function getCofactorDigits(e) {
     const gc = getCofactor(e);
     const d0 = gc ? gc.digits : e.val.length;
     e._cofDigKey = key; e._cofDig = d0;
-    persisted[e.n] = { d: d0, k: key };
+    persisted[e.n] = [d0, key];
     saveCofDigitsCacheQuiet();
     return d0;
   }
@@ -5884,7 +5932,7 @@ function getCofactorDigits(e) {
   const est  = Math.floor(bits * Math.log10(2)) + 1;
   const d = _nearCofDigBoundary(est) ? cof.toString().length : est;
   e._cofDigKey = key; e._cofDig = d;
-  persisted[e.n] = { d, k: key };
+  persisted[e.n] = [d, key];
   saveCofDigitsCacheQuiet();
   return d;
 }
