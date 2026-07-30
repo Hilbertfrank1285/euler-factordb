@@ -97045,6 +97045,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1498": [
@@ -97084,6 +97097,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1500": [
@@ -97267,6 +97293,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1508": [
@@ -97306,6 +97345,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1510": [
@@ -97345,6 +97397,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1512": [
@@ -97423,6 +97488,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1516": [
@@ -97501,6 +97579,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1520": [
@@ -97540,6 +97631,19 @@
         "b2": "93543157510",
         "source": "log",
         "note": "imported from log"
+      },
+      {
+        "method": "P+1",
+        "b1": "10000000",
+        "b2": "93541776130",
+        "curves": "",
+        "sigmas": [],
+        "poly": "",
+        "I": "",
+        "tool": "GMP-ECM",
+        "source": "log",
+        "note": "imported from log",
+        "date": "2026-07-30"
       }
     ],
     "1522": [
@@ -261087,5 +261191,5 @@
       }
     ]
   },
-  "updatedAt": "2026-07-28T13:32:27.142Z"
+  "updatedAt": "2026-07-30T13:11:05.456Z"
 }
