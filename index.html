@@ -972,6 +972,59 @@ const PAGE_SIZE = 100;
 // Structure: { status:'FF'|'CF'|'P'|'PRP'|'C'|'U', factors:[], timestamp:ms }
 // ─────────────────────────────────────────────────────────────────────────────
 const STORAGE_KEY    = 'eulerFDB_v1';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Swallowed-exception logging
+// ─────────────────────────────────────────────────────────────────────────────
+// Plenty of places here legitimately continue after a failure — a corrupt cache
+// entry, a missing DOM node, an IDB hiccup — and crashing the whole app over one
+// would be worse than proceeding. But `catch(_) {}` also means a real bug can hide
+// indefinitely with no trace, which is exactly how several problems in this file
+// stayed invisible until they produced visibly wrong output.
+//
+// logSwallowed() keeps the non-fatal behaviour while leaving a trail. It is
+// SILENT by default (no console noise in normal use) and starts recording when
+// debug mode is on:
+//     eulerDebug(true)   — enable, persists across reloads
+//     eulerDebug()       — show what's been swallowed this session
+//     eulerDebug(false)  — disable
+// Failures are always counted and kept in a small ring buffer even when quiet, so
+// `eulerDebug()` can show what already happened without needing a reload first.
+const DEBUG_KEY = 'eulerFDB_debug';
+let _swallowed = [];         // ring buffer of recent non-fatal failures
+let _swallowedCount = 0;
+function isDebugMode() {
+  try { return localStorage.getItem(DEBUG_KEY) === '1'; } catch { return false; }
+}
+function logSwallowed(where, err) {
+  _swallowedCount++;
+  const entry = {
+    where,
+    msg: err && (err.message || err.name) ? (err.name ? err.name + ': ' : '') + (err.message || '') : String(err),
+    at: new Date().toISOString(),
+  };
+  _swallowed.push(entry);
+  if (_swallowed.length > 100) _swallowed.shift(); // bounded — never a leak
+  if (isDebugMode()) console.warn('[swallowed] ' + where + ' —', err);
+}
+// Console helper. Exposed on window so it's usable from devtools.
+function eulerDebug(on) {
+  if (on === undefined) {
+    console.log('Debug mode: ' + (isDebugMode() ? 'ON' : 'OFF')
+      + ' — ' + _swallowedCount + ' non-fatal failure(s) this session'
+      + (_swallowedCount > _swallowed.length ? ' (showing last ' + _swallowed.length + ')' : ''));
+    if (_swallowed.length) console.table(_swallowed);
+    else console.log('Nothing swallowed so far.');
+    console.log('eulerDebug(true) to log these as they happen, eulerDebug(false) to stop.');
+    return;
+  }
+  // Deliberately silent: this is the debug toggle itself, so routing its own
+  // failure through logSwallowed() (which the flag gates) would be circular.
+  try { on ? localStorage.setItem(DEBUG_KEY, '1') : localStorage.removeItem(DEBUG_KEY); } catch(_) {}
+  console.log('Debug mode ' + (on ? 'ON — non-fatal failures will be logged as they happen.' : 'OFF.'));
+}
+if (typeof window !== 'undefined') { window.eulerDebug = eulerDebug; }
+
 const LOG_KEY        = 'eulerFDB_log_v1';
 const COOLDOWN_KEY   = 'eulerFDB_lastPoll';
 const CHANGELOG_KEY  = 'eulerFDB_changelog_v1';
@@ -982,9 +1035,182 @@ const ECM_KEY        = 'eulerFDB_ecm_v1';
 // recompute it from scratch. See loadCofDigitsCache/saveCofDigitsCache below.
 const COFDIG_KEY      = 'eulerFDB_cofDigits_v1';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IndexedDB-backed store for the LARGE data blobs
+// ─────────────────────────────────────────────────────────────────────────────
+// localStorage caps out around 5 million characters, and the ECM run log alone
+// had grown to ~2.8M of them. Every byte-shaving trick applied elsewhere in this
+// file (hashed sigmas, base36 factors, short status codes) was really just
+// buying time against that ceiling. IndexedDB has no comparable limit, so the
+// big blobs live here instead and the whole class of QuotaExceededError problem
+// goes away rather than being managed.
+//
+// THE DESIGN PROBLEM: localStorage is synchronous, IndexedDB is not — and
+// loadECM()/saveFDBCache()/etc. are called synchronously from hundreds of places
+// including render paths. Making them async would mean rewriting all of it and
+// turning render functions into async functions.
+//
+// THE SOLUTION: an in-memory mirror that is authoritative for the session.
+//   * At startup, hydrate the mirror from IDB ONCE (init is already async).
+//   * Reads (kvGet) are served from memory, so they stay synchronous.
+//   * Writes (kvSet) update memory synchronously, then persist to IDB
+//     asynchronously and debounced.
+// Every existing call site keeps working unchanged; only the four low-level
+// load/save functions below had to be touched.
+const APPDB_NAME  = 'eulerFDB_app';
+const APPDB_STORE = 'kv';
+// Only the big blobs move. Small settings/flags stay in localStorage, where a
+// synchronous read with no hydration step is genuinely simpler and their size is
+// irrelevant. (CALIB_KEY is listed by literal because its const is declared much
+// later in the file.)
+const IDB_KEYS = new Set([
+  'eulerFDB_v1',              // STORAGE_KEY   — fdbCache
+  'eulerFDB_ecm_v1',          // ECM_KEY       — run log (by far the biggest)
+  'eulerFDB_cofDigits_v1',    // COFDIG_KEY    — cofactor digit cache
+  'eulerFDB_changelog_v1',    // CHANGELOG_KEY
+  'eulerFDB_calib_v1',        // CALIB_KEY     — timing calibration samples
+  'eulerFDB_history_v1',      // HISTORY_KEY   — append-only discovery log (uncapped)
+]);
+let _kv = Object.create(null);      // in-memory mirror (session-authoritative)
+let _kvDirty = new Set();
+let _kvFlushTimer = null;
+let _kvReady = false;               // true once hydrated from IDB
+let _appDBPromise = null;
+
+function openAppDB() {
+  if (_appDBPromise) return _appDBPromise;
+  _appDBPromise = new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') { resolve(null); return; }
+    const req = indexedDB.open(APPDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(APPDB_STORE)) db.createObjectStore(APPDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => { logSwallowed('openAppDB', req.error); resolve(null); };
+  });
+  return _appDBPromise;
+}
+
+// Synchronous read from the mirror. Falls back to localStorage when the mirror
+// isn't hydrated yet OR the key genuinely still lives there (small keys, and
+// migrated keys on the very first run before the copy happens).
+function kvGet(key) {
+  if (!IDB_KEYS.has(key)) {
+    try { return localStorage.getItem(key); } catch(e) { logSwallowed('kvGet/localStorage', e); return null; }
+  }
+  if (key in _kv) return _kv[key];
+  if (!_kvReady) {
+    // Pre-hydration read — use whatever localStorage still holds so nothing
+    // breaks if something reads before initAppStore() has run.
+    try { return localStorage.getItem(key); } catch(e) { logSwallowed('kvGet/preHydrate', e); return null; }
+  }
+  return null;
+}
+
+function kvSet(key, val) {
+  if (!IDB_KEYS.has(key)) {
+    try { localStorage.setItem(key, val); return true; }
+    catch(e) {
+      if (e && e.name === 'QuotaExceededError') showStorageWarning(); else logSwallowed('kvSet/localStorage', e);
+      return false;
+    }
+  }
+  _kv[key] = val;
+  _kvDirty.add(key);
+  scheduleKvFlush();
+  invalidateStorageUsage();
+  return true;
+}
+
+function scheduleKvFlush() {
+  if (_kvFlushTimer) return;
+  // Debounced: a bulk import can call saveECM() many times in quick succession,
+  // and there's no value in a separate IDB transaction for each one.
+  _kvFlushTimer = setTimeout(() => { _kvFlushTimer = null; flushKv(); }, 400);
+}
+
+async function flushKv() {
+  if (!_kvDirty.size) return;
+  const keys = Array.from(_kvDirty);
+  _kvDirty.clear();
+  const db = await openAppDB();
+  if (!db) {
+    // No IDB available at all — fall back to localStorage so data still persists
+    // somewhere, accepting that the size ceiling comes back with it.
+    for (const k of keys) {
+      try { localStorage.setItem(k, _kv[k]); }
+      catch(e) { if (e && e.name === 'QuotaExceededError') showStorageWarning(); else logSwallowed('flushKv/fallback', e); }
+    }
+    return;
+  }
+  await new Promise((resolve) => {
+    try {
+      const tx = db.transaction(APPDB_STORE, 'readwrite');
+      const store = tx.objectStore(APPDB_STORE);
+      for (const k of keys) store.put(_kv[k], k);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => { logSwallowed('flushKv/tx', tx.error); keys.forEach(k => _kvDirty.add(k)); resolve(); };
+    } catch(e) { logSwallowed('flushKv', e); keys.forEach(k => _kvDirty.add(k)); resolve(); }
+  });
+}
+
+// Force any pending writes out now — used before a GitHub push and on page hide,
+// so a debounced write can't be lost by navigating away mid-timer.
+async function flushKvNow() {
+  if (_kvFlushTimer) { clearTimeout(_kvFlushTimer); _kvFlushTimer = null; }
+  await flushKv();
+}
+
+// Hydrate the mirror, migrating anything still in localStorage on first run.
+// Must be awaited during init BEFORE anything reads these keys.
+async function initAppStore() {
+  const db = await openAppDB();
+  if (db) {
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(APPDB_STORE, 'readonly');
+        const store = tx.objectStore(APPDB_STORE);
+        let pending = 0; let done = false;
+        const finish = () => { if (done) return; done = true; resolve(); };
+        for (const key of IDB_KEYS) {
+          pending++;
+          const req = store.get(key);
+          req.onsuccess = () => { if (req.result != null) _kv[key] = req.result; if (--pending === 0) finish(); };
+          req.onerror   = () => { logSwallowed('initAppStore/get:' + key, req.error); if (--pending === 0) finish(); };
+        }
+        if (pending === 0) finish();
+        tx.onerror = () => { logSwallowed('initAppStore/tx', tx.error); finish(); };
+      } catch(e) { logSwallowed('initAppStore', e); resolve(); }
+    });
+  }
+  // One-time migration: anything present in localStorage but not yet in IDB gets
+  // copied across. Deliberately does NOT delete the localStorage copy in the same
+  // pass — it's removed only after the IDB write is confirmed flushed, so an
+  // interrupted migration can't lose data.
+  const migrated = [];
+  for (const key of IDB_KEYS) {
+    if (key in _kv) continue;
+    let legacy = null;
+    try { legacy = localStorage.getItem(key); } catch(e) { logSwallowed('initAppStore/legacyRead', e); }
+    if (legacy != null && legacy !== '') { _kv[key] = legacy; _kvDirty.add(key); migrated.push(key); }
+  }
+  _kvReady = true;
+  if (migrated.length) {
+    await flushKvNow(); // confirm the IDB write landed…
+    for (const key of migrated) {
+      try { localStorage.removeItem(key); } catch(e) { logSwallowed('initAppStore/cleanup', e); }
+    }
+    // …only then reclaim the localStorage space.
+    invalidateStorageUsage();
+    try { addLog('Moved ' + migrated.length + ' data store(s) from localStorage to IndexedDB — the ~5MB limit no longer applies', 'ok'); } catch(e) { logSwallowed('initAppStore/addLog', e); }
+  }
+  return _kvReady;
+}
+
 function loadECM() {
   if (_ecmCache) return _ecmCache;
-  try { _ecmCache = JSON.parse(localStorage.getItem(ECM_KEY) || '{}'); } catch { _ecmCache = {}; }
+  try { _ecmCache = JSON.parse(kvGet(ECM_KEY) || '{}'); } catch(e) { logSwallowed('loadECM/parse', e); _ecmCache = {}; }
   return _ecmCache;
 }
 let _ecmCache = null; // in-memory cache, invalidated on write
@@ -1138,10 +1364,18 @@ function saveECM(d) {
         if (a.tool && a.tool !== 'GMP-ECM') out.tool = a.tool;
         if (a.source) out.source = a.source;
         if (a.note) out.note = a.note;
+        // `date` is rendered in the ECM runs table — an earlier version of this
+        // whitelist omitted it, which silently blanked the DATE column on every
+        // save. Whitelisting is the right approach here, but it means any field
+        // added elsewhere has to be added here too or it vanishes on write.
+        if (a.date) out.date = a.date;
+        // `ms` is the real measured run time. Dropping it would quietly downgrade
+        // exact CPU figures back to estimates on the next save.
+        if (a.ms > 0) out.ms = a.ms;
         return out;
       });
     }
-    localStorage.setItem(ECM_KEY, JSON.stringify(slimmed));
+    kvSet(ECM_KEY, JSON.stringify(slimmed));
     markDirty();
   } catch(e) {
     console.error('saveECM failed:', e.name, e.message);
@@ -1163,7 +1397,7 @@ function saveECM(d) {
 let _cofDigCache = null;
 function loadCofDigitsCache() {
   if (_cofDigCache) return _cofDigCache;
-  try { _cofDigCache = JSON.parse(localStorage.getItem(COFDIG_KEY) || '{}'); } catch { _cofDigCache = {}; }
+  try { _cofDigCache = JSON.parse(kvGet(COFDIG_KEY) || '{}'); } catch(e) { logSwallowed('loadCofDigits/parse', e); _cofDigCache = {}; }
   return _cofDigCache;
 }
 let _cofDigSaveTimer = null;
@@ -1173,14 +1407,104 @@ function saveCofDigitsCacheQuiet() {
   if (_cofDigSaveTimer) return;
   _cofDigSaveTimer = setTimeout(() => {
     _cofDigSaveTimer = null;
-    try { localStorage.setItem(COFDIG_KEY, JSON.stringify(_cofDigCache || {})); }
-    catch(e) { console.warn('saveCofDigitsCacheQuiet failed:', e.name, e.message); }
+    kvSet(COFDIG_KEY, JSON.stringify(_cofDigCache || {}));
   }, 500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Discovery history — append-only, uncapped, and the source of factor provenance
+// ─────────────────────────────────────────────────────────────────────────────
+// The changelog is capped at 100 entries because it's a UI "recent activity"
+// list. That's fine for display but meant the project's actual discovery history
+// was being discarded, and it left factor provenance unanswerable: `source` is
+// stored per ENTRY, so an entry that received factors from both FactorDB and your
+// own ECM only remembered whichever wrote last. That's why the yield report could
+// only ever be "indicative".
+//
+// This store fixes both at once. Each record is:
+//     [n, unixSeconds, digits, srcCode, factorHash]
+//       srcCode   'e' = found by your own ECM/P±1 import
+//                 'f' = supplied by FactorDB
+//                 'm' = entered manually
+//       factorHash  short hash of the factor's base — gives each record an
+//                   identity, which is what makes cross-device dedup possible AND
+//                   lets us answer "who found THIS factor?" per factor.
+//
+// Deliberately NOT capped. It lives in IndexedDB, and a record is ~40 characters:
+// 10,000 discoveries is about 400KB, which is nothing there. Capping it is what
+// caused the problem in the first place.
+const HISTORY_KEY = 'eulerFDB_history_v1';
+let _historyCache = null;
+let _provIndex = null;   // Map "n|hash" -> srcCode, built lazily from the history
+
+function loadHistory() {
+  if (_historyCache) return _historyCache;
+  try {
+    const raw = JSON.parse(kvGet(HISTORY_KEY) || '[]');
+    _historyCache = Array.isArray(raw) ? raw : [];
+  } catch(e) { logSwallowed('loadHistory/parse', e); _historyCache = []; }
+  return _historyCache;
+}
+function saveHistory(h) {
+  _historyCache = h;
+  _provIndex = null; // index is derived — rebuild on next query
+  kvSet(HISTORY_KEY, JSON.stringify(h));
+}
+// Strip a prime-power suffix: provenance is about the prime, not its exponent.
+function _factorBase(f) { return String(f).split('^')[0]; }
+
+// Record a discovery. Idempotent per (n, factor): re-importing the same log, or
+// FactorDB re-reporting a factor we already have, must not create duplicates.
+function recordDiscovery(n, factorStr, srcCode) {
+  const base = _factorBase(factorStr);
+  if (!/^\d+$/.test(base) || base === '1') return false;
+  const hash = _hashStr(base);
+  const idx  = getProvIndex();
+  const key  = n + '|' + hash;
+  if (idx.has(key)) return false; // already known — keep the ORIGINAL attribution
+  const h = loadHistory();
+  h.push([n, Math.floor(Date.now() / 1000), base.length, srcCode, hash]);
+  idx.set(key, srcCode);
+  saveHistory(h);
+  return true;
+}
+function getProvIndex() {
+  if (_provIndex) return _provIndex;
+  _provIndex = new Map();
+  for (const r of loadHistory()) {
+    if (!Array.isArray(r) || r.length < 5) continue;
+    _provIndex.set(r[0] + '|' + r[4], r[3]);
+  }
+  return _provIndex;
+}
+// Who found this specific factor? Returns 'e' | 'f' | 'm', or null when the
+// factor predates this store (history only began when this shipped, and the old
+// capped changelog can't be reconstructed).
+function factorProvenance(n, factorStr) {
+  const base = _factorBase(factorStr);
+  if (!/^\d+$/.test(base)) return null;
+  return getProvIndex().get(n + '|' + _hashStr(base)) || null;
+}
+// Union local + remote, dedup by (n, factorHash), keeping the EARLIEST timestamp
+// for each — that's the true discovery time, and it makes the merge order-
+// independent so repeated pull/push cycles converge instead of drifting.
+function mergeHistory(remote) {
+  if (!Array.isArray(remote) || !remote.length) return loadHistory().length;
+  const byKey = new Map();
+  for (const r of [...loadHistory(), ...remote]) {
+    if (!Array.isArray(r) || r.length < 5) continue;
+    const key = r[0] + '|' + r[4];
+    const prev = byKey.get(key);
+    if (!prev || (r[1] || 0) < (prev[1] || 0)) byKey.set(key, r);
+  }
+  const merged = Array.from(byKey.values()).sort((a, b) => (a[1] || 0) - (b[1] || 0));
+  saveHistory(merged);
+  return merged.length;
 }
 
 function loadChangelog() {
   try {
-    const entries = JSON.parse(localStorage.getItem(CHANGELOG_KEY) || '[]');
+    const entries = JSON.parse(kvGet(CHANGELOG_KEY) || '[]');
     // Strip any large cofactor/factor strings from old entries (backward compat cleanup)
     return entries.map(e => {
       if (!e.detail) return e;
@@ -1197,7 +1521,7 @@ function loadChangelog() {
 }
 function saveChangelog(c) {
   try {
-    localStorage.setItem(CHANGELOG_KEY, JSON.stringify(c));
+    kvSet(CHANGELOG_KEY, JSON.stringify(c));
     markDirty();
   } catch(e) {
     console.error('saveChangelog failed:', e.name, e.message);
@@ -1272,7 +1596,7 @@ function _decodeStatus(s) { return _STATUS_DECODE[s] || s; }
 
 function loadFDBCache() {
   try {
-    const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    const slim = JSON.parse(kvGet(STORAGE_KEY) || '{}');
     // Rebuild full cache: slim uses n as key, we need to map back to number string
     // For each entry, look up the number string via eulerValues
     const full = {};
@@ -1323,7 +1647,7 @@ function saveFDBCache(c) {
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
   }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    kvSet(STORAGE_KEY, JSON.stringify(slim));
     markDirty();
   } catch(e) {
     console.error('saveFDBCache failed:', e.name, e.message);
@@ -1416,6 +1740,15 @@ function scheduleAutoPush() {
 // Warn before leaving the page with unpushed changes.
 window.addEventListener('beforeunload', (e) => {
   if (_dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+});
+// Writes to the IndexedDB store are debounced (~400ms), so a tab closed or
+// backgrounded mid-timer could otherwise drop the most recent save. 'pagehide'
+// and 'visibilitychange' are the reliable signals here — 'beforeunload' doesn't
+// fire dependably on mobile. flushKvNow() is best-effort: IDB writes can't be
+// guaranteed synchronously at teardown, but this closes the common window.
+window.addEventListener('pagehide', () => { flushKvNow().catch(err => logSwallowed('pagehide/flush', err)); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushKvNow().catch(err => logSwallowed('visibilitychange/flush', err));
 });
 let cancelRequested = false;
 let sortMode     = 'default'; // 'default' | 'diff-asc' | 'diff-desc'
@@ -2208,6 +2541,11 @@ function normalizeEcmAttempts(attempts) {
     const u = new Set([...(hit.sigmas||[]), ...(a.sigmas||[])]);
     if (u.size) hit.sigmas = Array.from(u);
     hit.curves = String(Math.max(parseInt(hit.curves)||0, parseInt(a.curves)||0, u.size));
+    // Measured time merges the same way curves do — MAX, not sum. This branch
+    // treats the two records as overlapping reports of the same work (that's why
+    // curves takes the max), so summing the times would double-count.
+    if (a.ms > 0) hit.ms = Math.max(hit.ms || 0, a.ms);
+    if (a.date && !hit.date) hit.date = a.date;
     if (a.b2 && !hit.b2) hit.b2 = a.b2;
   }
   return out;
@@ -2402,7 +2740,7 @@ function serializeSyncPayload(p) {
 }
 
 function buildSyncPayload() {
-  const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  const slim = JSON.parse(kvGet(STORAGE_KEY) || '{}');
   const full = {};
   for (const [nStr, v] of Object.entries(slim)) {
     const n      = parseInt(nStr);
@@ -2445,6 +2783,11 @@ function buildSyncPayload() {
     // Timing-calibration samples — pooling across devices gives a more stable
     // median. Small and bounded (capped at CALIB_MAX_SAMPLES, deduped on merge).
     calib: (loadCalib().s || []),
+    // Append-only discovery history. Uncapped by design — this is the project's
+    // permanent record and the source of per-factor provenance, so trimming it
+    // would recreate exactly the problem it exists to solve. Deduped on merge by
+    // (n, factorHash), so repeated pull/push cycles converge rather than grow.
+    history: loadHistory(),
     // ECM run logs now live in their own file (results_ecm.json), pushed separately.
     // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
@@ -2537,13 +2880,21 @@ function mergeSyncPayload(remote) {
   if (remote.cofactorDigits && Object.keys(remote.cofactorDigits).length) {
     const merged = { ...loadCofDigitsCache(), ...remote.cofactorDigits };
     _cofDigCache = merged;
-    try { localStorage.setItem(COFDIG_KEY, JSON.stringify(merged)); } catch(e) { console.warn('cofactorDigits save failed:', e.name); }
+    kvSet(COFDIG_KEY, JSON.stringify(merged));
   }
 
   // Timing-calibration samples: union + dedup, bounded. Pooling every device's
   // measurements makes the median more stable than any one machine's history.
   if (Array.isArray(remote.calib) && remote.calib.length) {
-    try { mergeCalibSamples(remote.calib); } catch(e) { console.warn('calib merge failed:', e.name); }
+    try { mergeCalibSamples(remote.calib); } catch(e) { logSwallowed('merge/calib', e); }
+  }
+
+  // Discovery history: union + dedup keeping the earliest timestamp per factor.
+  // Merging is what lets a factor found on one machine be correctly attributed on
+  // every other one, which is the whole point of syncing provenance rather than
+  // recomputing it locally.
+  if (Array.isArray(remote.history) && remote.history.length) {
+    try { mergeHistory(remote.history); } catch(e) { logSwallowed('merge/history', e); }
   }
 }
 
@@ -2580,13 +2931,13 @@ async function githubPull(skipRender) {
     // If nothing actually changed, restore whatever dirty state existed before the
     // pull — preserving genuine pending local edits while not manufacturing new ones.
     const dirtyBefore = _dirty;
-    const snapBefore = (localStorage.getItem(STORAGE_KEY)||'') + '\u0001' + (localStorage.getItem(CHANGELOG_KEY)||'') + '\u0001' + (localStorage.getItem(ECM_KEY)||'');
+    const snapBefore = (kvGet(STORAGE_KEY)||'') + '\u0001' + (kvGet(CHANGELOG_KEY)||'') + '\u0001' + (kvGet(ECM_KEY)||'');
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
     // A pull means the remote may have advanced past whatever we last pushed, so
     // any SHA we cached is no longer trustworthy — force the next push to re-fetch.
     _lastPushedSha = null;
     mergeSyncPayload(payload);
-    const snapAfter = (localStorage.getItem(STORAGE_KEY)||'') + '\u0001' + (localStorage.getItem(CHANGELOG_KEY)||'') + '\u0001' + (localStorage.getItem(ECM_KEY)||'');
+    const snapAfter = (kvGet(STORAGE_KEY)||'') + '\u0001' + (kvGet(CHANGELOG_KEY)||'') + '\u0001' + (kvGet(ECM_KEY)||'');
     if (snapAfter === snapBefore) { _dirty = dirtyBefore; updateDirtyIndicator(); }
     if (!skipRender) {
       allEntries = buildEntries();
@@ -2603,7 +2954,7 @@ async function githubPull(skipRender) {
     // Pull the separate ECM run-log file in the BACKGROUND (don't block the UI).
     // It only affects recommendation/curve counts, so a slightly later refresh is fine.
     pullECMFile()
-      .then(changed => { if (changed) { try { renderStats(); applyFilters(); } catch(_){} } })
+      .then(changed => { if (changed) { try { renderStats(); applyFilters(); } catch(e) { logSwallowed('ecmPull/render', e); } } })
       .catch(ecmErr => addLog('ECM file pull skipped: ' + ecmErr.message, 'warn'));
   } catch(e) {
     setGHStatus(`Pull failed: ${e.message}`, 'err');
@@ -3199,15 +3550,37 @@ function doClearAllLocalData() {
     'eulerFDB_fdbUnknown_v1'
     // GH_SETTINGS_KEY intentionally kept — you need the token to push after reset
   ];
-  keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) { console.warn('removeItem failed for', k, e.name); } });
+  keysToRemove.forEach(k => { try { localStorage.removeItem(k); } catch(e) { logSwallowed('clearLocal/removeItem:' + k, e); } });
 
   // Also wipe any other eulerFDB_ keys — but PRESERVE GitHub settings (token) and theme
   Object.keys(localStorage)
     .filter(k => k.startsWith('eulerFDB_') && k !== GH_SETTINGS_KEY && k !== 'eulerFDB_theme')
-    .forEach(k => localStorage.removeItem(k));
+    .forEach(k => { try { localStorage.removeItem(k); } catch(e) { logSwallowed('clearLocal/sweep:' + k, e); } });
+
+  // The big stores now live in IndexedDB, so clearing localStorage alone would
+  // leave them fully intact and "clear all local data" would silently be a lie.
+  // Drop the in-memory mirror first (and cancel any pending flush) so a debounced
+  // write can't resurrect what we just deleted.
+  if (_kvFlushTimer) { clearTimeout(_kvFlushTimer); _kvFlushTimer = null; }
+  _kv = Object.create(null); _kvDirty.clear();
+  _ecmCache = null; _cofDigCache = null;
+  const wipeIdb = (async () => {
+    const db = await openAppDB();
+    if (!db) return;
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(APPDB_STORE, 'readwrite');
+        tx.objectStore(APPDB_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror    = () => { logSwallowed('clearLocal/idbClear', tx.error); resolve(); };
+      } catch(e) { logSwallowed('clearLocal/idbClear', e); resolve(); }
+    });
+  })();
 
   addLog('All local data cleared — reloading…', 'warn');
-  setTimeout(() => location.reload(), 300);
+  // Wait for the IDB wipe to actually land before reloading, otherwise the reload
+  // can re-hydrate from a store that wasn't finished clearing.
+  wipeIdb.catch(e => logSwallowed('clearLocal/wipe', e)).then(() => setTimeout(() => location.reload(), 300));
 }
 
 function exportFDBSubmission() {
@@ -3348,7 +3721,7 @@ async function exportNextRuns() {
   const capInput = prompt('How many best-value runs to export?', String(lastCap));
   if (capInput === null) return; // cancelled
   const CAP = Math.max(1, parseInt(capInput.replace(/[^0-9]/g, '')) || lastCap);
-  try { localStorage.setItem('eulerFDB_exportCap_v1', String(CAP)); } catch(_) {}
+  try { localStorage.setItem('eulerFDB_exportCap_v1', String(CAP)); } catch(e) { logSwallowed('export/saveCap', e); }
 
   // Range always defaults to "all" (not remembered) — a range restriction is a
   // one-off adjustment for this export, not a standing preference; remembering it
@@ -4033,6 +4406,7 @@ async function processEcmLogText(text, sourceLabel) {
         }
       }
       const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
+      let seenGrew = false;
       if (existing) {
         if (blkSigmas.length) {
           // Accumulate unique sigmas; curve count = size of the accumulated set.
@@ -4040,6 +4414,7 @@ async function processEcmLogText(text, sourceLabel) {
           const before = seen.size;
           for (const s of blkSigmas) seen.add(s);
           existing.sigmas = Array.from(seen);
+          seenGrew = seen.size > before; // did this block add real new work?
           // If we have sigma tracking, curves = unique sigmas seen (more accurate than
           // the run-counter). Keep the larger of (sigma count, recorded curves) so a
           // prior sigma-less import isn't reduced.
@@ -4049,6 +4424,13 @@ async function processEcmLogText(text, sourceLabel) {
           existing.curves = String(Math.max(parseInt(existing.curves) || 0, blk.curves));
         }
         if (blk.b2 && !existing.b2) existing.b2 = blk.b2;
+        // Accumulate measured time in step with the curve count. Only add when
+        // this block contributed genuinely NEW sigmas — otherwise re-importing
+        // the same log would inflate the recorded time while curves (correctly,
+        // being a set union) stayed flat.
+        if (blk.timeMs > 0 && (!blkSigmas.length || seenGrew)) {
+          existing.ms = (existing.ms || 0) + blk.timeMs;
+        }
       } else {
         ecmData[key].push({
           method: blk.method,
@@ -4056,6 +4438,10 @@ async function processEcmLogText(text, sourceLabel) {
           b2: blk.b2 || '',
           curves: blk.method === 'ECM' ? String(blkSigmas.length || blk.curves) : '',
           sigmas: blkSigmas,
+          // ms = REAL measured wall time for this run, summed from its own
+          // "Step N took Xms" lines. One number per attempt, and it makes CPU
+          // totals exact instead of modelled wherever it's present.
+          ...(blk.timeMs > 0 ? { ms: blk.timeMs } : {}),
           poly: '', I: '', tool: 'GMP-ECM', source: 'log',
           note: 'imported from log',
           date: new Date().toISOString().slice(0,10),
@@ -4098,7 +4484,7 @@ async function processEcmLogText(text, sourceLabel) {
             // Only trust this if it actually reconstructs the original composite —
             // guards against a partial/CF result that didn't fully resolve it.
             let product = 1n; for (const p of expanded) product *= p;
-            try { if (product === BigInt(f.value)) { primes = expanded; viaFdb = true; } } catch(_) {}
+            try { if (product === BigInt(f.value)) { primes = expanded; viaFdb = true; } } catch(e) { logSwallowed('fdbComposite/verify', e); }
           }
         }
         if (primes && primes.length) {
@@ -4125,7 +4511,7 @@ async function processEcmLogText(text, sourceLabel) {
     // Rebuild entries from the persistent stores so newly-found factors (which may
     // belong to entries outside the current view) are reflected, then re-render.
     // Rebuilding also drops any stale cached cofactor digits.
-    if (factorsNew) { try { allEntries = buildEntries(); replayFDBCache(); } catch(_) {} }
+    if (factorsNew) { try { allEntries = buildEntries(); replayFDBCache(); } catch(e) { logSwallowed('ecmImport/rebuild', e); } }
     applyFilters(); renderStats(); scheduleECMPush();
   }
 
@@ -4207,8 +4593,14 @@ function recordEcmFactor(entry, factorStr) {
   entry.factors = merged;
   entry.status  = status;
 
+  // Permanent, per-factor provenance record. Unlike the entry-level `source`
+  // field (which only remembers the most recent writer), this survives FactorDB
+  // later touching the same entry — which is exactly the ambiguity that kept the
+  // yield report approximate.
+  try { recordDiscovery(n, factorStr, 'e'); } catch(e) { logSwallowed('recordEcmFactor/history', e); }
+
   // Log to changelog data layer (panel removed, but sync payload still carries it).
-  try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]')); } catch(_) {}
+  try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]')); } catch(e) { logSwallowed('recordEcmFactor/changelog', e); }
 
   // The cofactor just shrank — the cached "fastest next run" and total-CPU sum for
   // this entry are stale (both are derived from getCofactorDigits).
@@ -4393,6 +4785,15 @@ function applyFdbResult(data, n, numberStr) {
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
   const merged = sortFactorsAsc(dedupeCompositeFactors(collapsePowers([...priorOwn, ...fdbPrimes])));
+
+  // Per-factor provenance. Only factors FDB actually contributed are attributed
+  // to it — recordDiscovery() keeps the FIRST attribution for a given (n, factor),
+  // so anything we already found by ECM stays credited to us even though it also
+  // appears in FDB's list. That ordering guarantee is what makes this reliable
+  // rather than a race between whichever source reported last.
+  try {
+    for (const f of fdbPrimes) recordDiscovery(n, f, 'f');
+  } catch(e) { logSwallowed('applyFdbResult/history', e); }
 
   // Source: 'fdb' only if FDB covers every prime base we hold, at >= the power
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
@@ -4708,7 +5109,7 @@ function computeYieldByLevel() {
       const b1n = parseB1(a.b1);
       const cv  = parseInt(a.curves) || 1;
       const sec = (cofDig && cofDig > 1)
-        ? (estimateCpuSeconds(a.method, b1n, a.b2 ? parseB1(a.b2) : null, cv, cofDig) || 0)
+        ? attemptCpuSeconds(a, cofDig)
         : 0;
       if (a.method === 'P-1' || a.method === 'P+1') {
         pm1.runs++; pm1.cpuSec += sec;
@@ -4732,26 +5133,45 @@ function computeYieldByLevel() {
     for (const d of levels) if (Math.abs(d - dig) < Math.abs(best - dig)) best = d;
     return best;
   };
-  let totalFinds = 0, unattributed = 0;
+
+  // Counted from the append-only discovery history, which records provenance PER
+  // FACTOR at the moment of discovery. This is exact: it can't be confused by
+  // FactorDB later touching the same entry, which is what made the previous
+  // entry-level `source` heuristic only "indicative" (it both over- and
+  // under-counted depending on write order).
+  const hist = loadHistory();
+  let totalFinds = 0, unattributed = 0, fdbFinds = 0;
+  const ownByN = new Map(); // n -> count of own finds, for the P±1 split below
+  for (const r of hist) {
+    if (!Array.isArray(r) || r.length < 5) continue;
+    const [hn, , dig, src] = r;
+    if (src === 'f') { fdbFinds++; continue; }   // FactorDB's, not ours — not our yield
+    if (src !== 'e' && src !== 'm') continue;
+    totalFinds++;
+    ownByN.set(hn, (ownByN.get(hn) || 0) + 1);
+    // Credit P±1 when this number only ever saw P±1 runs; otherwise bucket by the
+    // factor's own size, which is the conventional way ECM yield is accounted.
+    const att = (ecmD[String(hn)] || []);
+    const hadEcm = att.some(a => a.method === 'ECM');
+    const hadPm1 = att.some(a => a.method === 'P-1' || a.method === 'P+1');
+    if (!hadEcm && hadPm1) { pm1.finds++; continue; }
+    if (!hadEcm && !hadPm1) { unattributed++; continue; } // no run log explains it
+    stats[bucketForDigits(dig)].finds++;
+  }
+
+  // How many currently-known factors predate the history store? Those can't be
+  // attributed at all, and saying so is more useful than quietly omitting them.
+  let preHistory = 0;
   for (const e of allEntries) {
-    const rec = fdbCache[e.val];
-    if (!rec || rec.source !== 'import') continue; // not (last) found by our own ECM
     for (const f of (e.factors || [])) {
       const base = String(f).split('^')[0];
       if (!/^\d+$/.test(base) || base === '1') continue;
-      const dig = base.length;
-      totalFinds++;
-      // Did this number see any P±1 but no ECM? Then credit P±1 instead.
-      const att = (ecmD[String(e.n)] || []);
-      const hadEcm = att.some(a => a.method === 'ECM');
-      const hadPm1 = att.some(a => a.method === 'P-1' || a.method === 'P+1');
-      if (!hadEcm && hadPm1) { pm1.finds++; continue; }
-      if (!hadEcm && !hadPm1) { unattributed++; continue; } // factor exists but no run log explains it
-      stats[bucketForDigits(dig)].finds++;
+      if (factorProvenance(e.n, base) === null) preHistory++;
     }
   }
 
-  return { levels: levels.map(d => stats[d]), pm1, totalFinds, unattributed };
+  return { levels: levels.map(d => stats[d]), pm1, totalFinds, unattributed,
+           fdbFinds, preHistory, historyCount: hist.length };
 }
 // ── Storage headroom ────────────────────────────────────────────────
 // Browsers don't agree on how localStorage is metered, and the limit isn't
@@ -4777,13 +5197,17 @@ function getStorageUsage(force) {
   // on every filter change and this shouldn't be re-scanned each time.
   const now = Date.now();
   if (!force && _storageUsageCache && (now - _storageUsageAt) < 5000) return _storageUsageCache;
-  let chars = 0;
+  let chars = 0, lsChars = 0, idbChars = 0;
   try {
     for (const k of Object.keys(localStorage)) {
-      chars += k.length + (localStorage.getItem(k) || '').length;
+      lsChars += k.length + (localStorage.getItem(k) || '').length;
     }
-  } catch(_) { return _storageUsageCache || { chars: 0 }; }
-  _storageUsageCache = { chars };
+  } catch(e) { logSwallowed('getStorageUsage/localStorage', e); }
+  // The big blobs live in the IDB-backed mirror now; count them separately so the
+  // indicator can show total data size while only pressure-testing localStorage.
+  for (const k of IDB_KEYS) idbChars += (_kv[k] || '').length;
+  chars = lsChars + idbChars;
+  _storageUsageCache = { chars, lsChars, idbChars };
   _storageUsageAt = now;
   return _storageUsageCache;
 }
@@ -4804,6 +5228,8 @@ function probeFreeChars(force) {
     let fit = false;
     try { localStorage.setItem(key, 'x'.repeat(size)); fit = true; }
     catch(_) { /* didn't fit; try a smaller probe */ }
+    // Silent by design: when the probe write failed there's nothing to remove,
+    // so this would log on every probe of a nearly-full store.
     finally { try { localStorage.removeItem(key); } catch(_) {} }
     if (fit) { free = size; break; } // largest that fits — stop here
   }
@@ -4826,7 +5252,7 @@ function checkStorageHeadroom() {
       + (u.chars/1024/1024).toFixed(2) + 'MB). Push to GitHub, then clear local cache.', 'warn');
     console.warn('localStorage headroom low:', getStorageBreakdown());
   }
-  return { chars: u.chars, free };
+  return { chars: u.chars, lsChars: u.lsChars || 0, idbChars: u.idbChars || 0, free };
 }
 
 function showStorageWarning() {
@@ -4852,12 +5278,16 @@ function getStorageBreakdown() {
   };
   const breakdown = {};
   let total = 0, accountedFor = 0;
+  // Sizes come from kvGet, so IDB-backed keys are measured the same way as the
+  // small localStorage ones. The distinction that matters is the LIMIT, not the
+  // measurement: IDB-backed keys have no meaningful ceiling, localStorage keys
+  // share the ~5M-character origin budget.
   // All sizes here are CHARACTER counts. An earlier version doubled these to
   // "UTF-16 bytes" and compared against 5MB, which read ~2x too full — a store
   // at ~4.0M characters showed as "7.67MB of 5MB (100%)" while saves were fine.
   for (const [k, label] of Object.entries(keys)) {
-    const val = localStorage.getItem(k) || '';
-    breakdown[label] = (val.length / 1024).toFixed(1) + ' KB';
+    const val = kvGet(k) || '';
+    breakdown[label + (IDB_KEYS.has(k) ? ' [idb]' : '')] = (val.length / 1024).toFixed(1) + ' KB';
     accountedFor += val.length;
   }
   // Catch anything else under this origin not explicitly listed above (e.g. the
@@ -4871,13 +5301,17 @@ function getStorageBreakdown() {
   total += accountedFor;
   const other = total - accountedFor;
   if (other > 0) breakdown['other (misc small keys)'] = (other / 1024).toFixed(1) + ' KB';
-  // Sizes are CHARACTER counts (all stored data here is ASCII). Deliberately no
-  // "% of limit" figure: the real limit isn't knowable, and quoting one against a
-  // guess is how this previously came to report 100% while saves worked fine.
-  // probeFreeChars() measures actual remaining headroom instead.
-  breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
+  // Sizes are CHARACTER counts (all stored data here is ASCII). Split by backing
+  // store, because only the localStorage half is subject to a tight limit — the
+  // [idb] keys are the big ones and no longer compete for that budget at all.
+  let idbChars = 0;
+  for (const k of IDB_KEYS) idbChars += (kvGet(k) || '').length;
+  const lsChars = Math.max(0, total - idbChars);
+  breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB'
+    + '  (IndexedDB ' + (idbChars / 1024 / 1024).toFixed(2) + ' MB'
+    + ' + localStorage ' + (lsChars / 1024).toFixed(0) + ' KB)';
   const free = probeFreeChars();
-  breakdown['MEASURED FREE'] = free >= (1 << 20) ? '>= 1 MB'
+  breakdown['localStorage FREE'] = free >= (1 << 20) ? '>= 1 MB'
     : free > 0 ? '>= ' + (free / 1024).toFixed(0) + ' KB'
     : 'under 64 KB - nearly full';
   return breakdown;
@@ -5350,7 +5784,7 @@ function getTotalCpuForEntry(e) {
   for (const a of attempts) {
     const b1n = parseB1(a.b1);
     const b2n = (a.b2 ? parseB1(a.b2) : null);
-    const s   = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
+    const s   = attemptCpuSeconds(a, digits);
     if (s) total += s;
   }
   return total > 0 ? total : null;
@@ -5493,14 +5927,14 @@ function renderGrid() {
             const dl = difficultyLabel(diff.score);
             html += `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`;
           }
-        } catch(_) {}
+        } catch(e) { logSwallowed('tile/difficulty', e); }
       }
 
       // CPU time
       try {
         const cpu = getTotalCpuForEntry(e);
         if (cpu) html += `<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⏱ ${fmtCpuTime(cpu)} CPU</div>`;
-      } catch(_) {}
+      } catch(e) { logSwallowed('tile/cpuTime', e); }
 
       // ECM runs done (total curves logged), so you can see at a glance what's been run
       try {
@@ -5520,7 +5954,7 @@ function renderGrid() {
             html += `<div style="font-size:9px;color:var(--text-muted);margin-top:2px" title="ECM/P±1 runs logged for this number">σ ECM: ${parts.join(' · ')}</div>`;
           }
         }
-      } catch(_) {}
+      } catch(e) { logSwallowed('tile/ecmSummary', e); }
 
       // FDB date
       try {
@@ -5531,7 +5965,7 @@ function renderGrid() {
             if (dt) html += `<div style="font-size:9px;color:var(--text-muted);margin-top:2px">⬡ FDB: ${dt}</div>`;
           }
         }
-      } catch(_) {}
+      } catch(e) { logSwallowed('tile/fdbDate', e); }
 
       // Fastest recommended next run
       try {
@@ -5543,7 +5977,7 @@ function renderGrid() {
             html += `<div style="font-size:9px;color:var(--accent);margin-top:2px" title="Fastest recommended next run">▶ ${label}${time}</div>`;
           }
         }
-      } catch(_) {}
+      } catch(e) { logSwallowed('tile/nextRun', e); }
 
       lazy.innerHTML = html;
     }
@@ -5600,7 +6034,7 @@ function computeTotalCpuSec() {
     for (const a of attempts) {
       const b1n = parseB1(a.b1);
       const b2n = (a.b2 ? parseB1(a.b2) : null);
-      total += estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0;
+      total += attemptCpuSeconds(a, digits);
     }
   }
   _cpuTotalCache = total;
@@ -5636,11 +6070,12 @@ function renderStats() {
   // reflects whether the next save will actually fit.
   const _su = checkStorageHeadroom();
   const _freeKB = _su.free / 1024;
+  // Colour reflects localStorage pressure only. The big stores are in IndexedDB
+  // now and don't compete for that budget, so a large total is no longer a
+  // warning sign in itself.
   const _sColor = _su.free === 0 ? 'var(--red)'
     : _su.free < (1 << 18) ? 'var(--yellow)' : 'var(--text-muted)';
-  const _freeLabel = _su.free >= (1 << 20) ? '>1MB free'
-    : _su.free > 0 ? '>' + _freeKB.toFixed(0) + 'KB free'
-    : 'nearly full';
+  const _freeLabel = _su.idbChars > 0 ? 'idb' : (_su.free >= (1 << 20) ? 'ok' : 'tight');
   let _sTip = '';
   try {
     const bd = getStorageBreakdown();
@@ -5648,12 +6083,14 @@ function renderStats() {
       .filter(([k]) => k !== 'TOTAL' && k !== 'MEASURED FREE')
       .sort((a, b) => parseFloat(b[1]) - parseFloat(a[1])).slice(0, 5)
       .map(([k, v]) => k + ': ' + v).join('\n');
-    _sTip = 'localStorage in use: ' + (_su.chars/1024/1024).toFixed(2) + 'MB\n'
-      + 'Measured free space: ' + _freeLabel + '\n\n'
-      + 'Largest:\n' + rows
-      + '\n\nFree space is measured by actually trying to write, since browsers'
-      + '\ndon\'t expose the localStorage limit and it differs between them.'
-      + '\nIf this gets tight: push to GitHub, then clear local cache.';
+    _sTip = 'Total stored data: ' + (_su.chars/1024/1024).toFixed(2) + 'MB\n'
+      + '  IndexedDB: ' + (_su.idbChars/1024/1024).toFixed(2) + 'MB (no practical limit)\n'
+      + '  localStorage: ' + (_su.lsChars/1024).toFixed(0) + 'KB, free '
+      + (_su.free >= (1<<20) ? '>1MB' : _su.free > 0 ? '>' + _freeKB.toFixed(0) + 'KB' : 'under 64KB')
+      + '\n\nLargest:\n' + rows
+      + '\n\nThe big stores moved to IndexedDB, so the ~5MB localStorage limit no'
+      + '\nlonger applies to them. localStorage free space is measured by actually'
+      + '\ntrying to write, since browsers don\'t expose the limit.';
   } catch(_) { _sTip = 'localStorage usage'; }
   const storageHtml = `<span class="stat-item" style="color:${_sColor}" title="${_sTip.replace(/"/g,'&quot;')}">▤ <strong>${(_su.chars/1024/1024).toFixed(1)}MB</strong> <span style="opacity:.6">${_freeLabel}</span></span>`;
 
@@ -5740,7 +6177,17 @@ function openModal(n) {
                 : lbl === 'composite' ? '<span class="composite-tag">COMPOSITE?</span>'
                 : '<span class="prime-tag">LARGE</span>';
       const fdbUrl = `https://factordb.com/index.php?query=${encodeURIComponent(f)}`;
-      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}<span class="fdb-arrow">↗</span></a>`;
+      // Per-factor provenance: who actually found this one. Comes from the
+      // append-only discovery history, so it stays correct even when FactorDB
+      // later reports the same factor. null = discovered before the history store
+      // existed, in which case we say nothing rather than guess.
+      let prov = null;
+      try { prov = factorProvenance(n, f); } catch(err) { logSwallowed('modal/provenance', err); }
+      const provTag = prov === 'e' ? '<span class="prime-tag" style="color:var(--green)" title="Found by your own ECM/P±1 run">YOURS</span>'
+                    : prov === 'f' ? '<span class="prime-tag" style="color:var(--text-muted)" title="Supplied by FactorDB">FDB</span>'
+                    : prov === 'm' ? '<span class="prime-tag" style="color:var(--text-muted)" title="Entered manually">MANUAL</span>'
+                    : '';
+      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}<span class="fdb-arrow">↗</span></a>`;
     }).join('');
     const sourceNote = allVerifiedPrime
       ? '— all prime, verified by FactorDB'
@@ -5952,19 +6399,18 @@ let _calibCache = null;
 
 function loadCalib() {
   if (_calibCache) return _calibCache;
-  try { _calibCache = JSON.parse(localStorage.getItem(CALIB_KEY) || '{"s":[]}'); }
+  try { _calibCache = JSON.parse(kvGet(CALIB_KEY) || '{"s":[]}'); }
   catch { _calibCache = { s: [] }; }
   if (!Array.isArray(_calibCache.s)) _calibCache.s = [];
   return _calibCache;
 }
 function saveCalib(c) {
   _calibCache = c;
-  try { localStorage.setItem(CALIB_KEY, JSON.stringify(c)); }
-  catch(e) { if (e.name === 'QuotaExceededError') showStorageWarning(); }
+  kvSet(CALIB_KEY, JSON.stringify(c));
   _calibFactorCache = null; // invalidate derived value
   // Every displayed time estimate depends on the calibration factor, so the
   // caches holding precomputed ones are now stale.
-  try { invalidateNextRunCache(); invalidateCpuTotal(); } catch(_) {}
+  try { invalidateNextRunCache(); invalidateCpuTotal(); } catch(e) { logSwallowed('saveCalib/invalidate', e); }
 }
 // Record one predicted-vs-actual observation. `tag` is the export worker label
 // (kept only so the UI can show per-slice spread — never used to pick a factor).
@@ -6033,6 +6479,26 @@ function calibStats() {
 // Raw, uncalibrated model. Kept separate so calibration samples are always
 // measured against the ORIGINAL formula — otherwise each import would calibrate
 // against already-calibrated numbers and the correction would compound on itself.
+// Cost of an attempt that has ALREADY been run. Prefers the real measured time
+// captured from the log's own "Step N took Xms" lines (attempt.ms) and only falls
+// back to the model when a run predates that capture or came from a log without
+// timing lines. This is why totals and the yield report can be exact for recent
+// work instead of uniformly modelled — and it sidesteps the model's known
+// uncertainty (the single-point pm1DefaultB2 fit, the re-derived stage-2 divisor)
+// for every run where the truth is on record.
+function attemptCpuSeconds(a, digits) {
+  if (a && a.ms > 0) return a.ms / 1000;   // measured — authoritative
+  if (!a) return 0;
+  const b1n = parseB1(a.b1);
+  const b2n = a.b2 ? parseB1(a.b2) : null;
+  return estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0;
+}
+// True when every attempt in the list carries a real measurement, so callers can
+// say whether a total is measured or estimated rather than implying precision.
+function allMeasured(attempts) {
+  return Array.isArray(attempts) && attempts.length > 0 && attempts.every(a => a && a.ms > 0);
+}
+
 function estimateCpuSecondsRaw(method, b1, b2, curves, cofactorDigits) {
   if (!b1 || !cofactorDigits) return null;
   const d = cofactorDigits;
@@ -6760,7 +7226,7 @@ function buildECMSection(n, e) {
     const totalCpuSec = attempts.reduce((sum, a) => {
       const b1n = parseB1(a.b1);
       const b2n = (a.b2 ? parseB1(a.b2) : null);
-      return sum + (estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits) || 0);
+      return sum + attemptCpuSeconds(a, digits);
     }, 0);
     tableHtml = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
       <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 7900 core</span>
@@ -6816,7 +7282,7 @@ function buildECMSection(n, e) {
             <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${(() => {
               const b1n = parseB1(a.b1);
               const b2n = (a.b2 ? parseB1(a.b2) : null);
-              const cpuS = estimateCpuSeconds(a.method, b1n, b2n, a.curves, digits);
+              const cpuS = attemptCpuSeconds(a, digits);
               return fmtCpuTime(cpuS);
             })()}</td>
             <td>${a.date||'—'}</td>
@@ -7343,13 +7809,13 @@ function showYieldReport() {
       Runs and curves come straight from your recorded run log and are exact.
       CPU time is estimated by the same (calibrated) model used everywhere else,
       not measured per run.
-      <em>Found</em> is approximate: factor provenance isn't fully recorded —
-      the source flag is stored per entry rather than per factor. So an entry
-      your ECM last touched has <em>all</em> its factors counted here, including
-      any FactorDB supplied earlier (over-count), while an entry your ECM found
-      something on but FactorDB updated afterwards contributes nothing
-      (under-count). It's indicative of where finds cluster, not an exact tally.
-      ${y.unattributed ? `<br><br><span style="color:var(--yellow)">${y.unattributed} factor(s) on entries with no run log at all — not attributed to any level.</span>` : ''}
+      <em>Found</em> is now counted from the append-only discovery history, which
+      records provenance per factor at the moment of discovery — so it's exact,
+      and no longer confused by FactorDB touching an entry after your ECM found
+      something on it.
+      ${y.fdbFinds ? `<br><br>${y.fdbFinds} known factor(s) came from FactorDB rather than your own runs, and are excluded from the yield above.` : ''}
+      ${y.unattributed ? `<br><br><span style="color:var(--yellow)">${y.unattributed} of your find(s) are on numbers with no run log, so they can't be assigned to a level.</span>` : ''}
+      ${y.preHistory ? `<br><br><span style="color:var(--text-muted)">${y.preHistory} factor(s) predate the history store and have no provenance recorded, so they're excluded entirely. Only discoveries made from now on can be attributed — the old changelog was capped at 100 entries and can't be reconstructed.</span>` : ''}
     </div>`;
 
   document.getElementById('modalTitle').textContent = 'ECM yield by level';
@@ -7535,31 +8001,41 @@ setStatus('Ready — loading values in background…');
 // IMPORTANT: render order matters — must be buildEntries → replayFDBCache → applyFilters
 // Otherwise the cache gets wiped by the next buildEntries
 setTimeout(async () => {
+  // Phase 0: hydrate the IndexedDB-backed store (and migrate anything still in
+  // localStorage) BEFORE any of these keys are read. kvGet falls back to
+  // localStorage if this hasn't run, so a failure here degrades rather than
+  // breaks — but the reads below expect the mirror to be populated.
+  try {
+    await initAppStore();
+  } catch(e) {
+    logSwallowed('init/initAppStore', e);
+  }
+
   // Phase 1: load static Euler values JSON
   try {
     await fetchEulerValues();
   } catch(e) {
-    console.warn('fetchEulerValues failed:', e);
+    logSwallowed('init/fetchEulerValues', e);
   }
 
   // Now eulerValues is loaded — initialise fdbCache so number-string keys can be rebuilt
   fdbCache = loadFDBCache();
 
-  // Phase 2: pull from GitHub (merges remote into localStorage)
+  // Phase 2: pull from GitHub (merges remote into the local store)
   // githubPull internally re-renders — that's fine, we'll re-render again below
   try {
     await maybeAutoPull(true);  // skip pull's own render — Phase 3 below renders once
   } catch(e) {
-    console.warn('maybeAutoPull failed:', e);
+    logSwallowed('init/maybeAutoPull', e);
   }
 
   // Phase 3: FINAL consistent state — re-read all data from localStorage
   // (because mergeSyncPayload may have updated it) and render in correct order
   try {
-    try { migrateMislabeledEcm(); } catch(_) {}  // one-time P±1→ECM relabel fix
+    try { migrateMislabeledEcm(); } catch(e) { logSwallowed('migrate/mislabeledEcm', e); }  // one-time P±1→ECM relabel fix
     fdbCache    = loadFDBCache();
-    try { migrateRedundantComposites(); } catch(_) {}  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
-    try { migrateSigmaHashes(); } catch(_) {}  // one-time raw-sigma→hash compaction (storage size fix)
+    try { migrateRedundantComposites(); } catch(e) { logSwallowed('migrate/redundantComposites', e); }  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
+    try { migrateSigmaHashes(); } catch(e) { logSwallowed('migrate/sigmaHashes', e); }  // one-time raw-sigma→hash compaction (storage size fix)
     allEntries  = buildEntries();
     // Step 1's premature render (before eulerValues had loaded) computed and
     // permanently cached "no recommendation" / "no CPU total" for every entry that
