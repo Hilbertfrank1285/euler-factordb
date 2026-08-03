@@ -635,7 +635,7 @@
       <span class="poll-icon">↻</span>
       <span class="spinner">◌</span>
       Check old records (&gt;
-    </button><input type="number" id="staleDaysInput" value="7" min="1" max="365"
+    </button><input type="number" id="staleDaysInput" value="31" min="1" max="365"
       style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
     days)
   </span>
@@ -2093,6 +2093,9 @@ function saveGHSettings() {
     token:  document.getElementById('ghToken')?.value?.trim()  || '',
   };
   localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify(s));
+  // Repo/branch may have changed — a SHA cached from a different file is
+  // meaningless, so drop it and let the next push fetch a fresh one.
+  _lastPushedSha = null;
   updateGHStatus();
 }
 
@@ -2256,6 +2259,7 @@ async function pullECMFile() {
   const merged = mergeEcmData(remoteEcm);
   const changed = JSON.stringify(merged) !== before;
   if (changed) {
+    _lastPushedEcmSig = null; // local ECM data just changed — don't let a stale signature skip the next push
     saveECM(merged);
     addLog('ECM runs pulled — ' + Object.keys(merged).length + ' numbers have logged runs', 'ok');
   } else {
@@ -2265,6 +2269,10 @@ async function pullECMFile() {
 }
 
 // Push local ECM logs to results_ecm.json (separate from results.json).
+// Signature of the ECM content as of our last successful push — used to skip
+// re-pushing byte-identical content. Nulled on failure and on pull (a pull can
+// change local ECM data, so a stale signature could wrongly skip a real push).
+let _lastPushedEcmSig = null;
 async function pushECMFile() {
   const s = loadGHSettings();
   if (!s.user || !s.repo || !s.token) return false;
@@ -2279,7 +2287,18 @@ async function pushECMFile() {
     ecm:       loadECM(),
     updatedAt: new Date().toISOString(),
   };
-  const jsonStr = JSON.stringify(payload, null, 2);
+  const jsonStr = serializeSyncPayload(payload);
+  // Skip entirely if the ECM content is unchanged since our last successful push.
+  // githubPush() calls this every time, and scheduleECMPush() can fire on changes
+  // that don't touch ECM at all — without this, pushing twice in a row created a
+  // second, identical commit and spent 2 more API requests for nothing. Hash the
+  // content WITHOUT updatedAt, since that timestamp differs on every call and
+  // would defeat the comparison.
+  const contentSig = _hashStr(serializeSyncPayload({ version: payload.version, ecm: payload.ecm }));
+  if (_lastPushedEcmSig && contentSig === _lastPushedEcmSig) {
+    addLog('ECM runs unchanged — skipping results_ecm.json push', '');
+    return false;
+  }
   const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
   async function attempt(sha) {
     const body = {
@@ -2303,7 +2322,8 @@ async function pushECMFile() {
     sha = await getSha();
     r = await attempt(sha);
   }
-  if (!r.ok) { const err = await r.json().catch(()=>({})); throw new Error(err.message || 'HTTP ' + r.status + ' pushing ECM file'); }
+  if (!r.ok) { _lastPushedEcmSig = null; const err = await r.json().catch(()=>({})); throw new Error(err.message || 'HTTP ' + r.status + ' pushing ECM file'); }
+  _lastPushedEcmSig = contentSig; // remember what we just pushed, to skip identical re-pushes
   addLog('ECM runs pushed to results_ecm.json', 'ok');
   return true;
 }
@@ -2355,6 +2375,32 @@ function setGHBtns(disabled) {
 }
 
 // Serialise all local data into one object
+// Serialize a sync payload as valid JSON with ONE LINE PER ENTRY for the big
+// n-keyed maps (fdbCache, cofactorDigits), and normal compact JSON elsewhere.
+//
+// Replaces JSON.stringify(payload, null, 2), which was costing ~55% extra size
+// (measured on a realistic 10k-entry payload: 1.39MB pretty vs 0.89MB compact) —
+// and that inflates a further 33% again through base64 on upload, so it was
+// real bandwidth on every single push.
+//
+// This is NOT just minification: one-line-per-entry is actually BETTER for git
+// diffs than the old format. Previously, changing one entry's status showed as
+// ~6 changed lines (one per field) and a 10k-entry file was ~60k lines; now each
+// entry is exactly one line, so a diff shows precisely which E(n) values changed.
+function serializeSyncPayload(p) {
+  const parts = [];
+  for (const [k, v] of Object.entries(p)) {
+    const isBigMap = v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 20;
+    if (isBigMap) {
+      const inner = Object.entries(v).map(([ik, iv]) => '  ' + JSON.stringify(ik) + ': ' + JSON.stringify(iv));
+      parts.push(JSON.stringify(k) + ': {\n' + inner.join(',\n') + '\n }');
+    } else {
+      parts.push(JSON.stringify(k) + ': ' + JSON.stringify(v));
+    }
+  }
+  return '{' + parts.join(',\n') + '}';
+}
+
 function buildSyncPayload() {
   const slim = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   const full = {};
@@ -2396,6 +2442,9 @@ function buildSyncPayload() {
     // purely derived from fdbCache's own factors, but pushed so every device gets
     // instant tile/next-run rendering without redoing BigInt division.
     cofactorDigits: loadCofDigitsCache(),
+    // Timing-calibration samples — pooling across devices gives a more stable
+    // median. Small and bounded (capped at CALIB_MAX_SAMPLES, deduped on merge).
+    calib: (loadCalib().s || []),
     // ECM run logs now live in their own file (results_ecm.json), pushed separately.
     // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
@@ -2490,6 +2539,12 @@ function mergeSyncPayload(remote) {
     _cofDigCache = merged;
     try { localStorage.setItem(COFDIG_KEY, JSON.stringify(merged)); } catch(e) { console.warn('cofactorDigits save failed:', e.name); }
   }
+
+  // Timing-calibration samples: union + dedup, bounded. Pooling every device's
+  // measurements makes the median more stable than any one machine's history.
+  if (Array.isArray(remote.calib) && remote.calib.length) {
+    try { mergeCalibSamples(remote.calib); } catch(e) { console.warn('calib merge failed:', e.name); }
+  }
 }
 
 async function githubPull(skipRender) {
@@ -2527,6 +2582,9 @@ async function githubPull(skipRender) {
     const dirtyBefore = _dirty;
     const snapBefore = (localStorage.getItem(STORAGE_KEY)||'') + '\u0001' + (localStorage.getItem(CHANGELOG_KEY)||'') + '\u0001' + (localStorage.getItem(ECM_KEY)||'');
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
+    // A pull means the remote may have advanced past whatever we last pushed, so
+    // any SHA we cached is no longer trustworthy — force the next push to re-fetch.
+    _lastPushedSha = null;
     mergeSyncPayload(payload);
     const snapAfter = (localStorage.getItem(STORAGE_KEY)||'') + '\u0001' + (localStorage.getItem(CHANGELOG_KEY)||'') + '\u0001' + (localStorage.getItem(ECM_KEY)||'');
     if (snapAfter === snapBefore) { _dirty = dirtyBefore; updateDirtyIndicator(); }
@@ -2556,6 +2614,12 @@ async function githubPull(skipRender) {
 }
 
 let _pushInFlight   = false;
+// SHA of results.json as of OUR last successful push. Lets the next push skip a
+// GET request. Set to null whenever it might be stale (push failure, settings
+// change, or a pull that brought down a different version) so the code falls
+// back to fetching it fresh — a wrong SHA is self-correcting via the conflict
+// retry path, but avoiding a needless failed PUT is better.
+let _lastPushedSha  = null;
 
 // Offline/online detection
 window.addEventListener('offline', () => {
@@ -2610,18 +2674,23 @@ async function githubPush() {
       return null;
     }
 
-    // Helper to attempt one push with a given SHA
+    // Build + encode the payload ONCE, outside the retry loop. This used to be
+    // inside attemptPush(), so every SHA-conflict retry re-ran buildSyncPayload
+    // (which walks every entry and decodes every factor) and re-base64-encoded
+    // the whole megabyte-scale string — up to 3x the work for no benefit, since
+    // the content is identical across retries; only the SHA changes.
+    const payload   = buildSyncPayload();
+    const jsonStr   = serializeSyncPayload(payload);
+    const encoded   = btoa(unescape(encodeURIComponent(jsonStr)));
+    const entryCount = Object.keys(payload.fdbCache || {}).length;
+    console.log('Push payload stats:',
+      'fdbCache=' + entryCount,
+      'changelog=' + (payload.changelog || []).length,
+      'jsonSize=' + (jsonStr.length / 1024 / 1024).toFixed(2) + 'MB',
+      '(ECM runs are pushed separately to results_ecm.json — see pushECMFile)');
+
     async function attemptPush(sha) {
-      const payload = buildSyncPayload();
-      const jsonStr = JSON.stringify(payload, null, 2);
-      console.log('Push payload stats:',
-        'fdbCache=' + Object.keys(payload.fdbCache || {}).length,
-        'changelog=' + (payload.changelog || []).length,
-        'jsonSize=' + (jsonStr.length / 1024 / 1024).toFixed(2) + 'MB',
-        'sha=' + sha,
-        '(ECM runs are pushed separately to results_ecm.json — see pushECMFile)');
-      const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
-      const body    = {
+      const body = {
         message: 'Update Euler factorization data — ' + new Date().toISOString().slice(0,10),
         content: encoded,
         branch:  s.branch || 'main',
@@ -2630,7 +2699,13 @@ async function githubPush() {
       return fetch(ghApiBase(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
     }
 
-    let sha = await getCurrentSha();
+    // Reuse the SHA returned by our OWN last successful push instead of spending
+    // an API request re-fetching what we already know. If it's stale (another
+    // device pushed in between) the conflict-retry path below re-fetches it, so
+    // this is a pure saving in the common single-device case: 2 requests per
+    // push instead of 3 (and the GET was the slower one — it returns the whole
+    // file's metadata).
+    let sha = _lastPushedSha || await getCurrentSha();
     let r   = await attemptPush(sha);
 
     // Retry up to 3 times on SHA conflict — every conflict gets a fresh SHA
@@ -2654,16 +2729,22 @@ async function githubPush() {
     }
 
     if (!r.ok) {
+      _lastPushedSha = null; // failed — don't leave a possibly-wrong SHA cached
       const err = await r.json();
       throw new Error(err.message || 'HTTP ' + r.status);
     }
+    // Remember the SHA GitHub just assigned, so the next push can skip its GET.
+    try { const okBody = await r.clone().json(); _lastPushedSha = okBody?.content?.sha || null; }
+    catch(_) { _lastPushedSha = null; }
     const pushTime = new Date();
     addLog('GitHub push complete', 'ok');
-    // Also push the separate ECM run-log file (results_ecm.json).
+    // Push the ECM run-log file too. Kept SEQUENTIAL deliberately: although these
+    // are different files (so there's no file-SHA conflict between them), each
+    // PUT creates a COMMIT on the same branch, and two concurrent commits to one
+    // branch can fail at the git level with a ref-mismatch. The round-trip saving
+    // isn't worth introducing an intermittent, hard-to-reproduce push failure.
     try { await pushECMFile(); } catch(ecmErr) { addLog('ECM file push skipped: ' + ecmErr.message, 'warn'); }
     markClean(); // changes are now safely on GitHub
-    const payloadStats = buildSyncPayload();
-    const entryCount = Object.keys(payloadStats.fdbCache || {}).length;
     setGHStatus('✓ Pushed ' + entryCount + ' entries to GitHub @ ' + pushTime.toLocaleTimeString(), 'ok');
     // Update header timestamp directly — don't query API (CDN caches for minutes)
     const el = document.getElementById('ghLastUpdate');
@@ -3201,6 +3282,37 @@ function exportFDBSubmission() {
 // user-chosen count (asked for at export time, default/remembered value 1000).
 // Wrap a single core's run lines in the standard header/footer (single-machine,
 // single-core export — the original behaviour).
+function singleShText(lines, importFile, runs) {
+  const dateStr = new Date().toISOString().slice(0,10);
+  const totalSec = runs.reduce((s, r) => s + (r.cpuTime || 0), 0);
+  const header =
+    '#!/bin/bash\n' +
+    '# GMP-ECM run list - ' + runs.length + ' best-value runs - ' + dateStr + '\n' +
+    '# Est. total: ' + fmtCpuTime(totalSec) + ' on one core.\n' +
+    '# Requires ecm_numbers.txt (downloaded alongside this file) in the SAME folder.\n' +
+    '# Install GMP-ECM first if needed:  sudo apt-get install -y gmp-ecm\n' +
+    '# Writes ' + importFile + ' (load into the app via "Import ECM results").\n' +
+    '# If you Ctrl+C early, everything kept so far is already in ' + importFile + '.\n' +
+    '#\n' +
+    '# To run detached so it survives closing the SSH session:\n' +
+    '#   setsid bash ecm_runs.sh > ecm_runs.log 2>&1 < /dev/null &\n' +
+    '\n' +
+    'set -u\n' +
+    // Prefer a local ./ecm binary, else whatever is on PATH — mirrors the
+    // Windows script's ".\\ecm.exe else ecm.exe" resolution.
+    'ECM=$([ -x ./ecm ] && echo ./ecm || echo ecm)\n' +
+    'command -v "$ECM" >/dev/null 2>&1 || { echo "ERROR: ecm not found. Install with: sudo apt-get install -y gmp-ecm"; exit 1; }\n\n';
+  const footer =
+    '\necho\n' +
+    'grep -E "Found|Factor found" ' + importFile + ' > ecm_factors.log 2>/dev/null\n' +
+    'echo ============================================================\n' +
+    'echo "Done (or stopped). Factors: ecm_factors.log"\n' +
+    'echo "IMPORTANT: do NOT re-run this script to resume - import ' + importFile + '"\n' +
+    'echo "into the app, then Export runs again for the reduced list."\n' +
+    'echo ============================================================\n';
+  return header + lines.join('\n') + footer;
+}
+
 function singleBatchText(lines, importFile, runs) {
   const dateStr = new Date().toISOString().slice(0,10);
   const totalSec = runs.reduce((s, r) => s + (r.cpuTime || 0), 0);
@@ -3327,6 +3439,27 @@ async function exportNextRuns() {
   // Resolve B1/B2 to plain integers for the command line.
   const b1int = r => Math.round(r.rawB1 || 0);
 
+  // ── Target platform ─────────────────────────────────────────────────────────
+  // Windows .bat (cmd + PowerShell) or Linux .sh (bash). Remembered between
+  // exports since it's a standing property of where the work gets run.
+  const PLATFORM_KEY = 'eulerFDB_exportPlatform_v1';
+  const prevPlatform = localStorage.getItem(PLATFORM_KEY) || 'bat';
+  const platAns = prompt(
+    'Target platform for the run scripts?\n\n' +
+    '  "win"    = Windows .bat (cmd + PowerShell, ecm.exe)\n' +
+    '  "linux"  = Linux .sh (bash, ecm)\n\n' +
+    'Scripts are generated natively for the platform you pick — no conversion step.',
+    prevPlatform === 'sh' ? 'linux' : 'win');
+  if (platAns === null) return; // cancelled
+  const isSh = /^(linux|sh|bash|l)$/i.test(platAns.trim());
+  localStorage.setItem(PLATFORM_KEY, isSh ? 'sh' : 'bat');
+  // Line endings are NOT cosmetic here. A .sh written with CRLF fails on Linux
+  // with "bad interpreter: /bin/bash^M", and — more insidiously — a numbers file
+  // with CRLF makes `sed -n 'Np'` emit a trailing \r, which gets passed into ecm
+  // as part of the number and corrupts the input silently.
+  const EOL = isSh ? '\n' : '\r\n';
+  const ext = isSh ? '.sh' : '.bat';
+
   // ── Distribution across machines/cores ──────────────────────────────────────
   // Ask how the work should be split. Format: cores per machine, comma-separated.
   // e.g. "24" = one machine, 24 cores;  "24,16,8" = three machines.
@@ -3379,6 +3512,39 @@ async function exportNextRuns() {
     ];
   }
 
+  // Bash equivalent of runLines. Same three-part shape (blank, progress echo,
+  // the ecm pipe) and the same two-stage filter, so the resulting import file is
+  // byte-compatible with what the Windows batch produces and the app's importer
+  // needs no special handling.
+  function runLinesSh(r, label, total, importFile, numbersFile, idx) {
+    const args =
+      r.method === 'ECM' ? `-v -c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
+      r.method === 'P-1' ? `-v -pm1 ${b1int(r)}` :
+                           `-v -pp1 ${b1int(r)}`;
+    const note = `E(${r.n}) ${r.digits}d - ${r.method}${r.method==='ECM' ? ' target '+r.targetDigits+'d' : ''} - ~${fmtCpuTime(r.cpuTime)} - +${r.gain.toFixed(2)}%`;
+    // Single-quote-safe: the note is emitted inside a single-quoted bash string.
+    const q = s => String(s).replace(/'/g, `'\\''`);
+    // The regexes are the SAME filters the Windows version uses, but translated
+    // from PCRE to POSIX: `grep -E` has no \d, so \d+ becomes [0-9]+. Getting
+    // this wrong wouldn't error — it would silently drop the "Run N out of M"
+    // and "Step N took" lines, which are exactly what curve counting and the
+    // timing calibration depend on.
+    const keep = 'Input number|Using B1|Run [0-9]+ out of|Step [0-9] took|Found .*factor|Factor found|cofactor';
+    const imp  = 'Input number|Using B1|Run [0-9]+ out of|Step [0-9] took|Found .*factor|Factor found';
+    return [
+      `echo`,
+      `echo "[${q(label)}] ${q(note)}"`,
+      `echo '# run ${q(label)} ${q(note)}' >> ${importFile}`,
+      // sed line index is 1-based; idx is 0-based. tee /dev/stderr echoes the kept
+      // lines to the console while the second grep writes the narrower set to the
+      // import file — mirroring the Windows Write-Host + Add-Content split.
+      `sed -n '${idx + 1}p' ${numbersFile} | "$ECM" ${args} 2>&1 | grep -E --line-buffered '${keep}' | tee /dev/stderr | grep -E '${imp}' >> ${importFile}`,
+    ];
+  }
+
+  // Dispatch on the chosen platform so every call site below stays identical.
+  const runLinesFor = (...a) => (isSh ? runLinesSh(...a) : runLines(...a));
+
   // Assign each run to a global core index round-robin (runs are value-sorted, so
   // round-robin keeps every core's total time balanced).
   const coreRuns = Array.from({ length: totalCores }, () => []);
@@ -3398,9 +3564,15 @@ async function exportNextRuns() {
     const importFile = 'ecm_import.txt';
     const numbersFile = 'ecm_numbers.txt';
     const lines = [];
-    coreRuns[0].forEach((r, i) => lines.push(...runLines(r, (i+1)+'/'+coreRuns[0].length, coreRuns[0].length, importFile, numbersFile, i)));
-    filesToDownload.push({ name: numbersFile, text: coreRuns[0].map(r => r.val).join('\r\n') + '\r\n' });
-    filesToDownload.push({ name: 'ecm_runs.bat', text: singleBatchText(lines, importFile, coreRuns[0]) });
+    coreRuns[0].forEach((r, i) => lines.push(...runLinesFor(r, (i+1)+'/'+coreRuns[0].length, coreRuns[0].length, importFile, numbersFile, i)));
+    // Numbers file uses the platform's own line ending — a CRLF numbers file read
+    // by `sed` on Linux yields a trailing \r that becomes part of the number.
+    filesToDownload.push({ name: numbersFile, text: coreRuns[0].map(r => r.val).join(EOL) + EOL });
+    filesToDownload.push({
+      name: 'ecm_runs' + ext,
+      text: isSh ? singleShText(lines, importFile, coreRuns[0])
+                 : singleBatchText(lines, importFile, coreRuns[0]),
+    });
   } else {
     // One launcher .bat per machine. The launcher spawns each of that machine's
     // cores in its own parallel window (start "" cmd /c ...), each running a worker
@@ -3413,7 +3585,24 @@ async function exportNextRuns() {
         .filter(o => o.machine === machine)
         .map(o => o.gi);
 
-      const headerLines = [
+      const headerLines = isSh ? [
+        '#!/bin/bash',
+        '# GMP-ECM launcher - machine ' + machine + ' of ' + coresPerMachine.length + ' - ' + cores + ' cores - ' + dateStr,
+        '# Launches ' + cores + ' ecm processes (one per core), each detached via setsid so',
+        '# they survive closing this terminal / dropping the SSH session.',
+        '# Install GMP-ECM first if needed:  sudo apt-get install -y gmp-ecm',
+        '# Each core writes its own ecm_import_m' + machine + '_cN.txt.',
+        '# When all finish: load ALL ecm_import_m' + machine + '_c*.txt into the app',
+        '# ("Import ECM results"), or combine first: cat ecm_import_m' + machine + '_c*.txt > ecm_import.txt',
+        '# Do NOT re-run to resume - import the results, then Export runs again.',
+        '#',
+        '# Check progress:  ps aux | grep ecm | grep -v grep',
+        '#                  tail -f ecm_worker_m' + machine + '_c1.log',
+        '',
+        'set -u',
+        'cd "$(dirname "$0")"',
+        '',
+      ] : [
         '@echo off',
         'rem GMP-ECM launcher - machine ' + machine + ' of ' + coresPerMachine.length + ' - ' + cores + ' cores - ' + dateStr,
         'rem Launches ' + cores + ' parallel ecm windows (one per core). ecm.exe must be',
@@ -3428,13 +3617,26 @@ async function exportNextRuns() {
       myCoreIdx.forEach((gi, localIdx) => {
         const lc = localIdx + 1;
         if (!coreRuns[gi].length) return; // nothing assigned to this core — don't launch an empty window
-        launchLines.push('start "ECM m' + machine + ' core ' + lc + '" cmd /c ecm_worker_m' + machine + '_c' + lc + '.bat');
+        const wname = 'ecm_worker_m' + machine + '_c' + lc + ext;
+        if (isSh) {
+          launchLines.push('chmod +x ' + wname);
+          launchLines.push('setsid bash ' + wname + ' > ecm_worker_m' + machine + '_c' + lc + '.log 2>&1 < /dev/null &');
+        } else {
+          launchLines.push('start "ECM m' + machine + ' core ' + lc + '" cmd /c ' + wname);
+        }
         launchedOnThisMachine++;
       });
       headerLines.push(...launchLines);
-      headerLines.push('echo Launched ' + launchedOnThisMachine + ' core window(s) on machine ' + machine + (launchedOnThisMachine < cores ? ' (' + (cores - launchedOnThisMachine) + ' had no runs to assign — fewer runs than cores)' : '') + '.');
-      headerLines.push('echo Each writes ecm_import_m' + machine + '_cN.txt - import them when done.');
-      filesToDownload.push({ name: 'ecm_runs_machine' + machine + '.bat', text: headerLines.join('\r\n') + '\r\n' });
+      if (isSh) {
+        headerLines.push('disown -a 2>/dev/null || true');
+        headerLines.push('echo "Launched ' + launchedOnThisMachine + ' core process(es) on machine ' + machine + (launchedOnThisMachine < cores ? ' (' + (cores - launchedOnThisMachine) + ' had no runs to assign)' : '') + '."');
+        headerLines.push('echo "Each writes ecm_import_m' + machine + '_cN.txt - import them when done."');
+        headerLines.push('echo "Safe to close this session now; runs continue in the background."');
+      } else {
+        headerLines.push('echo Launched ' + launchedOnThisMachine + ' core window(s) on machine ' + machine + (launchedOnThisMachine < cores ? ' (' + (cores - launchedOnThisMachine) + ' had no runs to assign — fewer runs than cores)' : '') + '.');
+        headerLines.push('echo Each writes ecm_import_m' + machine + '_cN.txt - import them when done.');
+      }
+      filesToDownload.push({ name: 'ecm_runs_machine' + machine + ext, text: headerLines.join(EOL) + EOL });
 
       // Worker batch per core on this machine — skip cores with nothing to do.
       myCoreIdx.forEach((gi, localIdx) => {
@@ -3443,7 +3645,17 @@ async function exportNextRuns() {
         if (!myRuns.length) return;
         const importFile = 'ecm_import_m' + machine + '_c' + lc + '.txt';
         const numbersFile = 'ecm_numbers_m' + machine + '_c' + lc + '.txt';
-        const w = [
+        const w = isSh ? [
+          '#!/bin/bash',
+          '# Worker - machine ' + machine + ' core ' + lc + ' - ' + myRuns.length + ' runs - ' + dateStr,
+          '# Requires ' + numbersFile + ' (downloaded alongside this file) in the SAME folder.',
+          '',
+          'set -u',
+          'cd "$(dirname "$0")"',
+          'ECM=$([ -x ./ecm ] && echo ./ecm || echo ecm)',
+          'command -v "$ECM" >/dev/null 2>&1 || { echo "ERROR: ecm not found. Install: sudo apt-get install -y gmp-ecm"; exit 1; }',
+          '',
+        ] : [
           '@echo off',
           'rem Worker - machine ' + machine + ' core ' + lc + ' - ' + myRuns.length + ' runs - ' + dateStr,
           'rem Requires ' + numbersFile + ' (downloaded alongside this file) in the SAME folder.',
@@ -3451,13 +3663,19 @@ async function exportNextRuns() {
           '',
         ];
         let coreSec = 0;
-        myRuns.forEach((r, i) => { coreSec += r.cpuTime; w.push(...runLines(r, 'm'+machine+'c'+lc+' '+(i+1)+'/'+myRuns.length, myRuns.length, importFile, numbersFile, i)); });
-        w.push('echo.');
-        w.push('findstr /C:"Found" /C:"Factor found" ' + importFile + ' > ecm_factors_m' + machine + '_c' + lc + '.log');
-        w.push('echo Core ' + lc + ' done (~' + fmtCpuTime(coreSec) + '). Import ' + importFile + ' into the app.');
-        w.push('pause');
-        filesToDownload.push({ name: numbersFile, text: myRuns.map(r => r.val).join('\r\n') + '\r\n' });
-        filesToDownload.push({ name: 'ecm_worker_m' + machine + '_c' + lc + '.bat', text: w.join('\r\n') + '\r\n' });
+        myRuns.forEach((r, i) => { coreSec += r.cpuTime; w.push(...runLinesFor(r, 'm'+machine+'c'+lc+' '+(i+1)+'/'+myRuns.length, myRuns.length, importFile, numbersFile, i)); });
+        if (isSh) {
+          w.push('echo');
+          w.push('grep -E "Found|Factor found" ' + importFile + ' > ecm_factors_m' + machine + '_c' + lc + '.log 2>/dev/null');
+          w.push('echo "Core ' + lc + ' done (~' + fmtCpuTime(coreSec) + '). Import ' + importFile + ' into the app."');
+        } else {
+          w.push('echo.');
+          w.push('findstr /C:"Found" /C:"Factor found" ' + importFile + ' > ecm_factors_m' + machine + '_c' + lc + '.log');
+          w.push('echo Core ' + lc + ' done (~' + fmtCpuTime(coreSec) + '). Import ' + importFile + ' into the app.');
+          w.push('pause'); // keeps the window open; pointless (and blocking) for a detached Linux run
+        }
+        filesToDownload.push({ name: numbersFile, text: myRuns.map(r => r.val).join(EOL) + EOL });
+        filesToDownload.push({ name: 'ecm_worker_m' + machine + '_c' + lc + ext, text: w.join(EOL) + EOL });
       });
     });
   }
@@ -3483,6 +3701,26 @@ async function exportNextRuns() {
     const val = (effHr >= 0.01 ? effHr.toFixed(2) + '%/hr' : (effHr * 24).toFixed(2) + '%/d').padStart(9);
     sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${gn}  ${val}`);
   });
+  sum.push('─'.repeat(86));
+  sum.push('');
+  if (isSh) {
+    sum.push('HOW TO RUN (Linux):');
+    sum.push('  1. Put every downloaded file in one folder on the target machine.');
+    sum.push('  2. sudo apt-get install -y gmp-ecm      # once per machine');
+    sum.push('  3. chmod +x *.sh');
+    sum.push(multi
+      ? '  4. ./ecm_runs_machine1.sh              # launches all cores, detached'
+      : '  4. setsid bash ecm_runs.sh > ecm_runs.log 2>&1 < /dev/null &');
+    sum.push('     Detached runs survive closing the terminal / SSH session.');
+    sum.push('  5. Check on it:  ps aux | grep ecm | grep -v grep');
+    sum.push('  6. When done, import the ecm_import*.txt file(s) into the app.');
+  } else {
+    sum.push('HOW TO RUN (Windows):');
+    sum.push('  1. Put every downloaded file in one folder, with ecm.exe.');
+    sum.push(multi ? '  2. Run ecm_runs_machine1.bat (opens one window per core).'
+                   : '  2. Run ecm_runs.bat.');
+    sum.push('  3. When done, import the ecm_import*.txt file(s) into the app.');
+  }
   const summaryText = sum.join('\n') + '\n';
   filesToDownload.push({ name: 'ecm_runs_summary.txt', text: summaryText });
 
@@ -3496,7 +3734,7 @@ async function exportNextRuns() {
     : '';
   const msg = (multi
     ? 'Exported ' + top.length + ' runs across ' + totalCores + ' cores / ' + coresPerMachine.length + ' machine(s) → ' + filesToDownload.length + ' files'
-    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs.bat + ecm_runs_summary.txt') + rangeStr;
+    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs' + ext + ' + ecm_runs_summary.txt') + rangeStr;
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
@@ -3597,7 +3835,7 @@ async function processEcmLogText(text, sourceLabel) {
   // The batch writes a comment line before each run, e.g. "# run 8 E(202) ... - P+1 - ..."
   // This is the most reliable method+E(n) source since the GMP-ECM [METHOD] header
   // line is filtered out of the compact import file.
-  const reRunComment = /#\s*run\s+.+?\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
+  const reRunComment = /#\s*run\s+(.+?)\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
   const reStepTime = /Step \d took (\d+)ms/; // real measured time, for the CPU-time summary stat
   const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
@@ -3605,6 +3843,7 @@ async function processEcmLogText(text, sourceLabel) {
   const reStep2 = /Step 2 took/;  // ECM/P±1's stage 2 completed — see pendingSigma below
   let lastMethod = 'ECM';
   let lastCommentN = null;
+  let lastCommentTag = null;
   let totalTimeMs = 0; // real measured CPU time across every Step line in the whole log,
                         // regardless of which block it belongs to or whether that run
                         // ends up fully recorded — this reflects actual compute spent.
@@ -3612,7 +3851,12 @@ async function processEcmLogText(text, sourceLabel) {
   for (const ln of lines) {
     let mm;
     // Run-comment line: authoritative method + E(n) for the NEXT block.
-    if ((mm = reRunComment.exec(ln))) { lastMethod = mm[2]; lastCommentN = parseInt(mm[1]); }
+    if ((mm = reRunComment.exec(ln))) {
+      lastMethod = mm[3]; lastCommentN = parseInt(mm[2]);
+      // Label looks like "m1c1 1/250" (or just "8" on older single-machine
+      // exports) — keep the leading token as the worker-slice tag.
+      lastCommentTag = (mm[1].trim().split(/\s+/)[0] || '?').slice(0, 12);
+    }
     if ((mm = reMethod.exec(ln))) lastMethod = mm[1]; // GMP-ECM [METHOD] header (if present)
     if ((mm = reInput.exec(ln))) {
       const rawNum = mm[1];
@@ -3627,14 +3871,22 @@ async function processEcmLogText(text, sourceLabel) {
         declaredDigits,
         method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1,
         sigmas: new Set(), pendingSigma: null, factors: new Map(), hadProgress: false,
+        timeMs: 0,          // real measured time for THIS run only (calibration input)
+        sawStep2: false,    // whether stage 2 completed at all (P±1 completeness check)
+        tag: lastCommentTag,
       };
       blocks.push(cur);
-      lastCommentN = null; // consumed
+      lastCommentN = null; lastCommentTag = null; // consumed
       continue;
     }
     if (!cur) continue;
     if (reStep.test(ln)) cur.hadProgress = true; // "Step N took..." — stage actually ran, not just printed setup
-    if ((mm = reStepTime.exec(ln))) totalTimeMs += parseInt(mm[1]) || 0;
+    if ((mm = reStepTime.exec(ln))) {
+      const ms = parseInt(mm[1]) || 0;
+      totalTimeMs += ms;
+      cur.timeMs  += ms; // same measurement, attributed to this run for calibration
+    }
+    if (reStep2.test(ln)) cur.sawStep2 = true;
     if ((mm = reUsing.exec(ln))) {
       if (cur.b1 == null) cur.b1 = mm[1];
       if (mm[2] && cur.b2 == null) cur.b2 = mm[2];
@@ -3690,7 +3942,7 @@ async function processEcmLogText(text, sourceLabel) {
   }
   const ecmData = loadECM();
 
-  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0, killedRuns = 0;
+  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0, killedRuns = 0, calibSamples = 0;
   let ecmRuns = 0, pm1Runs = 0, pp1Runs = 0, totalCurves = 0;
   const summary = [];
   const dirtyN = new Set();
@@ -3755,6 +4007,31 @@ async function processEcmLogText(text, sourceLabel) {
       // block with sigmas is ECM, no matter what the comment/header said. This is
       // the single source of truth that prevents ECM runs being mislabeled P±1.
       if (blkSigmas.length) blk.method = 'ECM';
+
+      // ── Calibration sample: predicted (raw model) vs actually measured time ──
+      // Only from runs where the measured time and the counted work describe the
+      // SAME thing, or the ratio is meaningless:
+      //   ECM   → needs ≥1 sigma CONFIRMED by a completed stage 2, and we price
+      //           exactly those confirmed curves (an interrupted final curve
+      //           contributes a little time but no confirmed sigma, which just
+      //           nudges the ratio slightly high — harmless against a median).
+      //   P±1   → needs stage 2 to have completed, since the model prices a full
+      //           stage1+stage2 run; a stage-1-only run would look artificially fast.
+      if (blk.timeMs > 0) {
+        const isPm1blk = (blk.method === 'P-1' || blk.method === 'P+1');
+        const usableCurves = isPm1blk ? 1 : blkSigmas.length;
+        const complete = isPm1blk ? blk.sawStep2 : (blkSigmas.length > 0);
+        if (complete && usableCurves > 0) {
+          const cofDig = getCofactorDigits(owner);
+          if (cofDig && cofDig > 1) {
+            const predicted = estimateCpuSecondsRaw(
+              blk.method, b1n, blk.b2 ? parseB1(blk.b2) : null, usableCurves, cofDig);
+            if (predicted && predicted > 0) {
+              if (recordCalibSample((blk.timeMs / 1000) / predicted, blk.tag)) calibSamples++;
+            }
+          }
+        }
+      }
       const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
       if (existing) {
         if (blkSigmas.length) {
@@ -3870,9 +4147,24 @@ async function processEcmLogText(text, sourceLabel) {
   if (killedRuns) statsParts.push(killedRuns + ' interrupted before completing (not counted)');
   const statsLine = statsParts.length ? statsParts.join(' · ') : '';
 
+  // Time-estimate calibration feedback — shows whether estimates just got more
+  // accurate, and by how much the model was off against real measurements.
+  let calibLine = '';
+  if (calibSamples > 0) {
+    const cs = calibStats();
+    calibLine = 'Timing calibration: +' + calibSamples + ' measured run' + (calibSamples===1?'':'s')
+      + ' (' + cs.n + ' total)';
+    if (cs.active) {
+      calibLine += ' — estimates now ×' + cs.factor.toFixed(2)
+        + ' vs the raw model (spread ×' + cs.lo.toFixed(2) + '–×' + cs.hi.toFixed(2) + ' across runs)';
+    } else {
+      calibLine += ' — need ' + (5 - cs.n) + ' more before estimates are adjusted';
+    }
+  }
+
   addLog(msg, runsRecorded ? 'ok' : 'warn');
   setStatus(msg, runsRecorded ? 'ok' : 'warn');
-  alert(msg + (statsLine ? '\n' + statsLine : '') + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
+  alert(msg + (statsLine ? '\n' + statsLine : '') + (calibLine ? '\n' + calibLine : '') + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
     + (summary.length ? '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : '') : ''));
 }
 
@@ -4379,6 +4671,136 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 }
 
 let _storageWarningShown = false;
+// ── Yield per ECM level ─────────────────────────────────────────────────────
+// "How much effort have I spent at each level, and what did it actually find?"
+//
+// Two halves with VERY different reliability, and the UI labels them as such:
+//
+//  EFFORT (solid) — derived from the recorded run log itself. Every ECM attempt
+//  carries method/B1/curves, so curve counts are exact and CPU time is the same
+//  (now calibration-corrected) model used everywhere else. Attempts are bucketed
+//  by the level their B1 targets, via b1ToDigits.
+//
+//  FINDS (approximate) — factor provenance is not fully recorded. `source` lives
+//  on the ENTRY, not per-factor, so an entry that received factors from BOTH
+//  FactorDB and your own ECM only remembers whichever wrote last; and the
+//  changelog, which does name individual factors, is capped at 100 entries so it
+//  can't cover a long project's history. Finds are therefore counted from
+//  entries your own ECM last updated, bucketed by each factor's own digit size.
+//  That's the conventional way ECM yield is accounted (a d-digit factor counts
+//  toward the level that targets d digits), but it will undercount factors on
+//  entries FactorDB touched afterwards.
+function computeYieldByLevel() {
+  const levels = [10, 15, ...ECM_TABLE.map(t => t.d)];
+  const stats = {};
+  for (const d of levels) stats[d] = { d, curves: 0, cpuSec: 0, runs: 0, finds: 0 };
+  const pm1 = { curves: 0, cpuSec: 0, runs: 0, finds: 0 };
+
+  const ecmD = loadECM();
+  const byN = new Map(allEntries.map(e => [e.n, e]));
+
+  // ── Effort ──
+  for (const [nStr, attempts] of Object.entries(ecmD || {})) {
+    const e = byN.get(parseInt(nStr));
+    const cofDig = e ? getCofactorDigits(e) : null;
+    for (const a of (attempts || [])) {
+      if (!a || !a.b1) continue;
+      const b1n = parseB1(a.b1);
+      const cv  = parseInt(a.curves) || 1;
+      const sec = (cofDig && cofDig > 1)
+        ? (estimateCpuSeconds(a.method, b1n, a.b2 ? parseB1(a.b2) : null, cv, cofDig) || 0)
+        : 0;
+      if (a.method === 'P-1' || a.method === 'P+1') {
+        pm1.runs++; pm1.cpuSec += sec;
+        continue;
+      }
+      const lvl = b1ToDigits(a.b1);
+      // b1ToDigits only spans the table (20-65); map anything below onto the
+      // nearest level we actually track so small-B1 runs aren't silently dropped.
+      const bucket = stats[lvl] ? lvl : levels.reduce((best, d) =>
+        Math.abs(d - lvl) < Math.abs(best - lvl) ? d : best, levels[0]);
+      stats[bucket].runs++;
+      stats[bucket].curves += cv;
+      stats[bucket].cpuSec += sec;
+    }
+  }
+
+  // ── Finds ──
+  // Bucket a found factor by its own digit count, rounded to the nearest level.
+  const bucketForDigits = (dig) => {
+    let best = levels[0];
+    for (const d of levels) if (Math.abs(d - dig) < Math.abs(best - dig)) best = d;
+    return best;
+  };
+  let totalFinds = 0, unattributed = 0;
+  for (const e of allEntries) {
+    const rec = fdbCache[e.val];
+    if (!rec || rec.source !== 'import') continue; // not (last) found by our own ECM
+    for (const f of (e.factors || [])) {
+      const base = String(f).split('^')[0];
+      if (!/^\d+$/.test(base) || base === '1') continue;
+      const dig = base.length;
+      totalFinds++;
+      // Did this number see any P±1 but no ECM? Then credit P±1 instead.
+      const att = (ecmD[String(e.n)] || []);
+      const hadEcm = att.some(a => a.method === 'ECM');
+      const hadPm1 = att.some(a => a.method === 'P-1' || a.method === 'P+1');
+      if (!hadEcm && hadPm1) { pm1.finds++; continue; }
+      if (!hadEcm && !hadPm1) { unattributed++; continue; } // factor exists but no run log explains it
+      stats[bucketForDigits(dig)].finds++;
+    }
+  }
+
+  return { levels: levels.map(d => stats[d]), pm1, totalFinds, unattributed };
+}
+// Browsers cap localStorage at ~5MB per origin, and they count it in UTF-16 —
+// TWO bytes per character, not one. That distinction matters: quota failures on
+// this app were observed at ~1.45-1.62MB of *characters*, which looks like
+// plenty of headroom against "5MB" but is really ~2.9-3.2MB of actual quota.
+// Add the transient cost of a large setItem (the old value still occupies quota
+// while the new one is being written) and 5MB is genuinely reached. Reporting
+// characters against a 5MB limit would show ~30% used moments before saves start
+// failing, so everything here works in UTF-16 bytes.
+// ── Storage headroom ────────────────────────────────────────────────────────
+const STORAGE_LIMIT_BYTES = 5 * 1024 * 1024;
+let _storageUsageCache = null, _storageUsageAt = 0;
+function getStorageUsage(force) {
+  // Summing every key means walking the whole store, so cache briefly —
+  // renderStats runs on every filter change and this shouldn't be re-scanned
+  // each time. Any write path that matters invalidates it explicitly.
+  const now = Date.now();
+  if (!force && _storageUsageCache && (now - _storageUsageAt) < 5000) return _storageUsageCache;
+  let chars = 0;
+  try {
+    for (const k of Object.keys(localStorage)) {
+      chars += k.length + (localStorage.getItem(k) || '').length;
+    }
+  } catch(_) { return _storageUsageCache || { chars: 0, bytes: 0, pct: 0, limit: STORAGE_LIMIT_BYTES }; }
+  const bytes = chars * 2; // UTF-16
+  _storageUsageCache = {
+    chars, bytes,
+    limit: STORAGE_LIMIT_BYTES,
+    pct: Math.min(100, (bytes / STORAGE_LIMIT_BYTES) * 100),
+  };
+  _storageUsageAt = now;
+  return _storageUsageCache;
+}
+function invalidateStorageUsage() { _storageUsageCache = null; }
+
+// Proactive warning — fires ONCE per session when usage crosses the threshold,
+// so there's a chance to push + clear BEFORE writes start failing. The existing
+// showStorageWarning() only fires after a save has already been lost.
+let _storageHeadroomWarned = false;
+function checkStorageHeadroom() {
+  const u = getStorageUsage();
+  if (u.pct >= 80 && !_storageHeadroomWarned) {
+    _storageHeadroomWarned = true;
+    addLog('Storage ' + u.pct.toFixed(0) + '% full (' + (u.bytes/1024/1024).toFixed(2) + 'MB of ~5MB) — push to GitHub soon, then clear local cache', 'warn');
+    console.warn('localStorage headroom low:', getStorageBreakdown());
+  }
+  return u;
+}
+
 function showStorageWarning() {
   if (_storageWarningShown) return;
   _storageWarningShown = true;
@@ -4398,13 +4820,17 @@ function getStorageBreakdown() {
     [COOLDOWN_KEY]:  'cooldown',
     [GH_SETTINGS_KEY]: 'ghSettings',
     [COFDIG_KEY]:    'cofactorDigitsCache',
+    [CALIB_KEY]:     'timingCalibration',
   };
   const breakdown = {};
   let total = 0, accountedFor = 0;
+  // All sizes here are UTF-16 BYTES (characters x 2) — the unit browsers
+  // actually charge localStorage quota in. Reporting raw character counts made
+  // this look ~half as full as it really was, which is exactly how a store at
+  // ~3.2MB of real quota could read as a comfortable-looking "1.6MB".
   for (const [k, label] of Object.entries(keys)) {
     const val = localStorage.getItem(k) || '';
-    const kb = (val.length / 1024).toFixed(1);
-    breakdown[label] = kb + ' KB';
+    breakdown[label] = ((val.length * 2) / 1024).toFixed(1) + ' KB';
     accountedFor += val.length;
   }
   // Catch anything else under this origin not explicitly listed above (e.g. the
@@ -4417,8 +4843,11 @@ function getStorageBreakdown() {
   }
   total += accountedFor;
   const other = total - accountedFor;
-  if (other > 0) breakdown['other (misc small keys)'] = (other / 1024).toFixed(1) + ' KB';
-  breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
+  if (other > 0) breakdown['other (misc small keys)'] = ((other * 2) / 1024).toFixed(1) + ' KB';
+  const totalBytes = total * 2;
+  breakdown['TOTAL'] = (totalBytes / 1024 / 1024).toFixed(2) + ' MB of ~'
+    + (STORAGE_LIMIT_BYTES / 1024 / 1024).toFixed(0) + 'MB ('
+    + ((totalBytes / STORAGE_LIMIT_BYTES) * 100).toFixed(0) + '% used, UTF-16 bytes)';
   return breakdown;
 }
 
@@ -4664,7 +5093,7 @@ function markAsFdbUnknown(n) {
 
 function startStalePoll() {
   if (polling) return;
-  const days    = Math.max(1, parseInt(document.getElementById('staleDaysInput')?.value) || 7);
+  const days    = Math.max(1, parseInt(document.getElementById('staleDaysInput')?.value) || 31);
   const cutoff  = Date.now() - days * 86400000;
   const targets = allEntries
     .filter(e => {
@@ -5161,15 +5590,41 @@ function renderStats() {
     if (e.status !== 'full' && (ecmD[String(e.n)] || []).length > 0) attempted++;
   }
   const totalCpuStr = fmtCpuTime(computeTotalCpuSec());
+  // Calibration indicator — shows whether time estimates are still using the raw
+  // hand-fitted model or have been corrected against real measured runs.
+  const _cs = calibStats();
+  const calibHtml = _cs.active
+    ? `<span class="stat-item" style="color:var(--text-muted)" title="Time estimates multiplied by ${_cs.factor.toFixed(2)}x, the median of ${_cs.n} real measured runs. Spread across runs: x${_cs.lo.toFixed(2)}–x${_cs.hi.toFixed(2)} (this is mostly machine-to-machine speed differences — the median corrects overall bias, it can't tell your machines apart).">⚖ est. ×<strong>${_cs.factor.toFixed(2)}</strong> <span style="opacity:.6">(${_cs.n} runs)</span></span>`
+    : `<span class="stat-item" style="color:var(--text-muted)" title="Time estimates are using the raw model. Import ECM logs with timing lines to calibrate them against real measurements (${_cs.n}/5 samples so far).">⚖ est. <span style="opacity:.6">uncalibrated</span></span>`;
+
+  // Storage headroom — colour-coded, with the top consumers in the tooltip so a
+  // rising number is immediately actionable rather than just alarming.
+  const _su = checkStorageHeadroom();
+  const _sColor = _su.pct >= 80 ? 'var(--red)' : _su.pct >= 60 ? 'var(--yellow)' : 'var(--text-muted)';
+  let _sTip = '';
+  try {
+    const bd = getStorageBreakdown();
+    const rows = Object.entries(bd).filter(([k]) => k !== 'TOTAL')
+      .sort((a, b) => parseFloat(b[1]) - parseFloat(a[1])).slice(0, 5)
+      .map(([k, v]) => k + ': ' + v).join('\n');
+    _sTip = 'localStorage: ' + (_su.bytes/1024/1024).toFixed(2) + 'MB of ~'
+      + (_su.limit/1024/1024).toFixed(0) + 'MB used (' + _su.pct.toFixed(0) + '%).\n\n'
+      + 'Largest:\n' + rows
+      + '\n\nMeasured in UTF-16 bytes, which is how browsers charge quota (2 bytes per character).'
+      + '\nIf this gets high: push to GitHub, then clear local cache.';
+  } catch(_) { _sTip = 'localStorage usage'; }
+  const storageHtml = `<span class="stat-item" style="color:${_sColor}" title="${_sTip.replace(/"/g,'&quot;')}">▤ <strong>${_su.pct.toFixed(0)}%</strong> storage</span>`;
 
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
     <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
-    <span class="stat-item" style="color:var(--teal)"><strong>${attempted}</strong> ECM logged</span>
+    <span class="stat-item" style="color:var(--teal);cursor:pointer;text-decoration:underline dotted" onclick="showYieldReport()" title="Click for yield by ECM level — effort spent vs factors found"><strong>${attempted}</strong> ECM logged</span>
     <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown · <strong>${fdbUnknown}</strong> fdb-unknown</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
     <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (7900)</span>
+    ${calibHtml}
+    ${storageHtml}
   `;
 }
 
@@ -5434,7 +5889,109 @@ function getCachedDifficulty(n, digits, attempts) {
 
 // Estimate CPU time on a single fast core (~Zen3/Zen4 @ 4.5GHz / 7900) in seconds
 // Empirically calibrated against GMP-ECM 7.0.6 benchmarks
-function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
+// ── Time-estimate self-calibration ──────────────────────────────────────────
+// The CPU-time formula below is anchored to ONE directly-measured run, and its
+// stage-2 term inherits pm1DefaultB2's own single-point uncertainty. But every
+// imported log carries real "Step N took Xms" measurements — so instead of
+// trusting a hand-fitted constant forever, we compare predicted vs actual on
+// each imported run and correct by the observed ratio.
+//
+// IMPORTANT — mixed machines: these samples come from whatever machine ran the
+// batch, and the m1/m2 worker tags identify the EXPORT SLICE, not the physical
+// machine (you can hand worker "m1" files to any box). So a per-machine factor
+// can't be inferred reliably. Instead we use the MEDIAN ratio, which is robust
+// to a mixed population and to outliers, and corrects systematic bias (e.g. "all
+// estimates are 3x low") without pretending to distinguish machines. The spread
+// is surfaced in the UI so the real machine-to-machine variance stays visible
+// rather than being hidden behind a single averaged number.
+const CALIB_KEY = 'eulerFDB_calib_v1';
+const CALIB_MAX_SAMPLES = 300; // ample for a stable median; ~6KB persisted
+let _calibCache = null;
+
+function loadCalib() {
+  if (_calibCache) return _calibCache;
+  try { _calibCache = JSON.parse(localStorage.getItem(CALIB_KEY) || '{"s":[]}'); }
+  catch { _calibCache = { s: [] }; }
+  if (!Array.isArray(_calibCache.s)) _calibCache.s = [];
+  return _calibCache;
+}
+function saveCalib(c) {
+  _calibCache = c;
+  try { localStorage.setItem(CALIB_KEY, JSON.stringify(c)); }
+  catch(e) { if (e.name === 'QuotaExceededError') showStorageWarning(); }
+  _calibFactorCache = null; // invalidate derived value
+  // Every displayed time estimate depends on the calibration factor, so the
+  // caches holding precomputed ones are now stale.
+  try { invalidateNextRunCache(); invalidateCpuTotal(); } catch(_) {}
+}
+// Record one predicted-vs-actual observation. `tag` is the export worker label
+// (kept only so the UI can show per-slice spread — never used to pick a factor).
+function recordCalibSample(ratio, tag) {
+  // Reject implausible ratios outright: these come from logs where the run was
+  // killed mid-stage, or where the timing lines were partially written (both
+  // produce an actual time unrelated to the work the parameters describe).
+  if (!isFinite(ratio) || ratio <= 0.05 || ratio >= 20) return false;
+  const c = loadCalib();
+  // [ratio, tag, unixSeconds] — the timestamp gives each sample an identity so
+  // mergeSyncPayload can dedup across devices. Without it, every pull/push cycle
+  // would concatenate local+remote and the list would grow without bound (the
+  // same failure mode the changelog merge had to be capped for).
+  c.s.push([Math.round(ratio * 1000) / 1000, tag || '?', Math.floor(Date.now() / 1000)]);
+  if (c.s.length > CALIB_MAX_SAMPLES) c.s = c.s.slice(-CALIB_MAX_SAMPLES);
+  saveCalib(c);
+  return true;
+}
+// Union local + remote samples, dedup by (timestamp, ratio, tag), keep newest.
+function mergeCalibSamples(remoteSamples) {
+  const c = loadCalib();
+  const seen = new Map();
+  for (const s of [...(c.s || []), ...(remoteSamples || [])]) {
+    if (!Array.isArray(s) || s.length < 1) continue;
+    const ratio = s[0], tag = s[1] || '?', ts = s[2] || 0;
+    seen.set(ts + '|' + ratio + '|' + tag, [ratio, tag, ts]);
+  }
+  const merged = Array.from(seen.values())
+    .sort((a, b) => (a[2] || 0) - (b[2] || 0))
+    .slice(-CALIB_MAX_SAMPLES);
+  saveCalib({ s: merged });
+  return merged.length;
+}
+function _median(arr) {
+  if (!arr.length) return null;
+  const a = arr.slice().sort((x, y) => x - y);
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+let _calibFactorCache = null;
+// Multiplier applied to the raw formula. Returns 1 (no correction) until there
+// are enough samples to be meaningful — a median over 2-3 runs is noise.
+function calibFactor() {
+  if (_calibFactorCache != null) return _calibFactorCache;
+  const c = loadCalib();
+  const ratios = c.s.map(x => x[0]).filter(r => isFinite(r) && r > 0);
+  _calibFactorCache = (ratios.length >= 5) ? (_median(ratios) || 1) : 1;
+  return _calibFactorCache;
+}
+// Summary for the UI: how many samples, the applied factor, and the real spread
+// (10th-90th percentile) so mixed-machine variance is visible, not hidden.
+function calibStats() {
+  const c = loadCalib();
+  const ratios = c.s.map(x => x[0]).filter(r => isFinite(r) && r > 0).sort((a, b) => a - b);
+  if (!ratios.length) return { n: 0, factor: 1, lo: null, hi: null, active: false };
+  const pct = p => ratios[Math.min(ratios.length - 1, Math.floor(p * ratios.length))];
+  return {
+    n: ratios.length,
+    factor: calibFactor(),
+    lo: pct(0.10),
+    hi: pct(0.90),
+    active: ratios.length >= 5,
+  };
+}
+
+// Raw, uncalibrated model. Kept separate so calibration samples are always
+// measured against the ORIGINAL formula — otherwise each import would calibrate
+// against already-calibrated numbers and the correction would compound on itself.
+function estimateCpuSecondsRaw(method, b1, b2, curves, cofactorDigits) {
   if (!b1 || !cofactorDigits) return null;
   const d = cofactorDigits;
   const c = parseInt(curves) || 1;
@@ -5474,6 +6031,13 @@ function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
   const isPM1 = method === 'P-1' || method === 'P+1';
   const totalCurves = isPM1 ? 1 : c;
   return perCurve * totalCurves;
+}
+
+// Public entry point — same signature every existing caller already uses, now
+// scaled by whatever the accumulated real measurements say the model is off by.
+function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
+  const raw = estimateCpuSecondsRaw(method, b1, b2, curves, cofactorDigits);
+  return raw == null ? null : raw * calibFactor();
 }
 
 function fmtCpuTime(seconds) {
@@ -6667,6 +7231,88 @@ function clearEntryCache(n) {
   addLog(`E(${n}) cache cleared`, 'warn');
   applyFilters();
   openModal(n); // refresh modal
+}
+
+function showYieldReport() {
+  let y;
+  try { y = computeYieldByLevel(); }
+  catch (err) { alert('Could not build the yield report: ' + err.message); return; }
+
+  const hrs = s => s / 3600;
+  const fmtH = s => s >= 3600 ? (hrs(s)).toFixed(1) + ' h' : (s/60).toFixed(0) + ' m';
+  const rows = [];
+  let anyEffort = false;
+
+  for (const L of y.levels) {
+    if (!L.runs && !L.finds) continue; // don't pad the table with levels never touched
+    anyEffort = true;
+    const perFind = L.finds > 0 ? fmtH(L.cpuSec / L.finds) : '—';
+    const rate = L.cpuSec > 0 ? (L.finds / hrs(L.cpuSec) * 100) : 0;
+    // Colour the cost-per-find: this is the number that says whether a level is
+    // still paying for itself.
+    const col = L.finds === 0 ? 'var(--text-muted)' : rate >= 1 ? 'var(--green)' : rate >= 0.1 ? 'var(--yellow)' : 'var(--orange)';
+    rows.push(`<tr>
+      <td style="padding:4px 10px 4px 0"><strong>t${L.d}</strong></td>
+      <td style="padding:4px 10px;text-align:right">${L.runs.toLocaleString()}</td>
+      <td style="padding:4px 10px;text-align:right">${L.curves.toLocaleString()}</td>
+      <td style="padding:4px 10px;text-align:right">${fmtH(L.cpuSec)}</td>
+      <td style="padding:4px 10px;text-align:right;color:${L.finds?'var(--green)':'var(--text-muted)'}"><strong>${L.finds}</strong></td>
+      <td style="padding:4px 0 4px 10px;text-align:right;color:${col}">${perFind}</td>
+    </tr>`);
+  }
+  if (y.pm1.runs || y.pm1.finds) {
+    const p = y.pm1;
+    const perFind = p.finds > 0 ? fmtH(p.cpuSec / p.finds) : '—';
+    rows.push(`<tr style="border-top:1px solid var(--border2)">
+      <td style="padding:4px 10px 4px 0"><strong>P±1</strong></td>
+      <td style="padding:4px 10px;text-align:right">${p.runs.toLocaleString()}</td>
+      <td style="padding:4px 10px;text-align:right">—</td>
+      <td style="padding:4px 10px;text-align:right">${fmtH(p.cpuSec)}</td>
+      <td style="padding:4px 10px;text-align:right;color:${p.finds?'var(--green)':'var(--text-muted)'}"><strong>${p.finds}</strong></td>
+      <td style="padding:4px 0 4px 10px;text-align:right">${perFind}</td>
+    </tr>`);
+  }
+
+  const body = !anyEffort && !y.pm1.runs
+    ? `<div class="modal-section" style="color:var(--text-muted)">No ECM runs recorded yet — import some results first.</div>`
+    : `
+    <div class="modal-section">
+      <div class="modal-section-label">Effort vs. result, by target level</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono, monospace)">
+        <thead><tr style="color:var(--text-muted);font-size:10px;letter-spacing:.5px;text-align:right">
+          <th style="text-align:left;padding-bottom:6px">LEVEL</th>
+          <th style="padding-bottom:6px">RUNS</th>
+          <th style="padding-bottom:6px">CURVES</th>
+          <th style="padding-bottom:6px">CPU TIME</th>
+          <th style="padding-bottom:6px">FOUND</th>
+          <th style="padding-bottom:6px">CPU / FIND</th>
+        </tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+    </div>
+    <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
+      <strong style="color:var(--text)">How to read this.</strong>
+      <em>CPU / find</em> is the column that matters: it's what a factor has actually
+      cost you at each level. A level with lots of CPU time and no finds isn't
+      necessarily wrong — the odds genuinely are low up there — but it does show
+      where your time is going.
+      <br><br>
+      <strong style="color:var(--text)">Reliability.</strong>
+      Runs and curves come straight from your recorded run log and are exact.
+      CPU time is estimated by the same (calibrated) model used everywhere else,
+      not measured per run.
+      <em>Found</em> is approximate: factor provenance isn't fully recorded —
+      the source flag is stored per entry rather than per factor. So an entry
+      your ECM last touched has <em>all</em> its factors counted here, including
+      any FactorDB supplied earlier (over-count), while an entry your ECM found
+      something on but FactorDB updated afterwards contributes nothing
+      (under-count). It's indicative of where finds cluster, not an exact tally.
+      ${y.unattributed ? `<br><br><span style="color:var(--yellow)">${y.unattributed} factor(s) on entries with no run log at all — not attributed to any level.</span>` : ''}
+    </div>`;
+
+  document.getElementById('modalTitle').textContent = 'ECM yield by level';
+  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalBackdrop').classList.add('open');
 }
 
 function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
