@@ -4753,21 +4753,28 @@ function computeYieldByLevel() {
 
   return { levels: levels.map(d => stats[d]), pm1, totalFinds, unattributed };
 }
-// Browsers cap localStorage at ~5MB per origin, and they count it in UTF-16 —
-// TWO bytes per character, not one. That distinction matters: quota failures on
-// this app were observed at ~1.45-1.62MB of *characters*, which looks like
-// plenty of headroom against "5MB" but is really ~2.9-3.2MB of actual quota.
-// Add the transient cost of a large setItem (the old value still occupies quota
-// while the new one is being written) and 5MB is genuinely reached. Reporting
-// characters against a 5MB limit would show ~30% used moments before saves start
-// failing, so everything here works in UTF-16 bytes.
-// ── Storage headroom ────────────────────────────────────────────────────────
-const STORAGE_LIMIT_BYTES = 5 * 1024 * 1024;
+// ── Storage headroom ────────────────────────────────────────────────
+// Browsers don't agree on how localStorage is metered, and the limit isn't
+// queryable — navigator.storage.estimate() reports the whole ORIGIN (dominated
+// here by the ~400MB of E(n) chunks in IndexedDB), so it says nothing useful
+// about the separate, much smaller localStorage budget.
+//
+// An earlier version of this assumed "5MB, counted as UTF-16 (2 bytes/char)".
+// That was WRONG and read about 2x too full: a store holding ~4.0M characters
+// displayed as "7.67MB of 5MB (100%)" while every save was still working fine.
+// Browsers empirically allow on the order of 5 MILLION CHARACTERS, so the
+// doubling was the mistake. Sizes here are therefore plain character counts
+// (everything this app stores is ASCII — digits and base36 — so characters and
+// bytes coincide in the sense the "5MB" figure is usually quoted in).
+//
+// Rather than swap one guessed ceiling for another, headroom is now MEASURED:
+// try writing a probe value and see whether it fits. That answers the only
+// question that actually matters ("will the next save succeed?") without
+// needing to know the total limit, and it's correct on any browser.
 let _storageUsageCache = null, _storageUsageAt = 0;
 function getStorageUsage(force) {
-  // Summing every key means walking the whole store, so cache briefly —
-  // renderStats runs on every filter change and this shouldn't be re-scanned
-  // each time. Any write path that matters invalidates it explicitly.
+  // Summing every key walks the whole store, so cache briefly — renderStats runs
+  // on every filter change and this shouldn't be re-scanned each time.
   const now = Date.now();
   if (!force && _storageUsageCache && (now - _storageUsageAt) < 5000) return _storageUsageCache;
   let chars = 0;
@@ -4775,30 +4782,51 @@ function getStorageUsage(force) {
     for (const k of Object.keys(localStorage)) {
       chars += k.length + (localStorage.getItem(k) || '').length;
     }
-  } catch(_) { return _storageUsageCache || { chars: 0, bytes: 0, pct: 0, limit: STORAGE_LIMIT_BYTES }; }
-  const bytes = chars * 2; // UTF-16
-  _storageUsageCache = {
-    chars, bytes,
-    limit: STORAGE_LIMIT_BYTES,
-    pct: Math.min(100, (bytes / STORAGE_LIMIT_BYTES) * 100),
-  };
+  } catch(_) { return _storageUsageCache || { chars: 0 }; }
+  _storageUsageCache = { chars };
   _storageUsageAt = now;
   return _storageUsageCache;
 }
 function invalidateStorageUsage() { _storageUsageCache = null; }
 
-// Proactive warning — fires ONCE per session when usage crosses the threshold,
-// so there's a chance to push + clear BEFORE writes start failing. The existing
-// showStorageWarning() only fires after a save has already been lost.
+// Measure free space by actually attempting writes, largest first. Returns the
+// biggest probe that fit, i.e. "at least this many characters are free". A real
+// setItem is the only thing that tells the truth about the remaining budget.
+const _PROBE_SIZES = [1 << 20, 1 << 19, 1 << 18, 1 << 17, 1 << 16]; // 1M … 64K chars
+let _probeFreeCache = null, _probeFreeAt = 0;
+function probeFreeChars(force) {
+  const now = Date.now();
+  // Each probe is a real write, so throttle hard (60s).
+  if (!force && _probeFreeCache !== null && (now - _probeFreeAt) < 60000) return _probeFreeCache;
+  const key = '__eulerFDB_probe__';
+  let free = 0;
+  for (const size of _PROBE_SIZES) {
+    let fit = false;
+    try { localStorage.setItem(key, 'x'.repeat(size)); fit = true; }
+    catch(_) { /* didn't fit; try a smaller probe */ }
+    finally { try { localStorage.removeItem(key); } catch(_) {} }
+    if (fit) { free = size; break; } // largest that fits — stop here
+  }
+  _probeFreeCache = free;
+  _probeFreeAt = now;
+  return free;
+}
+function invalidateProbeFree() { _probeFreeCache = null; }
+
+// Warn once per session when headroom is genuinely tight — based on the MEASURED
+// probe, not a guessed percentage. Threshold: couldn't fit 256K characters, which
+// is small relative to the writes this app actually makes.
 let _storageHeadroomWarned = false;
 function checkStorageHeadroom() {
   const u = getStorageUsage();
-  if (u.pct >= 80 && !_storageHeadroomWarned) {
+  const free = probeFreeChars();
+  if (free < (1 << 18) && !_storageHeadroomWarned) {
     _storageHeadroomWarned = true;
-    addLog('Storage ' + u.pct.toFixed(0) + '% full (' + (u.bytes/1024/1024).toFixed(2) + 'MB of ~5MB) — push to GitHub soon, then clear local cache', 'warn');
+    addLog('Storage headroom low — under 256KB free (using '
+      + (u.chars/1024/1024).toFixed(2) + 'MB). Push to GitHub, then clear local cache.', 'warn');
     console.warn('localStorage headroom low:', getStorageBreakdown());
   }
-  return u;
+  return { chars: u.chars, free };
 }
 
 function showStorageWarning() {
@@ -4824,13 +4852,12 @@ function getStorageBreakdown() {
   };
   const breakdown = {};
   let total = 0, accountedFor = 0;
-  // All sizes here are UTF-16 BYTES (characters x 2) — the unit browsers
-  // actually charge localStorage quota in. Reporting raw character counts made
-  // this look ~half as full as it really was, which is exactly how a store at
-  // ~3.2MB of real quota could read as a comfortable-looking "1.6MB".
+  // All sizes here are CHARACTER counts. An earlier version doubled these to
+  // "UTF-16 bytes" and compared against 5MB, which read ~2x too full — a store
+  // at ~4.0M characters showed as "7.67MB of 5MB (100%)" while saves were fine.
   for (const [k, label] of Object.entries(keys)) {
     const val = localStorage.getItem(k) || '';
-    breakdown[label] = ((val.length * 2) / 1024).toFixed(1) + ' KB';
+    breakdown[label] = (val.length / 1024).toFixed(1) + ' KB';
     accountedFor += val.length;
   }
   // Catch anything else under this origin not explicitly listed above (e.g. the
@@ -4843,11 +4870,16 @@ function getStorageBreakdown() {
   }
   total += accountedFor;
   const other = total - accountedFor;
-  if (other > 0) breakdown['other (misc small keys)'] = ((other * 2) / 1024).toFixed(1) + ' KB';
-  const totalBytes = total * 2;
-  breakdown['TOTAL'] = (totalBytes / 1024 / 1024).toFixed(2) + ' MB of ~'
-    + (STORAGE_LIMIT_BYTES / 1024 / 1024).toFixed(0) + 'MB ('
-    + ((totalBytes / STORAGE_LIMIT_BYTES) * 100).toFixed(0) + '% used, UTF-16 bytes)';
+  if (other > 0) breakdown['other (misc small keys)'] = (other / 1024).toFixed(1) + ' KB';
+  // Sizes are CHARACTER counts (all stored data here is ASCII). Deliberately no
+  // "% of limit" figure: the real limit isn't knowable, and quoting one against a
+  // guess is how this previously came to report 100% while saves worked fine.
+  // probeFreeChars() measures actual remaining headroom instead.
+  breakdown['TOTAL'] = (total / 1024 / 1024).toFixed(2) + ' MB';
+  const free = probeFreeChars();
+  breakdown['MEASURED FREE'] = free >= (1 << 20) ? '>= 1 MB'
+    : free > 0 ? '>= ' + (free / 1024).toFixed(0) + ' KB'
+    : 'under 64 KB - nearly full';
   return breakdown;
 }
 
@@ -5597,23 +5629,33 @@ function renderStats() {
     ? `<span class="stat-item" style="color:var(--text-muted)" title="Time estimates multiplied by ${_cs.factor.toFixed(2)}x, the median of ${_cs.n} real measured runs. Spread across runs: x${_cs.lo.toFixed(2)}–x${_cs.hi.toFixed(2)} (this is mostly machine-to-machine speed differences — the median corrects overall bias, it can't tell your machines apart).">⚖ est. ×<strong>${_cs.factor.toFixed(2)}</strong> <span style="opacity:.6">(${_cs.n} runs)</span></span>`
     : `<span class="stat-item" style="color:var(--text-muted)" title="Time estimates are using the raw model. Import ECM logs with timing lines to calibrate them against real measurements (${_cs.n}/5 samples so far).">⚖ est. <span style="opacity:.6">uncalibrated</span></span>`;
 
-  // Storage headroom — colour-coded, with the top consumers in the tooltip so a
-  // rising number is immediately actionable rather than just alarming.
+  // Storage: report ACTUAL usage plus MEASURED free space. No percentage-of-limit,
+  // because the limit isn't knowable — the previous version guessed 5MB, doubled
+  // usage as "UTF-16 bytes", and consequently displayed a flat 100% while every
+  // save was still succeeding. Colour comes from the write probe instead, which
+  // reflects whether the next save will actually fit.
   const _su = checkStorageHeadroom();
-  const _sColor = _su.pct >= 80 ? 'var(--red)' : _su.pct >= 60 ? 'var(--yellow)' : 'var(--text-muted)';
+  const _freeKB = _su.free / 1024;
+  const _sColor = _su.free === 0 ? 'var(--red)'
+    : _su.free < (1 << 18) ? 'var(--yellow)' : 'var(--text-muted)';
+  const _freeLabel = _su.free >= (1 << 20) ? '>1MB free'
+    : _su.free > 0 ? '>' + _freeKB.toFixed(0) + 'KB free'
+    : 'nearly full';
   let _sTip = '';
   try {
     const bd = getStorageBreakdown();
-    const rows = Object.entries(bd).filter(([k]) => k !== 'TOTAL')
+    const rows = Object.entries(bd)
+      .filter(([k]) => k !== 'TOTAL' && k !== 'MEASURED FREE')
       .sort((a, b) => parseFloat(b[1]) - parseFloat(a[1])).slice(0, 5)
       .map(([k, v]) => k + ': ' + v).join('\n');
-    _sTip = 'localStorage: ' + (_su.bytes/1024/1024).toFixed(2) + 'MB of ~'
-      + (_su.limit/1024/1024).toFixed(0) + 'MB used (' + _su.pct.toFixed(0) + '%).\n\n'
+    _sTip = 'localStorage in use: ' + (_su.chars/1024/1024).toFixed(2) + 'MB\n'
+      + 'Measured free space: ' + _freeLabel + '\n\n'
       + 'Largest:\n' + rows
-      + '\n\nMeasured in UTF-16 bytes, which is how browsers charge quota (2 bytes per character).'
-      + '\nIf this gets high: push to GitHub, then clear local cache.';
+      + '\n\nFree space is measured by actually trying to write, since browsers'
+      + '\ndon\'t expose the localStorage limit and it differs between them.'
+      + '\nIf this gets tight: push to GitHub, then clear local cache.';
   } catch(_) { _sTip = 'localStorage usage'; }
-  const storageHtml = `<span class="stat-item" style="color:${_sColor}" title="${_sTip.replace(/"/g,'&quot;')}">▤ <strong>${_su.pct.toFixed(0)}%</strong> storage</span>`;
+  const storageHtml = `<span class="stat-item" style="color:${_sColor}" title="${_sTip.replace(/"/g,'&quot;')}">▤ <strong>${(_su.chars/1024/1024).toFixed(1)}MB</strong> <span style="opacity:.6">${_freeLabel}</span></span>`;
 
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
