@@ -1847,11 +1847,19 @@ function saveFDBCache(c) {
   for (const [k, v] of Object.entries(c)) {
     if (v.n == null) continue; // skip entries without n index
     const key = String(v.n);  // key by n, not by number string
-    // Persist prime factors too (only ≤100 digit ones — keeps localStorage small).
-    // Filter on the ORIGINAL decimal length before encoding — the whole point of
-    // the filter is "don't persist factors over 100 real digits", so it has to
-    // run on the true length, not the shorter encoded one.
-    const slimFactors = (v.factors || []).filter(f => String(f).length <= 100).map(_encodeFactor);
+    // Persist ALL prime factors. This used to drop anything over 100 digits to keep
+    // localStorage small — a space optimisation that quietly destroyed data: the
+    // "full" status was still saved, so a fully-factored entry whose largest prime
+    // exceeded 100 digits came back after a reload marked complete with a factor
+    // list that no longer multiplied to E(n). Worse, buildSyncPayload falls back to
+    // this persisted set whenever the in-memory copy is empty (i.e. after every
+    // reload), so pushing propagated the truncation to GitHub and to every other
+    // device. The integrity scan surfaced 76 entries in exactly this state.
+    //
+    // The trade it was making is no longer worth anything: these stores live in
+    // IndexedDB now, which has no meaningful size limit, while a large prime factor
+    // is the irreplaceable result of real work.
+    const slimFactors = (v.factors || []).map(_encodeFactor);
     // NOTE: no numKey field here (removed). It stored the first 20 chars of the
     // number string as a load-time fallback for when eulerValues[n] wasn't yet
     // available — but a 20-char PREFIX of a number that's often thousands of
@@ -8078,7 +8086,7 @@ async function showDataIntegrityReport() {
     ['notDividing',     'Factor does not divide E(n)',        'The stored value is not a factor at all — corrupt data.'],
     ['compositeFactor', 'Stored factor is composite',         'Factors are meant to be prime. A composite here is usually an unfactored cofactor recorded by mistake, which makes the entry look more complete than it is.'],
     ['wholeValue',      'Factor equals E(n) itself',          'A lone factor equal to the whole number claims E(n) is prime. Above the primality ceiling that claim cannot be verified, and it is the exact shape the cofactor-as-prime bug produced.'],
-    ['fullMismatch',    'Marked full but factors fall short', 'Status says fully factored, yet the factors do not multiply back to E(n).'],
+    ['fullMismatch',    'Marked full but factors fall short', 'Status says fully factored, yet the stored factors do not multiply back to E(n). These entries were most likely factored correctly and then lost a large prime to a storage bug that dropped factors over 100 digits (fixed). Re-check them on FactorDB to restore the missing factor.'],
     ['unmarkedFull',    'Factors complete but not marked full','The factors DO multiply to E(n) — the entry should be marked fully factored.'],
     ['duplicate',       'Duplicate prime in factor list',     'The same prime appears more than once instead of as a power.'],
   ];
@@ -8110,8 +8118,8 @@ async function showDataIntegrityReport() {
           </div>`).join('')}
        </div>
        <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
-         Re-checking the listed entries on FactorDB usually resolves these, since a
-         fresh result overwrites the bad data. Entries marked
+         Re-checking the listed entries on FactorDB resolves most of these, since a
+         fresh result restores whatever the local copy is missing. Entries marked
          <em>factors complete but not marked full</em> are safe to promote as-is.
        </div>`;
 
