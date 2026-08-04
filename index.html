@@ -572,6 +572,18 @@
     style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations.">
     ↑ Import ECM results
   </button>
+  <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)" title="Export entries above the measured query limit, for fdb_check.py to run against on any machine with Python">
+    ↓ Export FDB check list
+  </button>
+  <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
+    ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
+    ondragleave="this.style.outline='';"
+    ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importFDBResults(event.dataTransfer.files[0]);"
+    style="background:var(--surface2)" title="Load fdb_results.json produced by fdb_check.py on your server">
+    ↑ Import FDB results
+  </button>
+  <input type="file" id="fdbResultsInput" accept=".json,application/json" style="display:none"
+    onchange="if(this.files.length) importFDBResults(this.files[0]); this.value='';">
   <button class="poll-btn" onclick="clearAllLocalData()"
     style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
     title="Wipes all localStorage — ECM logs, FDB cache, factors. Cannot be undone.">
@@ -581,12 +593,6 @@
     style="background:var(--surface2)"
     title="Clears the cached Euler values (IndexedDB). Use if the chunk files on GitHub were updated. They re-download on next load.">
     ⊗ Clear value cache
-  </button>
-  <button class="poll-btn" id="ecmImportBtn" onclick="importECMSeed()" style="background:var(--surface2)" title="One-time import of ecm_seed.json from GitHub">
-    ↑ Import ECM seed
-  </button>
-  <button class="poll-btn" id="factorsImportBtn" onclick="importFactorsSeed()" style="background:var(--surface2)" title="One-time import of factors_seed.json — then auto-checks small entries on FDB">
-    ↑ Import factors github
   </button>
   <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
@@ -1317,17 +1323,6 @@ function addFdbUnknown(n) {
 }
 
 // Track entries where seed import added factors FDB didn't have
-function loadSeedNewSet() {
-  try { return new Set(JSON.parse(localStorage.getItem('eulerFDB_seedNew_v1') || '[]')); }
-  catch { return new Set(); }
-}
-function saveSeedNewSet(s) {
-  try { localStorage.setItem('eulerFDB_seedNew_v1', JSON.stringify([...s])); } catch(e) { console.warn('save seedNew set failed:', e.name); }
-}
-function applySeedNewSet() {
-  const s = loadSeedNewSet();
-  for (const e of allEntries) if (s.has(e.n)) e._seedAddedNew = true;
-}
 function applyFdbUnknownSet() {
   const s = loadFdbUnknownSet();
   if (!s.size) return;
@@ -1502,6 +1497,31 @@ function mergeHistory(remote) {
   return merged.length;
 }
 
+// When provenance tracking began. Finds can only be attributed from this point
+// on (the old changelog was capped and can't be reconstructed), so comparing
+// ALL-TIME effort against only-attributable finds would make every level's
+// cost-per-find look far worse than it really is. Recording the start lets the
+// report split effort into the same window as the finds.
+const HISTORY_START_KEY = 'eulerFDB_histStart_v1';
+function historyStartTs() {
+  let v = null;
+  try { v = localStorage.getItem(HISTORY_START_KEY); } catch(e) { logSwallowed('historyStart/read', e); }
+  if (v) return parseInt(v) || 0;
+  // Not set yet. If history already holds records (e.g. pulled from another
+  // device that started tracking earlier), adopt its earliest timestamp rather
+  // than stamping "now" and wrongly excluding work that IS attributable.
+  const h = loadHistory();
+  let start = Math.floor(Date.now() / 1000);
+  for (const r of h) if (Array.isArray(r) && r[1] && r[1] < start) start = r[1];
+  try { localStorage.setItem(HISTORY_START_KEY, String(start)); } catch(e) { logSwallowed('historyStart/write', e); }
+  return start;
+}
+// 'YYYY-MM-DD' for the tracking start, for comparing against an attempt's date
+// field (also 'YYYY-MM-DD', so a plain string compare is correct and cheap).
+function historyStartDate() {
+  return new Date(historyStartTs() * 1000).toISOString().slice(0, 10);
+}
+
 function loadChangelog() {
   try {
     const entries = JSON.parse(kvGet(CHANGELOG_KEY) || '[]');
@@ -1549,7 +1569,56 @@ let MAX_PER_SESSION    = 500;   // cap requests per manual session (user-adjusta
 // the query URL is too long for the proxies (HTTP 414) — the user checks it directly
 // on factordb.com and uses "Mark factors as FDB-confirmed" instead. Single source of
 // truth: referenced by queryFactorDB, the modal recheck UI, and the error fallback.
-const QUERY_MAX_DIGITS = 52000;
+// ── How large a number can actually be queried ───────────────────────────────
+// This used to be a hard-coded 52,000 with a stale comment claiming the real
+// ceiling was ~7,000 (reasoning from the usual 8KB request-line default). Both
+// were guesses: 52,000 is confirmed to work in practice, so the 8KB reasoning
+// simply doesn't apply to the proxies in use here — and nobody has ever measured
+// where the true limit is.
+//
+// So don't guess again. Attempt the query, and LEARN from what happens:
+//   * a success at N digits raises the known-good mark
+//   * a size-related failure at N digits sets a known-bad mark
+// Between the two, the app converges on the real ceiling by itself, and it can
+// exceed 52,000 whenever the network actually allows it.
+const QUERY_FLOOR_DIGITS = 52000;    // proven to work — never refuse below this
+const QUERY_CEILING_DIGITS = 500000; // sanity stop; nothing here approaches it
+const FDB_LIMIT_KEY = 'eulerFDB_queryLimit_v1';
+
+function loadQueryLimits() {
+  try {
+    const v = JSON.parse(localStorage.getItem(FDB_LIMIT_KEY) || '{}');
+    return { maxOk: v.maxOk || 0, minFail: v.minFail || 0 };
+  } catch(e) { logSwallowed('loadQueryLimits', e); return { maxOk: 0, minFail: 0 }; }
+}
+function saveQueryLimits(l) {
+  try { localStorage.setItem(FDB_LIMIT_KEY, JSON.stringify(l)); }
+  catch(e) { logSwallowed('saveQueryLimits', e); }
+}
+function noteQuerySuccess(digits) {
+  const l = loadQueryLimits();
+  if (digits > l.maxOk) {
+    l.maxOk = digits;
+    // A success above a previously-recorded failure means that failure was
+    // transient, not a size limit — clear it so the ceiling isn't stuck low.
+    if (l.minFail && digits >= l.minFail) l.minFail = 0;
+    saveQueryLimits(l);
+  }
+}
+function noteQuerySizeFailure(digits) {
+  const l = loadQueryLimits();
+  if (!l.minFail || digits < l.minFail) { l.minFail = digits; saveQueryLimits(l); }
+}
+// Largest size worth attempting right now.
+function currentQueryCap() {
+  const l = loadQueryLimits();
+  // A known size-failure caps us just below it; otherwise allow anything up to
+  // the sanity ceiling so bigger numbers get a genuine try.
+  if (l.minFail) return Math.max(QUERY_FLOOR_DIGITS, l.minFail - 1);
+  return QUERY_CEILING_DIGITS;
+}
+// Back-compat name — several call sites and UI strings still read this.
+const QUERY_MAX_DIGITS = QUERY_FLOOR_DIGITS;
 
 // Parse a B1/B2 bound that may be written as "3e6", "3000000", or "3,000,000".
 // Returns a Number (0 if blank/invalid). Used everywhere ECM/P±1 bounds are read.
@@ -1609,6 +1678,7 @@ function loadFDBCache() {
       const slimFactors = v.factors ? v.factors.map(_decodeFactor) : v.factors;
       const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
       full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
+                    ...(v.fdbId ? { fdbId: v.fdbId } : {}),
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
       if (factors && factors.length) {
@@ -1641,6 +1711,9 @@ function saveFDBCache(c) {
     // dead weight — confirmed while investigating a persistent quota problem.
     slim[key] = { status: _encodeStatus(v.status), timestamp: v.timestamp,
                   source: v.source || null,
+                  // FactorDB's id for this number — lets later checks use a tiny
+                  // ?id= URL instead of sending the whole number.
+                  ...(v.fdbId ? { fdbId: v.fdbId } : {}),
                   factors: slimFactors.length ? slimFactors : undefined };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
@@ -1949,17 +2022,44 @@ function timeoutForNumber(numStr) {
   return 90000;                     // 90s for very large
 }
 
-async function queryFactorDB(numberStr) {
+async function queryFactorDB(numberStr, knownId) {
   if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
 
   const timeout = timeoutForNumber(numberStr);
 
-  // Numbers > 7000 digits cannot be queried via browser (URL too long for any proxy)
-  // FactorDB's API only accepts the number as a GET query parameter (?query=...).
-  // Very large numbers make very long URLs; proxies may reject them (HTTP 414).
-  // Above this cap we don't even attempt — check directly at factordb.com instead.
-  if (numberStr.length > QUERY_MAX_DIGITS) {
-    throw new Error('Number too large to query (' + numberStr.length + 'd > ' + QUERY_MAX_DIGITS + 'd cap) — check it directly at factordb.com and mark manually');
+  // If FactorDB has already given us an id for this number, ask by id instead.
+  // The whole size problem is that ?query=<number> puts every digit in the URL;
+  // ?id=<integer> is a few dozen characters no matter how large the number is,
+  // so a known number can be re-checked at ANY size. This only helps for numbers
+  // FactorDB has already seen — a first-ever lookup still has to send the digits.
+  if (knownId) {
+    const idUrl = `https://factordb.com/api?id=${encodeURIComponent(knownId)}`;
+    for (const url of [`https://corsproxy.io/?url=${encodeURIComponent(idUrl)}`,
+                       `https://api.allorigins.win/raw?url=${encodeURIComponent(idUrl)}`,
+                       idUrl]) {
+      try {
+        const r = await fetchWithTimeout(url, timeout);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const text = await r.text();
+        const data = JSON.parse(text);
+        const result = data.contents ? JSON.parse(data.contents) : data;
+        if (result && result.status) return result;
+      } catch(e) {
+        logSwallowed('queryFactorDB/byId', e);
+      }
+    }
+    // Fall through to a normal query if the id route didn't work — the id may be
+    // stale, or the API may not accept ?id=. Only viable if it's under the cap.
+  }
+
+  // Only refuse when a size failure has actually been observed at or below this
+  // size. Otherwise attempt it — the point is to discover the real ceiling rather
+  // than enforce a guessed one.
+  const cap = currentQueryCap();
+  if (numberStr.length > cap) {
+    throw new Error('Skipping ' + numberStr.length + 'd — a query already failed on size at '
+      + loadQueryLimits().minFail + 'd, so this is above the measured limit. '
+      + 'Run fdb_check.py locally for these, or check directly at factordb.com.');
   }
 
   const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
@@ -1968,19 +2068,33 @@ async function queryFactorDB(numberStr) {
   const proxyUrl2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(fdbApiUrl)}`;
 
   let lastErr = '';
+  let sawSizeRejection = false;
   for (const url of [proxyUrl, proxyUrl2, fdbApiUrl]) {
     try {
       const r = await fetchWithTimeout(url, timeout);
+      // 414 (URI Too Long) and 413 (Payload Too Large) are unambiguous size
+      // rejections. Anything else — timeout, 5xx, CORS, JSON error — is treated
+      // as transient, because permanently capping the app on a passing network
+      // hiccup is far worse than retrying a big number later.
+      if (r.status === 414 || r.status === 413) sawSizeRejection = true;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const text = await r.text();
       const data = JSON.parse(text);
       const result = data.contents ? JSON.parse(data.contents) : data;
       if (!result.status) throw new Error('No status in response');
+      noteQuerySuccess(numberStr.length); // this size demonstrably works
       return result;
     } catch(e) {
       lastErr = e.message;
-      console.warn('FDB query failed (' + url.slice(0, 60) + '…):', e.message);
+      logSwallowed('queryFactorDB/route', e);
     }
+  }
+  // Only record a size limit when a server actually said "too long". Every route
+  // failing for other reasons says nothing reliable about size.
+  if (sawSizeRejection) {
+    noteQuerySizeFailure(numberStr.length);
+    throw new Error('Rejected as too long at ' + numberStr.length + 'd (HTTP 414/413). '
+      + 'Recorded as the measured limit — smaller numbers still query normally.');
   }
   throw new Error('All query routes failed (' + numberStr.length + 'd number): ' + lastErr);
 }
@@ -3269,7 +3383,7 @@ function rebuildAndRender() {
   // Re-apply FDB cache
   replayFDBCache();
   // re-apply any restored sets so statuses are correct after rebuild
-  try { applyFdbUnknownSet(); applySeedNewSet(); } catch(e) { console.warn('re-apply fdbUnknown/seedNew sets failed:', e.message); }
+  try { applyFdbUnknownSet(); } catch(e) { logSwallowed('replay/applyFdbUnknownSet', e); }
   currentPage = 1;
   // applyFilters respects the active status filter AND the new range
   // (allEntries is already bounded to [MIN_N, MAX_N] by buildEntries)
@@ -3283,222 +3397,6 @@ function csvEsc(v) {
   // This prevents scientific notation on long numbers
   if (/^\d{10,}$/.test(s)) return '="' + s + '"';
   return '"' + s.replace(/"/g, '""') + '"';
-}
-
-async function importFactorsSeed() {
-  const btn = document.getElementById('factorsImportBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
-  try {
-    const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
-    const r = await fetch(baseUrl + 'factors_seed_clean.json?t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' — upload factors_seed_clean.json to repo root');
-    const seed = await r.json();
-
-    let added = 0, skipped = 0, nonPrimeSkipped = 0;
-    let factorsAddedTotal = 0, newPartials = 0, newFulls = 0;
-    const toVerify = []; // built BEFORE fdbCache is updated
-
-    for (const [nStr, data] of Object.entries(seed)) {
-      const n = parseInt(nStr);
-      const entry = allEntries.find(e => e.n === n);
-      if (!entry || !entry.val) { skipped++; continue; }
-      if (entry.status === 'full') { skipped++; continue; }
-
-      const rawSeed = (Array.isArray(data) ? data : []).filter(f => f && f !== '1');
-      // Verify each factor is actually prime — only import confirmed primes
-      const eulerVal = entry.val ? BigInt(entry.val) : null;
-      const seedPrimes = [];
-      for (const f of rawSeed) {
-        try {
-          let val;
-          if (/^\d+\^\d+$/.test(f)) {
-            const [b, e] = f.split('^'); val = BigInt(b) ** BigInt(e);
-          } else {
-            val = BigInt(f);
-          }
-          // Reject if the "factor" is the whole number (or ≥ it) — that's not a proper factor
-          if (eulerVal !== null && val >= eulerVal) { nonPrimeSkipped++; continue; }
-          // Reject if it doesn't actually divide E(n)
-          if (eulerVal !== null && eulerVal % val !== 0n) { nonPrimeSkipped++; continue; }
-          // Primality check (base must be prime for expressions)
-          const toTest = /^\d+\^\d+$/.test(f) ? BigInt(f.split('^')[0]) : val;
-          if (isProbablePrime(toTest)) seedPrimes.push(f); else nonPrimeSkipped++;
-        } catch { nonPrimeSkipped++; }
-      }
-      if (!seedPrimes.length) { skipped++; continue; }
-
-      const cached       = fdbCache[entry.val] || {};
-      // Always re-verify all entries on each import click — start fresh from E(0)
-      const wasFdbVerified = false;
-
-      // Decide if this entry needs FDB verification BEFORE we touch fdbCache
-      if (!wasFdbVerified && entry.val.length <= 50000) {
-        toVerify.push({ n, number: entry.val });
-      }
-
-      // PRIORITY: FactorDB-confirmed factors always win over seed/local.
-      // FDB-confirmed = factors from a real FDB query (cached.source === 'fdb').
-      const fdbIsAuthoritative = cached.source === 'fdb';
-      const fdbConfirmed = (cached.factors || []).filter(f => f && f !== '1');
-      const localFactors = (entry.factors || []).filter(f => f && f !== '1');
-      const fdbSet       = new Set(fdbConfirmed.map(String));
-
-      // Start with FDB's factors (highest authority)
-      const combined     = [...fdbConfirmed];
-      let seedAddedNew   = false;
-
-      // If FDB confirmed this entry as fully factored, the seed cannot add to it
-      const fdbSaysFull = fdbIsAuthoritative && ['FF','P','PRP','UN'].includes(cached.status);
-
-      if (!fdbSaysFull) {
-        // Add local then seed factors that FDB doesn't already have
-        for (const f of [...localFactors, ...seedPrimes]) {
-          if (!fdbSet.has(String(f)) && !combined.includes(String(f))) {
-            combined.push(String(f));
-            if (seedPrimes.includes(f) && fdbConfirmed.length > 0) seedAddedNew = true;
-          }
-        }
-      }
-      // If FDB had no factors at all but seed provides some, that's also "new from seed"
-      if (fdbConfirmed.length === 0 && seedPrimes.length > 0) seedAddedNew = true;
-
-      // Collapse same-prime powers, keeping the highest exponent (5 + 5^2 → 5^2)
-      const _parsePow = (f) => {
-        const m = /^(\d+)\^(\d+)$/.exec(String(f));
-        return m ? { base: m[1], exp: parseInt(m[2]) } : { base: String(f), exp: 1 };
-      };
-      const _maxExp = new Map();
-      for (const f of combined) {
-        const { base, exp } = _parsePow(f);
-        if (!_maxExp.has(base) || exp > _maxExp.get(base)) _maxExp.set(base, exp);
-      }
-      const combinedCollapsed = [..._maxExp.entries()].map(([b, e]) => e === 1 ? b : `${b}^${e}`);
-      combined.length = 0;
-      combined.push(...combinedCollapsed);
-
-      // Count newly added factors + status transitions
-      const priorFactors     = (entry.factors || []).map(String);
-      const priorFactorCount = priorFactors.length;
-      const priorStatus      = entry.status;
-      const priorSet         = new Set(priorFactors);
-      // SEED factors that are genuinely new — not previously on the entry,
-      // not already in FDB's confirmed list.
-      const fdbConfirmedSet = new Set(fdbConfirmed.map(String));
-      const seedNewFactors  = seedPrimes
-        .map(String)
-        .filter(f => !priorSet.has(f) && !fdbConfirmedSet.has(f));
-      factorsAddedTotal += seedNewFactors.length;
-
-      entry.factors         = sortFactorsAsc(combined);
-      entry.cofactor        = null;
-      entry._seedAddedNew   = seedAddedNew;
-      if (seedAddedNew) { const sn = loadSeedNewSet(); sn.add(n); saveSeedNewSet(sn); }
-
-      // Status: FDB authoritative entries keep FDB's determination
-      if (fdbIsAuthoritative && ['FF','P','PRP','UN'].includes(cached.status)) {
-        entry.status = 'full';
-      } else if (fdbIsAuthoritative && cached.status === 'C' && combined.length === 0) {
-        entry.status = 'composite';   // FDB says no factors and seed added none
-      } else if (['unknown', 'fdb-unknown'].includes(entry.status)) {
-        entry.status = combined.length ? 'partial' : entry.status;
-      }
-      if (['FF','P','PRP','UN'].includes(cached.status)) entry.status = 'full';
-      if (priorStatus !== entry.status) {
-        if (entry.status === 'partial') newPartials++;
-        else if (entry.status === 'full') newFulls++;
-      }
-
-      const cacheStatus = ['FF','P','PRP','UN'].includes(cached.status) ? cached.status : 'CF';
-      fdbCache[entry.val] = {
-        ...cached,
-        status:    cacheStatus,
-        factors:   combined,
-        timestamp: cached.timestamp || Date.now(),
-        // Preserve 'fdb' source if already confirmed — never downgrade back to 'seed'
-        source:    cached.source === 'fdb' ? 'fdb' : 'seed',
-        n
-      };
-      fdbFactors[entry.val] = { factors: combined };
-      added++;
-    }
-
-    saveFDBCache(fdbCache);
-    const s = loadFdbUnknownSet();
-    for (const [nStr] of Object.entries(seed)) s.delete(parseInt(nStr));
-    saveFdbUnknownSet(s);
-
-    const importDetails = [];
-    if (factorsAddedTotal > 0) importDetails.push(factorsAddedTotal + ' factors added');
-    if (newPartials > 0)       importDetails.push(newPartials + ' → partial');
-    if (newFulls > 0)          importDetails.push(newFulls + ' → fully factored');
-    if (nonPrimeSkipped > 0)   importDetails.push(nonPrimeSkipped + ' non-prime rejected');
-    const importDetailStr = importDetails.length ? ' (' + importDetails.join(', ') + ')' : '';
-    const importMsg = 'Factors imported: ' + added + ' entries' + importDetailStr + ', ' + skipped + ' skipped';
-    addLog(importMsg, 'ok');
-    setStatus(importMsg, 'ok');
-    applyFilters(); renderStats();
-    scheduleECMPush();
-    if (added > 0) { invalidateNextRunCache(); invalidateCpuTotal(); } // factors changed on `added` entries — cofactor sizes shifted
-
-    if (btn) { btn.textContent = '✓ Imported'; setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors github'; } }, 3000); }
-
-    if (toVerify.length > 0) {
-      const msg = 'Verifying ' + toVerify.length + ' entries on FDB…';
-      addLog(msg, '');
-      setStatus(msg, '');
-      runPollQueue(toVerify, true, null, false, true); // isManual+noCap — verify all from E(0)
-    } else {
-      addLog('Import done — all entries already FDB-verified', 'ok');
-      setStatus('Import complete — all entries already FDB-verified', 'ok');
-    }
-  } catch(err) {
-    addLog('Factors import failed: ' + err.message, 'err');
-    setStatus('Factors import failed: ' + err.message, 'err');
-    if (btn) { btn.disabled = false; btn.textContent = '↑ Import factors github'; }
-  }
-}
-
-async function importECMSeed() {
-  const btn = document.getElementById('ecmImportBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
-  try {
-    // Fetch from same GitHub Pages origin
-    const baseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
-    const r = await fetch(baseUrl + 'ecm_seed.json?t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' — make sure ecm_seed.json is in your repo root');
-    const seed = await r.json();
-    const existing = loadECM();
-    let added = 0, skipped = 0;
-    for (const [nStr, attempts] of Object.entries(seed)) {
-      const cur = existing[nStr] || [];
-      // Skip if already has attempts with same b1
-      const existingB1s = new Set(cur.map(a => a.b1));
-      for (const attempt of attempts) {
-        if (existingB1s.has(attempt.b1)) { skipped++; continue; }
-        cur.push(attempt);
-        added++;
-      }
-      if (cur.length) existing[nStr] = cur;
-    }
-    _ecmCache = null; // invalidate cache
-    saveECM(existing);
-    // Update attempted status for all affected entries
-    for (const nStr of Object.keys(seed)) {
-      const entry = allEntries.find(e => e.n === parseInt(nStr));
-      if (entry && entry.status !== 'full' && (existing[nStr]||[]).length > 0) {
-        if (entry.status === 'unknown' || entry.status === 'composite') entry.status = 'attempted';
-      }
-    }
-    addLog('ECM seed imported: ' + added + ' attempts added, ' + skipped + ' duplicates skipped', 'ok');
-    setStatus('ECM import done — ' + added + ' added, ' + skipped + ' skipped', 'ok');
-    applyFilters(); renderStats();
-    scheduleECMPush();
-    if (btn) { btn.textContent = '✓ Imported'; }
-  } catch(err) {
-    addLog('ECM import failed: ' + err.message, 'err');
-    setStatus('ECM import failed: ' + err.message, 'err');
-    if (btn) { btn.disabled = false; btn.textContent = '↑ Import ECM seed'; }
-  }
 }
 
 function clearAllLocalData() {
@@ -3519,7 +3417,7 @@ function clearAllLocalData() {
         • Changelog &amp; activity log<br>
         • FDB-unknown &amp; seed-new sets
       </div>
-      <div style="margin-bottom:16px;color:var(--text-muted)">GitHub token is kept. You'll need to re-import the seeds.</div>
+      <div style="margin-bottom:16px;color:var(--text-muted)">GitHub token is kept. Pull from GitHub afterwards to restore your data.</div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button id="clearCancelBtn" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);cursor:pointer">Cancel</button>
         <button id="clearConfirmBtn" style="padding:7px 16px;background:var(--red-dim);border:1px solid var(--red);color:var(--red);cursor:pointer;font-weight:600">Delete everything</button>
@@ -4117,6 +4015,77 @@ async function exportNextRuns() {
 }
 
 // Small helper: trigger a text-file download.
+// Export the entries that can't be checked from the browser, for fdb_check.py to
+// run against on a server. The digit cap exists because ?query=<number> puts every
+// digit in the URL and servers reject request lines that long — a server-side run
+// has no such constraint (and can use POST), so these become checkable.
+function exportFDBCheckList() {
+  // Use the MEASURED cap, not a fixed number — if the app has since proven that
+  // larger queries work, those entries shouldn't be exported as unreachable.
+  const cap = currentQueryCap();
+  const lim = loadQueryLimits();
+  const tooBig = allEntries.filter(e =>
+    e.status !== 'full' && e.val && e.val.length > cap);
+  if (!tooBig.length) {
+    alert('Nothing to export — every unfinished entry is within the current '
+      + cap.toLocaleString() + '-digit query limit.'
+      + (lim.maxOk ? '\n\nLargest query confirmed working so far: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
+      + (lim.minFail ? '\nSmallest size rejected as too long: ' + lim.minFail.toLocaleString() + ' digits.'
+                     : '\nNo size rejection has been observed yet, so the real ceiling is still unknown.'));
+    return;
+  }
+  tooBig.sort((a, b) => a.n - b.n);
+  // Two matching files: numbers and labels, same order. Keeping the labels out of
+  // the numbers file means the number file stays machine-clean, exactly like the
+  // ECM export's numbers file.
+  downloadText('fdb_numbers.txt', tooBig.map(e => e.val).join('\n') + '\n');
+  downloadText('fdb_labels.txt',  tooBig.map(e => 'E' + e.n).join('\n') + '\n');
+  const totalMB = tooBig.reduce((s, e) => s + e.val.length, 0) / 1024 / 1024;
+  addLog('Exported ' + tooBig.length + ' oversized entries for server-side FactorDB checking', 'ok');
+  alert('Exported ' + tooBig.length + ' entries above the current '
+    + cap.toLocaleString() + '-digit limit (' + totalMB.toFixed(1) + 'MB of digits).\n\n'
+    + 'Run on any machine with Python 3 (Windows, Mac or Linux — no server needed):\n'
+    + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt -o fdb_results.json\n\n'
+    + 'Running outside the browser skips the CORS proxy entirely and can use POST,\n'
+    + 'so size stops being a constraint.\n\n'
+    + 'Then import fdb_results.json back here with "Import FDB results".');
+}
+
+// Import what fdb_check.py produced. Routes each result through applyFdbResult,
+// the same path a live query uses, so statuses, factors, provenance and the stored
+// FactorDB id all behave identically to an in-browser check.
+async function importFDBResults(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch(e) {
+    alert('Could not read that file as JSON: ' + e.message);
+    return;
+  }
+  let applied = 0, skipped = 0, notFound = 0;
+  for (const [label, rec] of Object.entries(data)) {
+    const m = String(label).match(/^E?(\d+)$/);
+    if (!m) { skipped++; continue; }
+    const n = parseInt(m[1]);
+    const entry = allEntries.find(e => e.n === n);
+    if (!entry || !entry.val) { notFound++; continue; }
+    if (!rec || !rec.status) { skipped++; continue; }
+    try {
+      applyFdbResult({ status: rec.status, factors: rec.factors || [], id: rec.id }, n, entry.val);
+      applied++;
+    } catch(e) {
+      logSwallowed('importFDBResults/apply:' + n, e);
+      skipped++;
+    }
+  }
+  allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
+  markDirty();
+  addLog('Imported ' + applied + ' FactorDB results from server run', 'ok');
+  alert('Imported ' + applied + ' result(s).'
+    + (notFound ? '\n' + notFound + ' referred to entries not present here.' : '')
+    + (skipped ? '\n' + skipped + ' skipped (unreadable or no status).' : ''));
+}
+
 function downloadText(filename, text) {
   const blob = new Blob([text], { type: 'text/plain' });
   const url  = URL.createObjectURL(blob);
@@ -4808,7 +4777,19 @@ function applyFdbResult(data, n, numberStr) {
   }) ? 'fdb' : 'import';
 
   // --- Update the cache entry ---
-  const cacheEntry = { status, factors: merged, timestamp: Date.now(), source, n };
+  // FactorDB's API returns an `id` alongside status/factors, and this used to be
+  // discarded. Keeping it matters: a follow-up check can then be made with
+  // ?id=<small integer> instead of ?query=<the whole number>, which is what the
+  // digit cap exists to avoid. For anything already known to FactorDB, re-checks
+  // stop depending on the number's size entirely.
+  const fdbId = (() => {
+    const raw = data.id;
+    if (raw == null) return null;
+    const m = String(raw).match(/(\d+)\s*$/); // API has returned both a bare id and a full URL
+    return m ? m[1] : null;
+  })();
+  const cacheEntry = { status, factors: merged, timestamp: Date.now(), source, n,
+                       ...(fdbId ? { fdbId } : {}) };
   if (numberStr) {
     fdbCache[numberStr] = cacheEntry;
     if (merged.length) fdbFactors[numberStr] = { factors: merged };
@@ -4849,8 +4830,6 @@ function applyFdbResult(data, n, numberStr) {
 
   // Clear seed-new flag if FDB now fully covers the entry
   if (source === 'fdb' && merged.length > 0) {
-    const sn = loadSeedNewSet();
-    if (sn.has(n)) { if (entry) entry._seedAddedNew = false; sn.delete(n); saveSeedNewSet(sn); }
   }
 
   if (numberStr) saveFDBCache(fdbCache);
@@ -5093,9 +5072,22 @@ let _storageWarningShown = false;
 //  entries FactorDB touched afterwards.
 function computeYieldByLevel() {
   const levels = [10, 15, ...ECM_TABLE.map(t => t.d)];
+  // Two parallel tallies per level:
+  //   runs/curves/cpuSec        — ALL recorded work, all time
+  //   tRuns/tCurves/tCpuSec     — only work done since provenance tracking began
+  // Finds only exist for the tracked window, so cost-per-find must be computed
+  // against tracked effort. Dividing all-time effort by attributable-only finds
+  // would understate every level's yield, in some cases by years of work.
   const stats = {};
-  for (const d of levels) stats[d] = { d, curves: 0, cpuSec: 0, runs: 0, finds: 0 };
-  const pm1 = { curves: 0, cpuSec: 0, runs: 0, finds: 0 };
+  for (const d of levels) stats[d] = { d, curves: 0, cpuSec: 0, runs: 0, finds: 0,
+                                       tCurves: 0, tCpuSec: 0, tRuns: 0 };
+  const pm1 = { curves: 0, cpuSec: 0, runs: 0, finds: 0, tCurves: 0, tCpuSec: 0, tRuns: 0 };
+  const startDate = historyStartDate();
+  // An attempt counts as tracked when its recorded date is on/after the tracking
+  // start. Attempts with no date at all are treated as UNtracked — conservative,
+  // since counting undated old work as tracked would inflate the denominator and
+  // make recent yield look worse than it is.
+  const isTracked = (a) => !!(a && a.date && a.date >= startDate);
 
   const ecmD = loadECM();
   const byN = new Map(allEntries.map(e => [e.n, e]));
@@ -5111,8 +5103,10 @@ function computeYieldByLevel() {
       const sec = (cofDig && cofDig > 1)
         ? attemptCpuSeconds(a, cofDig)
         : 0;
+      const tracked = isTracked(a);
       if (a.method === 'P-1' || a.method === 'P+1') {
         pm1.runs++; pm1.cpuSec += sec;
+        if (tracked) { pm1.tRuns++; pm1.tCpuSec += sec; }
         continue;
       }
       const lvl = b1ToDigits(a.b1);
@@ -5123,6 +5117,11 @@ function computeYieldByLevel() {
       stats[bucket].runs++;
       stats[bucket].curves += cv;
       stats[bucket].cpuSec += sec;
+      if (tracked) {
+        stats[bucket].tRuns++;
+        stats[bucket].tCurves += cv;
+        stats[bucket].tCpuSec += sec;
+      }
     }
   }
 
@@ -5170,8 +5169,19 @@ function computeYieldByLevel() {
     }
   }
 
-  return { levels: levels.map(d => stats[d]), pm1, totalFinds, unattributed,
-           fdbFinds, preHistory, historyCount: hist.length };
+  // Derive cost-per-find HERE rather than in the renderer. It's the headline
+  // metric, and it must be computed from TRACKED effort to match the window the
+  // finds come from — putting that decision in the view layer meant it couldn't
+  // be tested, and a change to all-time effort would have gone unnoticed.
+  const withRate = (L) => {
+    L.cpuPerFind = L.finds > 0 ? L.tCpuSec / L.finds : null;
+    L.findsPerHundredHours = L.tCpuSec > 0 ? (L.finds / (L.tCpuSec / 3600)) * 100 : 0;
+    return L;
+  };
+  return { levels: levels.map(d => withRate(stats[d])), pm1: withRate(pm1),
+           totalFinds, unattributed,
+           fdbFinds, preHistory, historyCount: hist.length,
+           startDate, trackingStarted: historyStartTs() };
 }
 // ── Storage headroom ────────────────────────────────────────────────
 // Browsers don't agree on how localStorage is metered, and the limit isn't
@@ -5329,7 +5339,7 @@ async function quickCheckFDB(n, btn) {
   if (!e || !e.val) return;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    const data = await queryFactorDB(e.val);
+    const data = await queryFactorDB(e.val, (fdbCache[e.val] || {}).fdbId);
     const r = applyFdbResult(data, n, e.val);   // canonical handler
     addLog('E(' + n + ') ↻ ' + fdbStatusLabel(r.status), 'ok');
     applyFilters();
@@ -5527,8 +5537,6 @@ function markFactorsFdbConfirmed(n) {
   saveFDBCache(fdbCache);
   entry._fdbVerified = true;
   // clear seed-new flag since FDB now (manually) covers it
-  const sn = loadSeedNewSet();
-  if (sn.has(n)) { entry._seedAddedNew = false; sn.delete(n); saveSeedNewSet(sn); }
   addLog('E(' + n + ') factors manually marked as FDB-confirmed (' + factors.length + ')', 'ok');
   const el = document.getElementById('fdbQueryStatus_' + n);
   if (el) el.innerHTML = '<span style="color:var(--green)">✓ Marked as FDB-confirmed — will drop out of the export.</span>';
@@ -6308,7 +6316,7 @@ async function modalCheckFull(n) {
   if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
 
   try {
-    const data = await queryFactorDB(e.val);
+    const data = await queryFactorDB(e.val, (fdbCache[e.val] || {}).fdbId);
     const r = applyFdbResult(data, n, e.val);   // canonical handler
     if (r.statusChanged && r.entryStatus === 'full') {
       addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(r.status) + ')');
@@ -7747,39 +7755,51 @@ function showYieldReport() {
   catch (err) { alert('Could not build the yield report: ' + err.message); return; }
 
   const hrs = s => s / 3600;
-  const fmtH = s => s >= 3600 ? (hrs(s)).toFixed(1) + ' h' : (s/60).toFixed(0) + ' m';
+  const fmtH = s => s >= 3600 ? (hrs(s)).toFixed(1) + ' h' : s > 0 ? (s/60).toFixed(0) + ' m' : '—';
   const rows = [];
   let anyEffort = false;
+
+  // Cost-per-find is deliberately computed from TRACKED effort only, to match the
+  // window the finds come from. Using all-time effort against attributable-only
+  // finds would divide years of work by a handful of recent discoveries.
+  const mkRow = (label, L, isPm1) => {
+    const perFind = L.cpuPerFind != null ? fmtH(L.cpuPerFind) : '—';
+    const rate = L.findsPerHundredHours || 0;
+    const col = L.finds === 0 ? 'var(--text-muted)' : rate >= 1 ? 'var(--green)' : rate >= 0.1 ? 'var(--yellow)' : 'var(--orange)';
+    const dim = 'color:var(--text-muted)';
+    return `<tr${isPm1 ? ' style="border-top:1px solid var(--border2)"' : ''}>
+      <td style="padding:4px 10px 4px 0"><strong>${label}</strong></td>
+      <td style="padding:4px 8px;text-align:right;${dim}">${L.runs.toLocaleString()}</td>
+      <td style="padding:4px 8px;text-align:right;${dim}">${isPm1 ? '—' : L.curves.toLocaleString()}</td>
+      <td style="padding:4px 14px 4px 8px;text-align:right;${dim};border-right:1px solid var(--border2)">${fmtH(L.cpuSec)}</td>
+      <td style="padding:4px 8px 4px 14px;text-align:right">${L.tRuns.toLocaleString()}</td>
+      <td style="padding:4px 8px;text-align:right">${isPm1 ? '—' : L.tCurves.toLocaleString()}</td>
+      <td style="padding:4px 8px;text-align:right">${fmtH(L.tCpuSec)}</td>
+      <td style="padding:4px 8px;text-align:right;color:${L.finds?'var(--green)':'var(--text-muted)'}"><strong>${L.finds}</strong></td>
+      <td style="padding:4px 0 4px 8px;text-align:right;color:${col}">${perFind}</td>
+    </tr>`;
+  };
 
   for (const L of y.levels) {
     if (!L.runs && !L.finds) continue; // don't pad the table with levels never touched
     anyEffort = true;
-    const perFind = L.finds > 0 ? fmtH(L.cpuSec / L.finds) : '—';
-    const rate = L.cpuSec > 0 ? (L.finds / hrs(L.cpuSec) * 100) : 0;
-    // Colour the cost-per-find: this is the number that says whether a level is
-    // still paying for itself.
-    const col = L.finds === 0 ? 'var(--text-muted)' : rate >= 1 ? 'var(--green)' : rate >= 0.1 ? 'var(--yellow)' : 'var(--orange)';
-    rows.push(`<tr>
-      <td style="padding:4px 10px 4px 0"><strong>t${L.d}</strong></td>
-      <td style="padding:4px 10px;text-align:right">${L.runs.toLocaleString()}</td>
-      <td style="padding:4px 10px;text-align:right">${L.curves.toLocaleString()}</td>
-      <td style="padding:4px 10px;text-align:right">${fmtH(L.cpuSec)}</td>
-      <td style="padding:4px 10px;text-align:right;color:${L.finds?'var(--green)':'var(--text-muted)'}"><strong>${L.finds}</strong></td>
-      <td style="padding:4px 0 4px 10px;text-align:right;color:${col}">${perFind}</td>
-    </tr>`);
+    rows.push(mkRow('t' + L.d, L, false));
   }
-  if (y.pm1.runs || y.pm1.finds) {
-    const p = y.pm1;
-    const perFind = p.finds > 0 ? fmtH(p.cpuSec / p.finds) : '—';
-    rows.push(`<tr style="border-top:1px solid var(--border2)">
-      <td style="padding:4px 10px 4px 0"><strong>P±1</strong></td>
-      <td style="padding:4px 10px;text-align:right">${p.runs.toLocaleString()}</td>
-      <td style="padding:4px 10px;text-align:right">—</td>
-      <td style="padding:4px 10px;text-align:right">${fmtH(p.cpuSec)}</td>
-      <td style="padding:4px 10px;text-align:right;color:${p.finds?'var(--green)':'var(--text-muted)'}"><strong>${p.finds}</strong></td>
-      <td style="padding:4px 0 4px 10px;text-align:right">${perFind}</td>
-    </tr>`);
-  }
+  if (y.pm1.runs || y.pm1.finds) rows.push(mkRow('P\u00b11', y.pm1, true));
+
+  // Totals row — makes the all-time vs tracked split legible at a glance.
+  const sum = (f) => y.levels.reduce((s, L) => s + (L[f] || 0), 0) + (y.pm1[f] || 0);
+  const totRow = `<tr style="border-top:2px solid var(--border2);font-weight:600">
+      <td style="padding:6px 10px 4px 0">ALL</td>
+      <td style="padding:6px 8px 4px;text-align:right;color:var(--text-muted)">${sum('runs').toLocaleString()}</td>
+      <td style="padding:6px 8px 4px;text-align:right;color:var(--text-muted)">${sum('curves').toLocaleString()}</td>
+      <td style="padding:6px 14px 4px 8px;text-align:right;color:var(--text-muted);border-right:1px solid var(--border2)">${fmtH(sum('cpuSec'))}</td>
+      <td style="padding:6px 8px 4px 14px;text-align:right">${sum('tRuns').toLocaleString()}</td>
+      <td style="padding:6px 8px 4px;text-align:right">${sum('tCurves').toLocaleString()}</td>
+      <td style="padding:6px 8px 4px;text-align:right">${fmtH(sum('tCpuSec'))}</td>
+      <td style="padding:6px 8px 4px;text-align:right;color:var(--green)">${sum('finds')}</td>
+      <td style="padding:6px 0 4px 8px;text-align:right">${sum('finds') > 0 ? fmtH(sum('tCpuSec') / sum('finds')) : '\u2014'}</td>
+    </tr>`;
 
   const body = !anyEffort && !y.pm1.runs
     ? `<div class="modal-section" style="color:var(--text-muted)">No ECM runs recorded yet — import some results first.</div>`
@@ -7787,23 +7807,41 @@ function showYieldReport() {
     <div class="modal-section">
       <div class="modal-section-label">Effort vs. result, by target level</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono, monospace)">
-        <thead><tr style="color:var(--text-muted);font-size:10px;letter-spacing:.5px;text-align:right">
-          <th style="text-align:left;padding-bottom:6px">LEVEL</th>
-          <th style="padding-bottom:6px">RUNS</th>
-          <th style="padding-bottom:6px">CURVES</th>
-          <th style="padding-bottom:6px">CPU TIME</th>
-          <th style="padding-bottom:6px">FOUND</th>
-          <th style="padding-bottom:6px">CPU / FIND</th>
-        </tr></thead>
-        <tbody>${rows.join('')}</tbody>
+        <thead>
+          <tr style="color:var(--text-muted);font-size:9px;letter-spacing:.5px">
+            <th></th>
+            <th colspan="3" style="padding-bottom:2px;text-align:center;border-right:1px solid var(--border2)">ALL TIME</th>
+            <th colspan="5" style="padding-bottom:2px;text-align:center">SINCE ${y.startDate} (finds attributable)</th>
+          </tr>
+          <tr style="color:var(--text-muted);font-size:10px;letter-spacing:.5px;text-align:right">
+            <th style="text-align:left;padding-bottom:6px">LEVEL</th>
+            <th style="padding:0 8px 6px">RUNS</th>
+            <th style="padding:0 8px 6px">CURVES</th>
+            <th style="padding:0 14px 6px 8px;border-right:1px solid var(--border2)">CPU</th>
+            <th style="padding:0 8px 6px 14px">RUNS</th>
+            <th style="padding:0 8px 6px">CURVES</th>
+            <th style="padding:0 8px 6px">CPU</th>
+            <th style="padding:0 8px 6px">FOUND</th>
+            <th style="padding:0 0 6px 8px">CPU / FIND</th>
+          </tr>
+        </thead>
+        <tbody>${rows.join('')}${totRow}</tbody>
       </table>
     </div>
     <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
+      <strong style="color:var(--text)">Why two column groups.</strong>
+      Effort is known for all time — it comes from the run log. Finds are only
+      attributable from ${y.startDate}, when per-factor provenance started being
+      recorded; earlier discoveries weren't attributed to a source and can't be
+      recovered. So <em>CPU / find</em> is computed from the tracked columns only.
+      Dividing all-time CPU by attributable-only finds would understate every
+      level's yield, potentially by years of work.
+      <br><br>
       <strong style="color:var(--text)">How to read this.</strong>
-      <em>CPU / find</em> is the column that matters: it's what a factor has actually
-      cost you at each level. A level with lots of CPU time and no finds isn't
-      necessarily wrong — the odds genuinely are low up there — but it does show
-      where your time is going.
+      <em>CPU / find</em> is what a factor has actually cost you at each level.
+      A level with lots of CPU and no finds isn't necessarily wrong — the odds
+      genuinely are low up there — but it does show where the time is going.
+      The gap between the two groups is simply how much work predates tracking.
       <br><br>
       <strong style="color:var(--text)">Reliability.</strong>
       Runs and curves come straight from your recorded run log and are exact.
@@ -8036,6 +8074,11 @@ setTimeout(async () => {
     fdbCache    = loadFDBCache();
     try { migrateRedundantComposites(); } catch(e) { logSwallowed('migrate/redundantComposites', e); }  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
     try { migrateSigmaHashes(); } catch(e) { logSwallowed('migrate/sigmaHashes', e); }  // one-time raw-sigma→hash compaction (storage size fix)
+    // The seed-import feature was one-time-only and has been removed now that both
+    // seeds are in. Its tracking key would otherwise linger indefinitely; the flag
+    // it maintained (_seedAddedNew) was written and cleared but never actually
+    // read, so nothing depended on it.
+    try { localStorage.removeItem('eulerFDB_seedNew_v1'); } catch(e) { logSwallowed('cleanup/seedNewKey', e); }
     allEntries  = buildEntries();
     // Step 1's premature render (before eulerValues had loaded) computed and
     // permanently cached "no recommendation" / "no CPU total" for every entry that
@@ -8046,7 +8089,6 @@ setTimeout(async () => {
     invalidateNextRunCache();
     invalidateCpuTotal();
     applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
-    applySeedNewSet();                 // restore seed-new flags
     replayFDBCache();
     // Ensure no fully-factored entry is stuck as 'attempted' (index cache by n once)
     const cacheByN = new Map();
