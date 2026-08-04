@@ -1286,36 +1286,62 @@ function migrateRedundantComposites() {
 // happens to come out all-numeric.
 // One-time repair for entries corrupted by the CF cofactor-as-prime bug.
 // FactorDB returns CF listing only the unfactored composite for numbers it doesn't
-// know; that composite was being stored as a prime factor, which made the product
-// of "factors" equal the value and the entry read as fully factored while nothing
-// was actually known. Any stored factor that is composite AND accounts for the
-// entire value is exactly that artefact.
+// know; that composite was being stored as a prime factor, so the product of
+// "factors" equalled the value and the entry read as fully factored while nothing
+// was actually known.
+//
+// CARE IS REQUIRED HERE. The naive signature — "a big factor that accounts for the
+// whole value" — also describes a perfectly NORMAL fully-factored entry whose
+// largest factor is a genuine large prime, which is the end state of every
+// successful factorisation. An earlier version of this function used exactly that
+// rule and stripped real primes, demoting correct results to partial. Two guards
+// prevent that now:
+//   1. Never touch an entry FactorDB has resolved (FF/P/PRP) — those factors are
+//      confirmed, and a large factor there is a real prime.
+//   2. Only strip a factor actually shown to be COMPOSITE. Primality is tested
+//      where that is affordable; above that size the FDB status is the deciding
+//      signal, and absent a CF status nothing is touched.
+const REPAIR_PRIMALITY_MAX_DIGITS = 1000; // beyond this a Miller-Rabin round is too slow for load-time
 function migrateBogusCofactorFactors() {
-  if (localStorage.getItem('eulerFDB_bogusCofactorFix_v1')) return;
+  if (localStorage.getItem('eulerFDB_bogusCofactorFix_v2')) return;
   let fixed = 0;
   for (const e of allEntries) {
     if (!e || !e.val || !Array.isArray(e.factors) || !e.factors.length) continue;
-    const suspects = e.factors.filter(f => {
+    const rec = fdbCache[e.val];
+    const fdbStatus = rec && rec.status;
+    // Guard 1: FactorDB says this is fully factored — its factors are real primes.
+    if (['FF', 'P', 'PRP'].includes(fdbStatus)) continue;
+
+    const suspects = [];
+    for (const f of e.factors) {
       const base = String(f).split('^')[0];
-      // A genuine prime factor this large is not something FactorDB would have
-      // handed us as a bare CF entry; >100 digits and unverified means cofactor.
-      return /^\d+$/.test(base) && base.length > 100;
-    });
+      if (!/^\d+$/.test(base) || base.length <= 100) continue;
+      // Guard 2: only strip what is demonstrably composite.
+      if (base.length <= REPAIR_PRIMALITY_MAX_DIGITS) {
+        let composite = false;
+        try { composite = !isProbablePrime(BigInt(base)); }
+        catch(err) { logSwallowed('migrateBogusCofactor/primality', err); continue; }
+        if (!composite) continue;       // genuine large prime — leave it alone
+      } else if (fdbStatus !== 'CF') {
+        continue;                        // too large to test and no CF signal — don't guess
+      }
+      suspects.push(f);
+    }
     if (!suspects.length) continue;
-    const kept = e.factors.filter(f => !suspects.includes(f));
-    // Only strip when the suspect really does explain the whole value — otherwise
-    // it may be a legitimately large known factor and must be left alone.
-    let product = 1n, ok = true;
+
+    // Only act when the suspects really do account for the entire value; otherwise
+    // this isn't the artefact and the factor may be legitimate.
+    let product = 1n;
     try { for (const f of e.factors) { const [b, x] = String(f).split('^'); product *= BigInt(b) ** BigInt(x || 1); } }
-    catch(err) { logSwallowed('migrateBogusCofactor/product', err); ok = false; }
-    if (!ok) continue;
+    catch(err) { logSwallowed('migrateBogusCofactor/product', err); continue; }
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('migrateBogusCofactor/val', err); continue; }
-    if (product !== val) continue; // not the artefact — leave it
-    e.factors = kept;
-    e.status  = kept.length ? 'partial' : 'composite';
+    if (product !== val) continue;
+
+    const kept = e.factors.filter(f => !suspects.includes(f));
+    e.factors  = kept;
+    e.status   = kept.length ? 'partial' : 'composite';
     e.cofactor = null;
-    const rec = fdbCache[e.val];
     if (rec) { rec.factors = kept; rec.status = kept.length ? 'CF' : 'C'; }
     if (fdbFactors[e.val]) fdbFactors[e.val] = { factors: kept };
     fixed++;
@@ -1324,7 +1350,7 @@ function migrateBogusCofactorFactors() {
     saveFDBCache(fdbCache);
     addLog('Repaired ' + fixed + ' entr' + (fixed === 1 ? 'y' : 'ies') + ' where an unfactored cofactor had been stored as a prime factor (falsely showing as fully factored)', 'warn');
   }
-  localStorage.setItem('eulerFDB_bogusCofactorFix_v1', '1');
+  localStorage.setItem('eulerFDB_bogusCofactorFix_v2', '1');
 }
 
 function migrateSigmaHashes() {
