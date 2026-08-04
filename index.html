@@ -1133,7 +1133,10 @@ function scheduleKvFlush() {
   if (_kvFlushTimer) return;
   // Debounced: a bulk import can call saveECM() many times in quick succession,
   // and there's no value in a separate IDB transaction for each one.
-  _kvFlushTimer = setTimeout(() => { _kvFlushTimer = null; flushKv(); }, 400);
+  // Short on purpose. The debounce exists only to batch the many saves a bulk
+  // import fires; it is NOT a performance necessity for ordinary edits, and every
+  // millisecond of it is a window in which a reload loses the latest change.
+  _kvFlushTimer = setTimeout(() => { _kvFlushTimer = null; flushKv(); }, 120);
 }
 
 async function flushKv() {
@@ -1618,6 +1621,8 @@ function currentQueryCap() {
   return QUERY_CEILING_DIGITS;
 }
 // Back-compat name — several call sites and UI strings still read this.
+// Kept only as a legacy alias; all live checks use currentQueryCap(), which
+// reflects what has actually been measured rather than this fixed floor.
 const QUERY_MAX_DIGITS = QUERY_FLOOR_DIGITS;
 
 // Parse a B1/B2 bound that may be written as "3e6", "3000000", or "3,000,000".
@@ -3139,6 +3144,11 @@ async function githubPush() {
       return null;
     }
 
+    // Make sure everything is durably written locally before publishing it.
+    // Without this a push can succeed while the local copy is still in a pending
+    // debounce timer, so a reload right after pushing would show stale data.
+    try { await flushKvNow(); } catch(e) { logSwallowed('githubPush/flush', e); }
+
     // Build + encode the payload ONCE, outside the retry loop. This used to be
     // inside attemptPush(), so every SHA-conflict retry re-ran buildSyncPayload
     // (which walks every entry and decodes every factor) and re-base64-encoded
@@ -3639,7 +3649,7 @@ async function exportNextRuns() {
 
   // Candidates first (cheap: no BigInt yet), so we know how many entries actually
   // need cofactor-digit computation and can report real progress. No digit-size cap
-  // here — QUERY_MAX_DIGITS (52000) is a FactorDB network/URL-length limit, not an
+  // here — the FactorDB query limit is a network/URL-length constraint, not an
   // ECM one. GMP-ECM has no such limit, and the export writes numbers to a separate
   // file specifically so arbitrarily large entries work fine — these are exactly
   // the numbers where FactorDB can't help at all and your own ECM work matters most.
@@ -6268,9 +6278,10 @@ function openModal(n) {
     ${e.val ? `
     <div class="modal-section">
       <div class="modal-section-label">FactorDB</div>
-      ${e.val.length > QUERY_MAX_DIGITS ? `
+      ${e.val.length > currentQueryCap() ? `
       <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">
-        This number is ${e.val.length} digits — too large to auto-query (cap ${QUERY_MAX_DIGITS}d).
+        This number is ${e.val.length} digits, above the measured query limit of ${currentQueryCap().toLocaleString()}d
+        (a query was rejected as too long at ${loadQueryLimits().minFail.toLocaleString()}d).
         Check it directly: <a href="https://factordb.com/index.php?query=${e.val}" target="_blank" style="color:var(--accent)">open on FactorDB ↗</a>.
         If FactorDB lists all the factors you already have, mark it confirmed:
       </div>
@@ -6343,7 +6354,7 @@ async function modalCheckFull(n) {
     }
     const errEl = document.getElementById('fdbQueryStatus_' + n);
     if (errEl) {
-      const isLarge = e && e.val && e.val.length > QUERY_MAX_DIGITS;
+      const isLarge = e && e.val && e.val.length > currentQueryCap();
       errEl.innerHTML = '<span style="color:var(--red)">⚠ ' + err.message + '</span>'
         + (isLarge
           ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB Unknown</button>'
