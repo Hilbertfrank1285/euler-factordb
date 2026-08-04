@@ -572,6 +572,12 @@
     style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations.">
     ↑ Import ECM results
   </button>
+  <button class="poll-btn" onclick="runFactorAudit()" style="background:var(--surface2)" title="Check that every stored factor actually divides its E(n)">
+    ✓ Audit factors
+  </button>
+  <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)" title="Scan every entry for self-contradictory factor data — no network needed">
+    ⚕ Check data integrity
+  </button>
   <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)" title="Export entries above the measured query limit, for fdb_check.py to run against on any machine with Python">
     ↓ Export FDB check list
   </button>
@@ -1301,11 +1307,80 @@ function migrateRedundantComposites() {
 //   2. Only strip a factor actually shown to be COMPOSITE. Primality is tested
 //      where that is affordable; above that size the FDB status is the deciding
 //      signal, and absent a CF status nothing is touched.
-const REPAIR_PRIMALITY_MAX_DIGITS = 1000; // beyond this a Miller-Rabin round is too slow for load-time
+// This migration runs UNATTENDED AT STARTUP, so its budget must be far tighter
+// than a user-initiated scan's. The original 1000 was picked without measuring:
+// a single 1000-digit prime takes ~2 SECONDS, so a database with a few hundred
+// large prime factors would have frozen the app on load before it drew anything.
+// 120 digits keeps a test near 9ms, and a wall-clock budget bounds the total.
+const REPAIR_PRIMALITY_MAX_DIGITS = 120;
+const REPAIR_BUDGET_MS = 3000;
+// Audit every stored factor against its entry's value. A real factor of E(n)
+// divides E(n) exactly, so anything that doesn't is provably wrong — most often a
+// run attributed to the wrong number (the ECM import's last-resort matching picks
+// the FIRST E(n) a number divides, which can be the wrong one). Nothing verified
+// this before, so bad factors accumulated silently and inflated factor counts.
+function auditFactors(fix) {
+  const bad = [];
+  let checked = 0;
+  for (const e of allEntries) {
+    if (!e || !e.val || !Array.isArray(e.factors) || !e.factors.length) continue;
+    for (const f of e.factors) {
+      checked++;
+      if (factorDividesValue(e.val, f) === false) bad.push({ n: e.n, factor: String(f) });
+    }
+  }
+  if (fix && bad.length) {
+    const byN = new Map();
+    for (const b of bad) {
+      if (!byN.has(b.n)) byN.set(b.n, new Set());
+      byN.get(b.n).add(b.factor);
+    }
+    for (const e of allEntries) {
+      const drop = byN.get(e.n);
+      if (!drop) continue;
+      e.factors = (e.factors || []).filter(f => !drop.has(String(f)));
+      e.cofactor = null;
+      if (e.status === 'full') e.status = e.factors.length ? 'partial' : 'composite';
+      const rec = fdbCache[e.val];
+      if (rec) { rec.factors = e.factors; if (rec.status === 'FF') rec.status = e.factors.length ? 'CF' : 'C'; }
+      if (fdbFactors[e.val]) fdbFactors[e.val] = { factors: e.factors };
+    }
+    saveFDBCache(fdbCache);
+    applyFilters(); renderStats();
+    addLog('Removed ' + bad.length + ' factor(s) that do not divide their E(n)', 'warn');
+  }
+  return { checked, bad };
+}
+
+// UI entry point — reports first, only changes anything on explicit confirmation.
+function runFactorAudit() {
+  const { checked, bad } = auditFactors(false);
+  if (!bad.length) {
+    alert('Factor audit: all ' + checked.toLocaleString() + ' stored factors divide their E(n) exactly.\n\nNothing to fix.');
+    return;
+  }
+  const byN = {};
+  for (const b of bad) (byN[b.n] = byN[b.n] || []).push(b.factor);
+  const lines = Object.entries(byN).slice(0, 15)
+    .map(([n, fs]) => '  E(' + n + '): ' + fs.map(f => f.length > 18 ? f.slice(0, 18) + '…' : f).join(', '));
+  const more = Object.keys(byN).length > 15 ? '\n  …and ' + (Object.keys(byN).length - 15) + ' more entries' : '';
+  const ok = confirm(
+    'Factor audit: ' + bad.length + ' of ' + checked.toLocaleString() + ' stored factors do NOT divide their E(n).\n\n'
+    + 'These are provably wrong — most likely runs attributed to the wrong number.\n\n'
+    + lines.join('\n') + more
+    + '\n\nRemove them? Affected entries drop back to partial/composite.');
+  if (ok) auditFactors(true);
+}
+
 function migrateBogusCofactorFactors() {
   if (localStorage.getItem('eulerFDB_bogusCofactorFix_v2')) return;
   let fixed = 0;
+  const deadline = Date.now() + REPAIR_BUDGET_MS;
+  let ranOut = false;
   for (const e of allEntries) {
+    // Startup must not be held hostage to this. If the budget runs out, stop and
+    // leave the flag unset so the remainder is repaired on the next load.
+    if (Date.now() > deadline) { ranOut = true; break; }
     if (!e || !e.val || !Array.isArray(e.factors) || !e.factors.length) continue;
     const rec = fdbCache[e.val];
     const fdbStatus = rec && rec.status;
@@ -1350,7 +1425,10 @@ function migrateBogusCofactorFactors() {
     saveFDBCache(fdbCache);
     addLog('Repaired ' + fixed + ' entr' + (fixed === 1 ? 'y' : 'ies') + ' where an unfactored cofactor had been stored as a prime factor (falsely showing as fully factored)', 'warn');
   }
-  localStorage.setItem('eulerFDB_bogusCofactorFix_v2', '1');
+  // Only mark the migration complete if it actually finished; otherwise it resumes
+  // next load rather than leaving part of the database unrepaired forever.
+  if (!ranOut) localStorage.setItem('eulerFDB_bogusCofactorFix_v2', '1');
+  else addLog('Data repair paused at its time budget — will continue on next load', '');
 }
 
 function migrateSigmaHashes() {
@@ -4615,9 +4693,38 @@ async function processEcmLogText(text, sourceLabel) {
 // Merge a newly-found prime factor into an entry, recompute status, and persist.
 // Source is 'import' (you found it via your own ECM, not from FactorDB) so it will
 // still appear in the FDB-submission export until FactorDB ingests it.
+// Does `factorStr` actually divide `valStr`? A real factor of E(n) divides E(n)
+// exactly, so this is a complete and cheap correctness test — and nothing was
+// applying it. Factors were written on trust, which meant a mis-attributed run
+// (the ECM import falls back to "first E(n) this number divides", which can pick
+// the wrong one) silently attached factors to an entry they have nothing to do
+// with. Observed on E(14704): a dozen stored factors where FactorDB knew of two.
+// Returns true when it divides, false when it provably does not, and null when
+// the check can't be performed (unparseable input) so callers can distinguish
+// "verified bad" from "unknown".
+function factorDividesValue(valStr, factorStr) {
+  const base = String(factorStr).split('^')[0];
+  if (!/^\d+$/.test(base) || !/^\d+$/.test(String(valStr))) return null;
+  try {
+    const b = BigInt(base);
+    if (b <= 1n) return false;
+    return BigInt(valStr) % b === 0n;
+  } catch(e) { logSwallowed('factorDividesValue', e); return null; }
+}
+
 function recordEcmFactor(entry, factorStr) {
   const n = entry.n;
   const parsePow = f => { const mm = /^(\d+)\^(\d+)$/.exec(String(f)); return mm ? { base: mm[1], exp: +mm[2] } : { base: String(f), exp: 1 }; };
+
+  // Verify before trusting. A factor that doesn't divide E(n) is not a factor of
+  // E(n) — most often it belongs to a different entry because the run was
+  // attributed to the wrong number. Silently storing it corrupts the record and
+  // inflates the apparent factor count.
+  if (factorDividesValue(entry.val, factorStr) === false) {
+    logSwallowed('recordEcmFactor/rejected',
+      new Error('factor ' + String(factorStr).slice(0, 24) + '… does not divide E(' + n + ')'));
+    return 'invalid';
+  }
 
   const existing = (entry.factors || []).filter(f => f && f !== '1');
   // already have this prime base?
@@ -4856,6 +4963,20 @@ function applyFdbResult(data, n, numberStr) {
     }
     return [...maxExp.entries()].map(([base, exp]) => exp === 1 ? base : `${base}^${exp}`);
   };
+
+  // Reject anything that doesn't divide the entry's value. FactorDB answers about
+  // whichever number was queried — and for a partial entry that is the COFACTOR,
+  // not E(n) — so a mismatch here means the result is being applied to the wrong
+  // entry and must not be written.
+  const entryVal = entry ? entry.val : null;
+  if (entryVal) {
+    const bad = fdbPrimes.filter(f => factorDividesValue(entryVal, f) === false);
+    if (bad.length) {
+      logSwallowed('applyFdbResult/rejected',
+        new Error(bad.length + ' FDB factor(s) do not divide E(' + n + ')'));
+      fdbPrimes = fdbPrimes.filter(f => factorDividesValue(entryVal, f) !== false);
+    }
+  }
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
   const merged = sortFactorsAsc(dedupeCompositeFactors(collapsePowers([...priorOwn, ...fdbPrimes])));
@@ -7853,6 +7974,150 @@ function clearEntryCache(n) {
   addLog(`E(${n}) cache cleared`, 'warn');
   applyFilters();
   openModal(n); // refresh modal
+}
+
+// ── Data integrity scan ──────────────────────────────────────────────────────
+// Both of the data-correctness bugs found so far (a composite cofactor recorded
+// as a prime factor, and a cofactor lookup promoting an entry to "fully
+// factored") produced entries that were *internally inconsistent* — the stored
+// data contradicted itself in ways that are cheap to detect. Neither was caught
+// by anything automatic; both were spotted by eye against FactorDB.
+//
+// This scans every entry for those contradictions. It is deliberately about
+// self-consistency, not about asking FactorDB anything: no network, no rate
+// limits, and it works on the whole database in one pass.
+// Primality is the expensive part, and the cost is dominated by ACTUAL PRIMES —
+// composites usually bail out on an early witness, while a prime runs every round.
+// Measured on real primes: 60d ~3ms, 100d ~7ms, 200d ~29ms, 300d ~79ms, 1000d ~2s.
+// Stored factors are overwhelmingly primes, so the worst case is the normal case.
+// An earlier version of this used a 1000-digit ceiling picked without measuring:
+// 40 entries carrying 700-digit primes froze the tab for 30 SECONDS, and the same
+// ceiling in the load-time repair migration could have frozen startup for minutes.
+// 120 digits keeps a single test near 9ms while still covering essentially every
+// factor ECM produces; anything larger is simply not primality-checked.
+const PRIMALITY_SCAN_MAX_DIGITS = 120;
+const INTEGRITY_BUDGET_MS = 15000;   // hard ceiling; report partial rather than hang
+
+// Async and chunked: a synchronous pass over a large database blocks the tab
+// completely, and this can genuinely be a lot of BigInt work.
+async function runDataIntegrityCheck(onProgress) {
+  const issues = {
+    notDividing:    [],  // a stored factor that does not divide E(n)
+    fullMismatch:   [],  // status 'full' but the factors do not multiply to E(n)
+    unmarkedFull:   [],  // factors DO multiply to E(n) but status is not 'full'
+    compositeFactor:[],  // a stored "prime factor" that is demonstrably composite
+    wholeValue:     [],  // a factor equal to E(n) itself on a non-full entry
+    duplicate:      [],  // the same prime listed more than once
+  };
+  let checked = 0, skippedPrimality = 0, timedOut = false;
+  const deadline = Date.now() + INTEGRITY_BUDGET_MS;
+  const CHUNK = 200;
+
+  for (let i = 0; i < allEntries.length; i++) {
+    if (i % CHUNK === 0) {
+      if (Date.now() > deadline) { timedOut = true; break; }
+      if (onProgress) onProgress(i, allEntries.length);
+      await new Promise(r => setTimeout(r, 0));   // let the UI breathe
+    }
+    const e = allEntries[i];
+    if (!e || !e.val || !Array.isArray(e.factors) || !e.factors.length) continue;
+    let val;
+    try { val = BigInt(e.val); } catch(err) { logSwallowed('integrity/val', err); continue; }
+    checked++;
+
+    let product = 1n, bad = false;
+    const seen = new Set();
+    for (const f of e.factors) {
+      const [bStr, xStr] = String(f).split('^');
+      if (!/^\d+$/.test(bStr)) continue;
+      let base;
+      try { base = BigInt(bStr); } catch(err) { logSwallowed('integrity/factor', err); continue; }
+      if (base <= 1n) continue;
+
+      if (seen.has(bStr)) issues.duplicate.push({ n: e.n, factor: bStr });
+      seen.add(bStr);
+
+      if (val % base !== 0n) { issues.notDividing.push({ n: e.n, factor: bStr, digits: bStr.length }); bad = true; }
+      // A single factor equal to the whole value claims "E(n) is prime". Beyond the
+      // primality ceiling we cannot verify that claim, and it is exactly the shape
+      // the cofactor-as-prime bug produced (E(14710): one 52,026-digit "factor"
+      // equal to the number, entry reading as fully factored). Flagging it does not
+      // depend on primality testing, so it works at any size — which matters,
+      // because the real cases are far too large to test.
+      if (base === val && e.factors.length === 1 && bStr.length > PRIMALITY_SCAN_MAX_DIGITS) {
+        issues.wholeValue.push({ n: e.n, digits: bStr.length });
+      } else if (base === val && e.status !== 'full') {
+        issues.wholeValue.push({ n: e.n, digits: bStr.length });
+      }
+
+      if (bStr.length <= PRIMALITY_SCAN_MAX_DIGITS) {
+        try { if (!isProbablePrime(base)) issues.compositeFactor.push({ n: e.n, factor: bStr, digits: bStr.length }); }
+        catch(err) { logSwallowed('integrity/primality', err); }
+      } else {
+        skippedPrimality++;   // too costly to verify — reported, not silently ignored
+      }
+      try { product *= base ** BigInt(xStr || 1); } catch(err) { logSwallowed('integrity/product', err); bad = true; }
+    }
+    if (bad) continue;
+
+    if (e.status === 'full' && product !== val) issues.fullMismatch.push({ n: e.n, factors: e.factors.length });
+    if (e.status !== 'full' && product === val) issues.unmarkedFull.push({ n: e.n, factors: e.factors.length });
+  }
+  return { issues, checked, skippedPrimality, timedOut };
+}
+
+async function showDataIntegrityReport() {
+  let res;
+  setStatus('Scanning data integrity…', '');
+  try { res = await runDataIntegrityCheck((i, total) => setStatus('Scanning data integrity… ' + i + '/' + total, '')); }
+  catch(err) { setStatus('', ''); alert('Integrity scan failed: ' + err.message); return; }
+  setStatus('', '');
+  const { issues, checked, skippedPrimality, timedOut } = res;
+
+  const groups = [
+    ['notDividing',     'Factor does not divide E(n)',        'The stored value is not a factor at all — corrupt data.'],
+    ['compositeFactor', 'Stored factor is composite',         'Factors are meant to be prime. A composite here is usually an unfactored cofactor recorded by mistake, which makes the entry look more complete than it is.'],
+    ['wholeValue',      'Factor equals E(n) itself',          'A lone factor equal to the whole number claims E(n) is prime. Above the primality ceiling that claim cannot be verified, and it is the exact shape the cofactor-as-prime bug produced.'],
+    ['fullMismatch',    'Marked full but factors fall short', 'Status says fully factored, yet the factors do not multiply back to E(n).'],
+    ['unmarkedFull',    'Factors complete but not marked full','The factors DO multiply to E(n) — the entry should be marked fully factored.'],
+    ['duplicate',       'Duplicate prime in factor list',     'The same prime appears more than once instead of as a power.'],
+  ];
+  const total = groups.reduce((s, [k]) => s + issues[k].length, 0);
+
+  const body = total === 0
+    ? `<div class="modal-section" style="color:var(--green)">
+         No inconsistencies found across ${checked.toLocaleString()} entries with known factors.
+       </div>
+       <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
+         This checks entries against themselves — that every factor divides E(n), that
+         factors are prime, and that the status matches what the factors actually prove.
+         It needs no network, so it can be run any time.
+         ${skippedPrimality ? '<br><br>' + skippedPrimality + ' factor(s) were larger than ' + PRIMALITY_SCAN_MAX_DIGITS + ' digits and were not primality-checked — that test gets expensive quickly, so those are reported here rather than silently assumed prime.' : ''}
+         ${timedOut ? '<br><br><span style="color:var(--yellow)">The scan hit its time budget and stopped early, so this is a partial result.</span>' : ''}
+       </div>`
+    : `<div class="modal-section">
+        <div class="modal-section-label">${total} issue(s) across ${checked.toLocaleString()} entries</div>
+        ${groups.filter(([k]) => issues[k].length).map(([k, title, why]) => `
+          <div style="margin-bottom:14px">
+            <div style="color:var(--yellow);font-size:12px;margin-bottom:2px">
+              <strong>${issues[k].length}</strong> — ${title}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:4px">${why}</div>
+            <div style="font-size:11px;font-family:var(--mono,monospace);color:var(--text-dim)">
+              ${issues[k].slice(0, 12).map(i => 'E(' + i.n + ')' + (i.digits ? ' ' + i.digits + 'd' : '')).join(', ')}
+              ${issues[k].length > 12 ? ' …and ' + (issues[k].length - 12) + ' more' : ''}
+            </div>
+          </div>`).join('')}
+       </div>
+       <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
+         Re-checking the listed entries on FactorDB usually resolves these, since a
+         fresh result overwrites the bad data. Entries marked
+         <em>factors complete but not marked full</em> are safe to promote as-is.
+       </div>`;
+
+  document.getElementById('modalTitle').textContent = 'Data integrity';
+  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalBackdrop').classList.add('open');
 }
 
 function showYieldReport() {
