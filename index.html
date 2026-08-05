@@ -1789,10 +1789,18 @@ function parseB1(v) {
 // from a plain decimal string, no matter how short — avoids the kind of
 // heuristic-detection ambiguity that a "long pure-digit string" check would
 // have for factors (which, unlike sigmas, can legitimately be short).
+// Above this size, store the factor as plain decimal instead of base36. The
+// encoding saves ~33% of characters, but base conversion is superlinear and
+// loadFDBCache decodes EVERY factor on EVERY load: measured, a single 52,000-digit
+// factor costs ~230ms to decode, so a handful of them would add seconds to startup
+// for a few KB saved. Plain decimal decodes instantly (_decodeFactor returns any
+// un-prefixed string as-is), so large factors simply skip the round trip.
+const FACTOR_ENCODE_MAX_DIGITS = 2000;
 function _encodeFactor(f) {
   const s = String(f);
   if (!/^\d+$/.test(s)) return s; // not a plain decimal number — leave untouched
-  try { return '~' + BigInt(s).toString(36); } catch { return s; }
+  if (s.length > FACTOR_ENCODE_MAX_DIGITS) return s; // too costly to convert; store as-is
+  try { return '~' + BigInt(s).toString(36); } catch(e) { logSwallowed('encodeFactor', e); return s; }
 }
 function _decodeFactor(f) {
   if (typeof f !== 'string' || f[0] !== '~') return f; // old format, or already decimal
@@ -8074,6 +8082,158 @@ async function runDataIntegrityCheck(onProgress) {
   return { issues, checked, skippedPrimality, timedOut };
 }
 
+// Apply the repairs that can be made with certainty from local data alone.
+// Deliberately conservative: every change is verified against E(n) before it is
+// written, and anything that would require guessing is left for a FactorDB
+// re-check instead. Returns a summary of what it did and what it declined to do.
+async function fixIntegrityIssues(scan) {
+  const fixed = { promoted: 0, collapsed: 0, split: 0, removedBogus: 0, removedWhole: 0 };
+  const needsRecheck = [];
+  const byN = new Map(allEntries.map(e => [e.n, e]));
+  const deadline = Date.now() + 20000;
+
+  const productOf = (factors) => {
+    let p = 1n;
+    for (const f of factors) { const [b, x] = String(f).split('^'); p *= BigInt(b) ** BigInt(x || 1); }
+    return p;
+  };
+  // Local copy: applyFdbResult has its own collapsePowers, but it's scoped inside
+  // that function and is not reachable here.
+  const collapseTo = (list) => {
+    const counts = new Map();
+    for (const f of list) {
+      const [b, x] = String(f).split('^');
+      counts.set(b, (counts.get(b) || 0) + parseInt(x || 1));
+    }
+    return Array.from(counts.entries()).map(([b, x]) => x > 1 ? b + '^' + x : b);
+  };
+
+  // 1) Factors that do not divide E(n) — provably wrong, so removing them is safe.
+  for (const it of scan.issues.notDividing) {
+    const e = byN.get(it.n); if (!e) continue;
+    e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== it.factor);
+    e.status  = e.factors.length ? 'partial' : 'composite';
+    e.cofactor = null;
+    fixed.removedBogus++;
+  }
+
+  // 2) A lone oversized factor equal to E(n) — the cofactor-as-prime artefact.
+  for (const it of scan.issues.wholeValue) {
+    const e = byN.get(it.n); if (!e) continue;
+    e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== e.val);
+    e.status  = e.factors.length ? 'partial' : 'composite';
+    e.cofactor = null;
+    fixed.removedWhole++;
+  }
+
+  // 3) Duplicate primes — collapse to powers. Verified: the product must not change.
+  for (const it of scan.issues.duplicate) {
+    const e = byN.get(it.n); if (!e) continue;
+    const before = productOf(e.factors);
+    const collapsed = collapseTo(e.factors);
+    if (productOf(collapsed) === before) { e.factors = sortFactorsAsc(collapsed); fixed.collapsed++; }
+  }
+
+  // 4) Composite "primes" — try to split them. Only accepted when the pieces
+  //    multiply back exactly, so a partial or wrong split is never written.
+  for (const it of scan.issues.compositeFactor) {
+    if (Date.now() > deadline) break;
+    const e = byN.get(it.n); if (!e) continue;
+    let parts = null;
+    try { parts = factorizeSmall(BigInt(it.factor)); }
+    catch(err) { logSwallowed('fixIntegrity/split', err); }
+    if (!parts || parts.length < 2) { needsRecheck.push(it.n); continue; }
+    let prod = 1n; for (const p of parts) prod *= p;
+    if (prod !== BigInt(it.factor)) { needsRecheck.push(it.n); continue; }
+    const rest = (e.factors || []).filter(f => String(f).split('^')[0] !== it.factor);
+    e.factors = sortFactorsAsc(collapseTo([...rest, ...parts.map(String)]));
+    fixed.split++;
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  // 5) Factors that already complete E(n) — promoting is purely additive.
+  for (const it of scan.issues.unmarkedFull) {
+    const e = byN.get(it.n); if (!e) continue;
+    if (productOf(e.factors) !== BigInt(e.val)) continue; // re-verify; never promote on trust
+    e.status = 'full';
+    e.cofactor = null;
+    fixed.promoted++;
+  }
+
+  // 6) Marked full but short — NOT fixable here. The missing factor is unknown by
+  //    definition, so guessing would be worse than leaving it. These get flagged
+  //    for a FactorDB re-check, which is what actually restores the data.
+  for (const it of scan.issues.fullMismatch) needsRecheck.push(it.n);
+
+  // Persist whatever changed, through the normal paths so the cache stays in step.
+  for (const e of allEntries) {
+    const rec = fdbCache[e.val];
+    if (rec && Array.isArray(e.factors)) {
+      rec.factors = e.factors;
+      if (e.status === 'full') rec.status = 'FF';
+      else if (e.status === 'composite') rec.status = 'C';
+      else if (e.status === 'partial' && rec.status === 'FF') rec.status = 'CF';
+    }
+  }
+  saveFDBCache(fdbCache);
+  markDirty();
+  return { fixed, needsRecheck: Array.from(new Set(needsRecheck)) };
+}
+
+async function runIntegrityFix() {
+  let scan;
+  setStatus('Re-scanning before fixing…', '');
+  try { scan = await runDataIntegrityCheck(); }
+  catch(err) { setStatus('', ''); alert('Could not re-scan: ' + err.message); return; }
+
+  const counts = scan.issues;
+  const autoFixable = counts.notDividing.length + counts.wholeValue.length
+                    + counts.duplicate.length + counts.compositeFactor.length
+                    + counts.unmarkedFull.length;
+  if (!autoFixable && !counts.fullMismatch.length) {
+    setStatus('', ''); alert('Nothing to fix — no issues found.'); return;
+  }
+  // Say exactly what will change BEFORE changing it. Given this edits real
+  // factorisation data, a silent bulk mutation would be the wrong default.
+  const plan = [
+    counts.notDividing.length     && counts.notDividing.length + ' factor(s) that do not divide E(n) — remove',
+    counts.wholeValue.length      && counts.wholeValue.length + ' cofactor(s) recorded as their own factor — remove',
+    counts.duplicate.length       && counts.duplicate.length + ' duplicate prime(s) — collapse to powers',
+    counts.compositeFactor.length && counts.compositeFactor.length + ' composite factor(s) — attempt to split',
+    counts.unmarkedFull.length    && counts.unmarkedFull.length + ' complete entr(y/ies) — mark as fully factored',
+  ].filter(Boolean).join('\n  • ');
+  const note = counts.fullMismatch.length
+    ? '\n\n' + counts.fullMismatch.length + ' entr(y/ies) marked full but missing a factor CANNOT be fixed locally — '
+      + 'the missing prime is unknown by definition. They will be listed for a FactorDB re-check.'
+    : '';
+  setStatus('', '');
+  if (!confirm('This will change stored factor data:\n\n  • ' + plan + note
+      + '\n\nEvery change is verified against E(n) before being written. Proceed?')) return;
+
+  setStatus('Fixing…', '');
+  let res;
+  try { res = await fixIntegrityIssues(scan); }
+  catch(err) { setStatus('', ''); alert('Fix failed: ' + err.message); return; }
+  setStatus('', '');
+
+  const f = res.fixed;
+  const done = [
+    f.removedBogus && f.removedBogus + ' non-dividing factor(s) removed',
+    f.removedWhole && f.removedWhole + ' cofactor(s) removed',
+    f.collapsed    && f.collapsed + ' duplicate(s) collapsed',
+    f.split        && f.split + ' composite(s) split into primes',
+    f.promoted     && f.promoted + ' entr(y/ies) promoted to fully factored',
+  ].filter(Boolean).join('\n  • ');
+  addLog('Integrity fix: ' + (done.replace(/\n  • /g, ', ') || 'no changes'), 'ok');
+  allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
+  alert('Done.\n\n  • ' + (done || 'no changes were possible')
+    + (res.needsRecheck.length
+        ? '\n\n' + res.needsRecheck.length + ' entr(y/ies) still need a FactorDB re-check to restore missing data:\n'
+          + res.needsRecheck.slice(0, 20).map(n => 'E(' + n + ')').join(', ')
+          + (res.needsRecheck.length > 20 ? ' …and ' + (res.needsRecheck.length - 20) + ' more' : '')
+        : ''));
+}
+
 async function showDataIntegrityReport() {
   let res;
   setStatus('Scanning data integrity…', '');
@@ -8121,6 +8281,13 @@ async function showDataIntegrityReport() {
          Re-checking the listed entries on FactorDB resolves most of these, since a
          fresh result restores whatever the local copy is missing. Entries marked
          <em>factors complete but not marked full</em> are safe to promote as-is.
+       </div>
+       <div class="modal-section">
+         <button class="fdb-check-btn" onclick="closeModal(); runIntegrityFix();">⚕ Fix what can be fixed safely</button>
+         <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5">
+           Shows exactly what it will change and asks first. Every change is verified
+           against E(n) before being written; anything needing data this app doesn't
+           have is left alone and listed for a FactorDB re-check.
        </div>`;
 
   document.getElementById('modalTitle').textContent = 'Data integrity';
