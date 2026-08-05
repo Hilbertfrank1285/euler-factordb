@@ -8143,8 +8143,28 @@ async function runDataIntegrityCheck(onProgress) {
       // equal to the number, entry reading as fully factored). Flagging it does not
       // depend on primality testing, so it works at any size — which matters,
       // because the real cases are far too large to test.
-      if (base === val && e.factors.length === 1 && bStr.length > PRIMALITY_SCAN_MAX_DIGITS) {
-        issues.wholeValue.push({ n: e.n, digits: bStr.length });
+      // A lone factor equal to the whole number means "E(n) is prime". That is
+      // BOTH the shape of the cofactor-as-prime bug AND the entirely correct
+      // representation of a genuinely prime E(n) — so the two must be told apart,
+      // not lumped together. Flagging a real prime here was worse than useless:
+      // the fixer then stripped it and the entry lost its factorisation entirely.
+      //
+      // FactorDB's verdict decides it. A P/PRP status is a positive statement that
+      // the number IS prime, so itself-as-sole-factor is right and nothing is wrong.
+      // The bug case arrives as CF (composite, not fully factored) or with no
+      // record at all, which is a very different claim.
+      if (base === val && e.factors.length === 1) {
+        const rec = fdbCache[e.val];
+        const fdbSaysPrime = rec && ['P', 'PRP'].includes(rec.status);
+        if (!fdbSaysPrime) {
+          if (bStr.length > PRIMALITY_SCAN_MAX_DIGITS) {
+            // Too large to verify locally and FactorDB has not called it prime.
+            issues.wholeValue.push({ n: e.n, digits: bStr.length });
+          } else if (!isProbablePrime(base)) {
+            // Small enough to check, and it is composite — definitely the bug.
+            issues.wholeValue.push({ n: e.n, digits: bStr.length });
+          }
+        }
       } else if (base === val && e.status !== 'full') {
         issues.wholeValue.push({ n: e.n, digits: bStr.length });
       }
@@ -8203,6 +8223,12 @@ async function fixIntegrityIssues(scan) {
   // 2) A lone oversized factor equal to E(n) — the cofactor-as-prime artefact.
   for (const it of scan.issues.wholeValue) {
     const e = byN.get(it.n); if (!e) continue;
+    // Never strip a number FactorDB has confirmed prime: for those, being its own
+    // sole factor is the correct representation, and removing it would destroy a
+    // complete factorisation. Re-checked here rather than trusted from the scan,
+    // since the data can change between scanning and fixing.
+    const rec = fdbCache[e.val];
+    if (rec && ['P', 'PRP'].includes(rec.status)) { continue; }
     e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== e.val);
     e.status  = e.factors.length ? 'partial' : 'composite';
     e.cofactor = null;
