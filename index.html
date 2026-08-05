@@ -2099,10 +2099,14 @@ function getUnknownTargets() {
     .map(e => ({ n: e.n, number: e.val }));
 }
 
-function allTargets() {
-  // All entries except fully factored — check their full value or cofactor
+function allTargets(includeFull) {
+  // Fully factored entries are skipped by default — there is normally nothing left
+  // to learn about them. They ARE worth including on request, though: "full" is no
+  // longer taken on FactorDB's word (the factors must multiply back to E(n)), so
+  // re-checking one can now DISPROVE a wrong full and correct it, which is exactly
+  // what the entries flagged "marked full but factors fall short" need.
   return allEntries
-    .filter(e => e.status !== 'full' && e.val && e.n > 2)
+    .filter(e => (includeFull || e.status !== 'full') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }))
     .filter(t => t.number);
 }
@@ -4913,7 +4917,13 @@ function cancelPoll() {
 // ─────────────────────────────────────────────────────────────────────────────
 function applyFdbResult(data, n, numberStr) {
   const rawStatus = data.status || 'U';
-  const status    = rawStatus === 'UN' ? 'FF' : rawStatus;
+  // FactorDB's documented statuses are C, CF, FF, P, PRP, U and Unit. 'UN' is
+  // treated as fully-factored for historical reasons; anything else unrecognised
+  // falls back to 'U' (we learned nothing) rather than to FF. Defaulting an unknown
+  // code to "fully factored" is the most damaging possible guess.
+  const KNOWN_FDB_STATUSES = ['C','CF','FF','P','PRP','U','Unit'];
+  const status = rawStatus === 'UN' ? 'FF'
+               : (KNOWN_FDB_STATUSES.includes(rawStatus) ? rawStatus : 'U');
 
   // Parse factors: arrays come as [base, exp]; collapse exp===1
   const allFdbFactors = (data.factors || [])
@@ -5063,10 +5073,17 @@ function applyFdbResult(data, n, numberStr) {
       if (provesFull) {
         if (entry.status !== 'full') { entry.status = 'full'; statusChanged = true; }
         entry._fdbVerified = true;
-      } else {
+        entry._fdbSaysFullButShort = false;
+      } else if (merged.length > 0) {
         if (entry.status !== 'partial') { entry.status = 'partial'; statusChanged = true; }
         entry._fdbVerified = false;
         entry._fdbSaysFullButShort = true; // surfaced by the integrity scan
+      } else {
+        // Claimed resolved but returned no factors at all — that proves nothing, and
+        // calling it 'partial' would assert factors we do not have. Leave the status
+        // untouched rather than inventing one.
+        entry._fdbVerified = false;
+        logSwallowed('applyFdbResult/resolvedButEmpty', new Error('status ' + status + ' with no factors for E(' + n + ')'));
       }
     } else if (status === 'CF') {
       entry.factors  = merged;
@@ -5080,11 +5097,23 @@ function applyFdbResult(data, n, numberStr) {
         if (entry.status !== 'composite') { entry.status = 'composite'; statusChanged = true; }
       }
     } else if (status === 'U') {
-      if (entry.status === 'unknown' || entry.status === 'fdb-unknown') {
+      // FactorDB knows nothing about this number.
+      //
+      // Always record that, even when we hold factors of our own. Previously this
+      // branch did nothing unless the entry was already unknown, so an entry we had
+      // factored ourselves showed a bare "partially factored" with no indication
+      // that FactorDB had no data at all — which reads as though FDB supplied those
+      // factors. It is the opposite: we are ahead of FactorDB, and that is worth
+      // knowing, because those factors are then worth submitting.
+      addFdbUnknown(n);
+      entry._fdbUnknown = true;
+      if (priorCount === 0) {
+        // Nothing of our own either — 'fdb-unknown' is the whole truth.
         if (entry.status !== 'fdb-unknown') statusChanged = true;
         entry.status = 'fdb-unknown';
-        addFdbUnknown(n);
       }
+      // With factors of our own, 'partial' stays: it describes OUR knowledge
+      // correctly. The _fdbUnknown flag carries the rest of the story.
     }
   }
 
@@ -5938,12 +5967,23 @@ function startManualPoll() {
     return;
   }
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const targets = allTargets().slice(0, cap);
+  const fullCount = allEntries.filter(e => e.status === 'full' && e.val && e.n > 2).length;
+  // Offered rather than assumed: including them can multiply the request count, and
+  // FactorDB is a free service. Worth it when entries are wrongly marked full,
+  // since a re-check can now disprove that; wasteful otherwise.
+  let includeFull = false;
+  if (fullCount) {
+    includeFull = confirm('Include the ' + fullCount.toLocaleString() + ' fully-factored entries as well?\n\n'
+      + 'OK    — re-verify everything (catches entries wrongly marked full)\n'
+      + 'Cancel — skip them and check only unfinished entries');
+  }
+  const targets = allTargets(includeFull).slice(0, cap);
   if (!targets.length) {
     setStatus('No entries to check (all fully factored?)', 'warn');
     return;
   }
-  addLog('Check all — ' + targets.length + ' entries (cap: ' + cap + ')', '');
+  addLog('Check all — ' + targets.length + ' entries (cap: ' + cap + ')'
+    + (includeFull ? ', including fully factored' : ''), '');
   runPollQueue(targets, true, document.getElementById('pollBtn'), true, true);
 }
 
@@ -6223,6 +6263,17 @@ function renderGrid() {
           }
         }
       } catch(e) { logSwallowed('tile/ecmSummary', e); }
+
+      // "We know more than FactorDB does". Worth showing prominently: when we hold
+      // factors for a number FactorDB has no record of, those factors are new to
+      // FDB and worth submitting — the opposite of the usual direction. Without
+      // this the entry just reads "partially factored", which looks as though FDB
+      // supplied the factors.
+      try {
+        if (e._fdbUnknown && (e.factors || []).filter(f => f && f !== '1').length) {
+          html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no record of this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has no record — our factors are new</div>`;
+        }
+      } catch(err) { logSwallowed('tile/fdbUnknownBadge', err); }
 
       // FDB date
       try {
