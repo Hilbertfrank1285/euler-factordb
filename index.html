@@ -5040,7 +5040,27 @@ function applyFdbResult(data, n, numberStr) {
     const m = String(raw).match(/(\d+)\s*$/); // API has returned both a bare id and a full URL
     return m ? m[1] : null;
   })();
-  const cacheEntry = { status, factors: merged, timestamp: Date.now(), source, n,
+  // Whether the factors we hold actually PROVE the number is fully factored.
+  // This has to be decided before the cache is written, not after: the cache used
+  // to store FactorDB's raw verdict, so an entry the proof had correctly demoted to
+  // 'partial' was still cached as 'FF' — and replayFDBCache, reading that cache on
+  // the next render, promoted it straight back to 'full'. That is why a manual
+  // re-check appeared to fix an entry while "Check all" did not (the bulk path
+  // re-renders at the end, so the replay undid it immediately), and why pushing
+  // seemed to resurrect the wrong status.
+  const provesFull = (() => {
+    if (!['FF','P','PRP'].includes(status)) return false;
+    if (!merged.length) return false;
+    try {
+      let prod = 1n;
+      for (const f of merged) { const [b, x] = String(f).split('^'); prod *= BigInt(b) ** BigInt(x || 1); }
+      return prod === BigInt(entry.val);
+    } catch(err) { logSwallowed('applyFdbResult/verifyFull', err); return false; }
+  })();
+  // Cache the VERIFIED status. An unproven FF is recorded as CF, so every path that
+  // later reads the cache reaches the same conclusion the entry did.
+  const verifiedStatus = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF' : status;
+  const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
                        ...(fdbId ? { fdbId } : {}) };
   if (numberStr) {
     fdbCache[numberStr] = cacheEntry;
@@ -5064,12 +5084,6 @@ function applyFdbResult(data, n, numberStr) {
       // earlier), and 'partial' is the honest answer until that is resolved.
       entry.factors  = merged;
       entry.cofactor = null;
-      let provesFull = false;
-      try {
-        let prod = 1n;
-        for (const f of merged) { const [b, x] = String(f).split('^'); prod *= BigInt(b) ** BigInt(x || 1); }
-        provesFull = (prod === BigInt(entry.val));
-      } catch(err) { logSwallowed('applyFdbResult/verifyFull', err); }
       if (provesFull) {
         if (entry.status !== 'full') { entry.status = 'full'; statusChanged = true; }
         entry._fdbVerified = true;
