@@ -5045,11 +5045,29 @@ function applyFdbResult(data, n, numberStr) {
     // next run" for this entry was computed against the OLD cofactor size.
     if ((resolved || status === 'CF') && merged.length !== priorCount) { invalidateNextRunCache(); invalidateCpuTotal(); }
     if (resolved) {
-      // Fully factored
+      // FactorDB says fully factored — but only record that if the factors we
+      // actually hold prove it. Taking the verdict on trust is how entries ended
+      // up marked FF with a factor list that does not multiply back to E(n), and
+      // why re-checking never cleared them: each re-check re-asserted "full" from
+      // the status alone and never looked at the arithmetic. When the product
+      // falls short something is missing (a factor FDB did not return, or one lost
+      // earlier), and 'partial' is the honest answer until that is resolved.
       entry.factors  = merged;
       entry.cofactor = null;
-      if (entry.status !== 'full') { entry.status = 'full'; statusChanged = true; }
-      entry._fdbVerified = true;
+      let provesFull = false;
+      try {
+        let prod = 1n;
+        for (const f of merged) { const [b, x] = String(f).split('^'); prod *= BigInt(b) ** BigInt(x || 1); }
+        provesFull = (prod === BigInt(entry.val));
+      } catch(err) { logSwallowed('applyFdbResult/verifyFull', err); }
+      if (provesFull) {
+        if (entry.status !== 'full') { entry.status = 'full'; statusChanged = true; }
+        entry._fdbVerified = true;
+      } else {
+        if (entry.status !== 'partial') { entry.status = 'partial'; statusChanged = true; }
+        entry._fdbVerified = false;
+        entry._fdbSaysFullButShort = true; // surfaced by the integrity scan
+      }
     } else if (status === 'CF') {
       entry.factors  = merged;
       entry.cofactor = null;
@@ -8087,7 +8105,7 @@ async function runDataIntegrityCheck(onProgress) {
 // written, and anything that would require guessing is left for a FactorDB
 // re-check instead. Returns a summary of what it did and what it declined to do.
 async function fixIntegrityIssues(scan) {
-  const fixed = { promoted: 0, collapsed: 0, split: 0, removedBogus: 0, removedWhole: 0 };
+  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0 };
   const needsRecheck = [];
   const byN = new Map(allEntries.map(e => [e.n, e]));
   const deadline = Date.now() + 20000;
@@ -8142,6 +8160,19 @@ async function fixIntegrityIssues(scan) {
     let parts = null;
     try { parts = factorizeSmall(BigInt(it.factor)); }
     catch(err) { logSwallowed('fixIntegrity/split', err); }
+    // factorizeSmall works to a short deadline and returns null on anything hard —
+    // a balanced ~36-digit semiprime is exactly the case it cannot crack locally.
+    // FactorDB almost certainly knows the answer, so ask rather than give up.
+    if (!parts || parts.length < 2) {
+      try {
+        const viaFdb = await tryResolveCompositeViaFDB(it.factor);
+        if (viaFdb && viaFdb.length >= 2) {
+          let p = 1n; for (const f of viaFdb) p *= BigInt(f);
+          if (p === BigInt(it.factor)) { parts = viaFdb.map(BigInt); fixed.viaFdb++; }
+        }
+      } catch(err) { logSwallowed('fixIntegrity/fdbSplit', err); }
+      await cancellableSleep(REQUEST_DELAY_MS);
+    }
     if (!parts || parts.length < 2) { needsRecheck.push(it.n); continue; }
     let prod = 1n; for (const p of parts) prod *= p;
     if (prod !== BigInt(it.factor)) { needsRecheck.push(it.n); continue; }
@@ -8199,7 +8230,7 @@ async function runIntegrityFix() {
     counts.notDividing.length     && counts.notDividing.length + ' factor(s) that do not divide E(n) — remove',
     counts.wholeValue.length      && counts.wholeValue.length + ' cofactor(s) recorded as their own factor — remove',
     counts.duplicate.length       && counts.duplicate.length + ' duplicate prime(s) — collapse to powers',
-    counts.compositeFactor.length && counts.compositeFactor.length + ' composite factor(s) — attempt to split',
+    counts.compositeFactor.length && counts.compositeFactor.length + ' composite factor(s) — split locally, or ask FactorDB if too hard',
     counts.unmarkedFull.length    && counts.unmarkedFull.length + ' complete entr(y/ies) — mark as fully factored',
   ].filter(Boolean).join('\n  • ');
   const note = counts.fullMismatch.length
@@ -8221,7 +8252,7 @@ async function runIntegrityFix() {
     f.removedBogus && f.removedBogus + ' non-dividing factor(s) removed',
     f.removedWhole && f.removedWhole + ' cofactor(s) removed',
     f.collapsed    && f.collapsed + ' duplicate(s) collapsed',
-    f.split        && f.split + ' composite(s) split into primes',
+    f.split        && f.split + ' composite(s) split into primes' + (f.viaFdb ? ' (' + f.viaFdb + ' via FactorDB)' : ''),
     f.promoted     && f.promoted + ' entr(y/ies) promoted to fully factored',
   ].filter(Boolean).join('\n  • ');
   addLog('Integrity fix: ' + (done.replace(/\n  • /g, ', ') || 'no changes'), 'ok');
