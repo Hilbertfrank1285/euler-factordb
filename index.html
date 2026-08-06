@@ -2099,13 +2099,13 @@ function getUnknownTargets() {
     .map(e => ({ n: e.n, number: e.val }));
 }
 
-function allTargets(includeFull) {
+function allTargets(includeFull, source) {
   // Fully factored entries are skipped by default — there is normally nothing left
   // to learn about them. They ARE worth including on request, though: "full" is no
   // longer taken on FactorDB's word (the factors must multiply back to E(n)), so
   // re-checking one can now DISPROVE a wrong full and correct it, which is exactly
   // what the entries flagged "marked full but factors fall short" need.
-  return allEntries
+  return (source || allEntries)
     .filter(e => (includeFull || e.status !== 'full') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }))
     .filter(t => t.number);
@@ -5981,7 +5981,14 @@ function startManualPoll() {
     return;
   }
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const fullCount = allEntries.filter(e => e.status === 'full' && e.val && e.n > 2).length;
+  // Check what is on screen. Previously this always used the FULL entry list and
+  // then took the first `cap` of it — so with a filter applied (say E(14700)-E(14800))
+  // and the default cap of 500, it checked E(0) onwards and never reached the range
+  // being looked at. Nothing appeared to happen, while re-checking a single tile
+  // worked fine, because that tile was the only thing actually being queried.
+  const filterActive = Array.isArray(filtered) && filtered.length && filtered.length < allEntries.length;
+  const source = filterActive ? filtered : allEntries;
+  const fullCount = source.filter(e => e.status === 'full' && e.val && e.n > 2).length;
   // Offered rather than assumed: including them can multiply the request count, and
   // FactorDB is a free service. Worth it when entries are wrongly marked full,
   // since a re-check can now disprove that; wasteful otherwise.
@@ -5991,13 +5998,23 @@ function startManualPoll() {
       + 'OK    — re-verify everything (catches entries wrongly marked full)\n'
       + 'Cancel — skip them and check only unfinished entries');
   }
-  const targets = allTargets(includeFull).slice(0, cap);
+  const all = allTargets(includeFull, source);
+  const targets = all.slice(0, cap);
   if (!targets.length) {
-    setStatus('No entries to check (all fully factored?)', 'warn');
+    setStatus(filterActive ? 'Nothing to check in the current view' : 'No entries to check (all fully factored?)', 'warn');
     return;
   }
-  addLog('Check all — ' + targets.length + ' entries (cap: ' + cap + ')'
-    + (includeFull ? ', including fully factored' : ''), '');
+  // Say plainly when the cap is hiding work, rather than silently checking a
+  // prefix and appearing to do nothing for the entries actually being looked at.
+  if (all.length > cap) {
+    if (!confirm(all.length.toLocaleString() + ' entr' + (all.length === 1 ? 'y' : 'ies')
+        + ' match' + (filterActive ? ' the current filter' : '') + ', but the request cap is '
+        + cap.toLocaleString() + '.\n\nOnly the first ' + cap.toLocaleString()
+        + ' will be checked. Raise "max requests" to cover the rest.\n\nContinue?')) return;
+  }
+  addLog('Check all — ' + targets.length + ' entries'
+    + (filterActive ? ' from the current filter (' + source.length.toLocaleString() + ' shown)' : '')
+    + ' (cap: ' + cap + ')' + (includeFull ? ', including fully factored' : ''), '');
   runPollQueue(targets, true, document.getElementById('pollBtn'), true, true);
 }
 
