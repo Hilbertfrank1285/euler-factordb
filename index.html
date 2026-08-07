@@ -578,18 +578,6 @@
   <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)" title="Scan every entry for self-contradictory factor data — no network needed">
     ⚕ Check data integrity
   </button>
-  <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)" title="Export entries above the measured query limit, for fdb_check.py to run against on any machine with Python">
-    ↓ Export FDB check list
-  </button>
-  <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
-    ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
-    ondragleave="this.style.outline='';"
-    ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importFDBResults(event.dataTransfer.files[0]);"
-    style="background:var(--surface2)" title="Load fdb_results.json produced by fdb_check.py on your server">
-    ↑ Import FDB results
-  </button>
-  <input type="file" id="fdbResultsInput" accept=".json,application/json" style="display:none"
-    onchange="if(this.files.length) importFDBResults(this.files[0]); this.value='';">
   <button class="poll-btn" onclick="clearAllLocalData()"
     style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
     title="Wipes all localStorage — ECM logs, FDB cache, factors. Cannot be undone.">
@@ -2241,7 +2229,7 @@ async function queryFactorDB(numberStr, knownId) {
   if (numberStr.length > cap) {
     throw new Error('Skipping ' + numberStr.length + 'd — a query already failed on size at '
       + loadQueryLimits().minFail + 'd, so this is above the measured limit. '
-      + 'Run fdb_check.py locally for these, or check directly at factordb.com.');
+      + 'Check it directly at factordb.com and record the result manually.');
   }
 
   const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
@@ -4199,78 +4187,6 @@ async function exportNextRuns() {
   console.error('exportNextRuns failed:', err);
   alert('Export failed: ' + err.message);
  }
-}
-
-// Small helper: trigger a text-file download.
-// Export the entries that can't be checked from the browser, for fdb_check.py to
-// run against on a server. The digit cap exists because ?query=<number> puts every
-// digit in the URL and servers reject request lines that long — a server-side run
-// has no such constraint (and can use POST), so these become checkable.
-function exportFDBCheckList() {
-  // Use the MEASURED cap, not a fixed number — if the app has since proven that
-  // larger queries work, those entries shouldn't be exported as unreachable.
-  const cap = currentQueryCap();
-  const lim = loadQueryLimits();
-  const tooBig = allEntries.filter(e =>
-    e.status !== 'full' && e.val && e.val.length > cap);
-  if (!tooBig.length) {
-    alert('Nothing to export — every unfinished entry is within the current '
-      + cap.toLocaleString() + '-digit query limit.'
-      + (lim.maxOk ? '\n\nLargest query confirmed working so far: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
-      + (lim.minFail ? '\nSmallest size rejected as too long: ' + lim.minFail.toLocaleString() + ' digits.'
-                     : '\nNo size rejection has been observed yet, so the real ceiling is still unknown.'));
-    return;
-  }
-  tooBig.sort((a, b) => a.n - b.n);
-  // Two matching files: numbers and labels, same order. Keeping the labels out of
-  // the numbers file means the number file stays machine-clean, exactly like the
-  // ECM export's numbers file.
-  downloadText('fdb_numbers.txt', tooBig.map(e => e.val).join('\n') + '\n');
-  downloadText('fdb_labels.txt',  tooBig.map(e => 'E' + e.n).join('\n') + '\n');
-  const totalMB = tooBig.reduce((s, e) => s + e.val.length, 0) / 1024 / 1024;
-  addLog('Exported ' + tooBig.length + ' oversized entries for server-side FactorDB checking', 'ok');
-  alert('Exported ' + tooBig.length + ' entries above the current '
-    + cap.toLocaleString() + '-digit limit (' + totalMB.toFixed(1) + 'MB of digits).\n\n'
-    + 'Run on any machine with Python 3 (Windows, Mac or Linux — no server needed):\n'
-    + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt -o fdb_results.json\n\n'
-    + 'Running outside the browser skips the CORS proxy entirely and can use POST,\n'
-    + 'so size stops being a constraint.\n\n'
-    + 'Then import fdb_results.json back here with "Import FDB results".');
-}
-
-// Import what fdb_check.py produced. Routes each result through applyFdbResult,
-// the same path a live query uses, so statuses, factors, provenance and the stored
-// FactorDB id all behave identically to an in-browser check.
-async function importFDBResults(file) {
-  let data;
-  try {
-    data = JSON.parse(await file.text());
-  } catch(e) {
-    alert('Could not read that file as JSON: ' + e.message);
-    return;
-  }
-  let applied = 0, skipped = 0, notFound = 0;
-  for (const [label, rec] of Object.entries(data)) {
-    const m = String(label).match(/^E?(\d+)$/);
-    if (!m) { skipped++; continue; }
-    const n = parseInt(m[1]);
-    const entry = allEntries.find(e => e.n === n);
-    if (!entry || !entry.val) { notFound++; continue; }
-    if (!rec || !rec.status) { skipped++; continue; }
-    try {
-      applyFdbResult({ status: rec.status, factors: rec.factors || [], id: rec.id }, n, entry.val);
-      applied++;
-    } catch(e) {
-      logSwallowed('importFDBResults/apply:' + n, e);
-      skipped++;
-    }
-  }
-  allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
-  markDirty();
-  addLog('Imported ' + applied + ' FactorDB results from server run', 'ok');
-  alert('Imported ' + applied + ' result(s).'
-    + (notFound ? '\n' + notFound + ' referred to entries not present here.' : '')
-    + (skipped ? '\n' + skipped + ' skipped (unreadable or no status).' : ''));
 }
 
 function downloadText(filename, text) {
@@ -6936,10 +6852,24 @@ function recommendNextRun(digits, attempts) {
   // it's added here as an extra level, computed by ecmTableB1/ecmOptimalCurves'
   // own downward extrapolation of the table's trend — guaranteed monotonic (never
   // a higher B1 than 20d) since it's the same dataset's own slope, just extended.
-  // No 10d: that's far enough outside the table's fitted range (20-65d) that the
-  // extrapolation becomes unreliable, and factors that tiny are better caught by
-  // trial division / Pollard's rho (factorizeSmall) than dedicated ECM anyway.
-  const levels = [15, ...ECM_TABLE.map(t => t.d)].filter(d => d <= maxUseful);
+  // 10d IS included, having previously been left out on two grounds that turn out
+  // not to hold here:
+  //   "the extrapolation below the table's 20-65d range is unreliable" — the
+  //   extrapolated values (B1=532, 9 curves) continue the table's own trend
+  //   monotonically, and published t10 figures vary between sources by more than
+  //   this anyway;
+  //   "tiny factors are better caught by trial division / Pollard's rho" — not on
+  //   numbers this size. Reaching 10 digits by trial division means ~10^10
+  //   divisions of a 70,000-digit number, and factorizeSmall runs to an ~800ms
+  //   deadline against reported composite FACTORS, never against E(n) itself.
+  //   FactorDB does strip small factors automatically, but an FDB-unknown number
+  //   has had none of that done to it.
+  // On a fresh 70,000-digit number t10 measured ~6.7x the gain-per-hour of t15
+  // (293%/hr vs 44%/hr), so leaving it out discarded the best available first move.
+  // Including it is self-limiting: once any t15+ run exists it already covers
+  // 10-digit factors to ~95%, so t10's marginal gain collapses and the efficiency
+  // ranking stops choosing it without needing a special case.
+  const levels = [10, 15, ...ECM_TABLE.map(t => t.d)].filter(d => d <= maxUseful);
 
   // How "complete" is each ECM level? Use the efficiency-aware probability of the
   // user's actual runs at that digit size (ecmProbForDigit accounts for B1 — a
