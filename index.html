@@ -3755,7 +3755,7 @@ function exportFDBSubmission() {
   // Only for entries that have known prime factors (partial or full)
   const lines = [];
   const exportedNs = [];   // remembered so they can be re-checked in one go later
-  let count = 0, skippedNoVal = 0, skippedTooBig = 0;
+  let count = 0, skippedNoVal = 0, skippedTooBig = 0, skippedBadFactors = 0;
 
   let skippedFdb = 0;
   for (const e of allEntries) {
@@ -3774,6 +3774,23 @@ function exportFDBSubmission() {
     // Entries with ANY of our own factors stay tagged 'import' and ARE exported.
     const cached = fdbCache[e.val];
     if (cached && cached.source === 'fdb') { skippedFdb++; continue; }
+
+    // Verify every factor against E(n) BEFORE writing a submission line. These go
+    // to a public database, so a wrong line is worse than a missing one — and this
+    // is where a factor wrongly recorded as p^2 became "N = p*p*..." and got sent
+    // as a false claim. Each factor's full power must divide, not just its base.
+    let bad = false, valBig = null;
+    try { valBig = BigInt(e.val); } catch(err) { logSwallowed('fdbSubmit/val', err); bad = true; }
+    if (!bad) {
+      for (const f of factors) {
+        const [bStr, xStr] = String(f).split('^');
+        try {
+          const pw = BigInt(bStr) ** BigInt(xStr || 1);
+          if (valBig % pw !== 0n) { bad = true; break; }
+        } catch(err) { logSwallowed('fdbSubmit/verify', err); bad = true; break; }
+      }
+    }
+    if (bad) { skippedBadFactors++; continue; }
 
     // Expand expressions like 5^3 → 5*5*5
     const expanded = [];
@@ -3809,6 +3826,7 @@ function exportFDBSubmission() {
   const pending = markSubmitted(exportedNs);
   updateSubmittedBtn();
   let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
+  if (skippedBadFactors) msg += ' · ' + skippedBadFactors + ' SKIPPED (factors do not divide E(n) — run the data integrity check)';
   if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
   if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>1000000 digits)';
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
@@ -8178,6 +8196,7 @@ async function runDataIntegrityCheck(onProgress) {
     duplicate:      [],  // the same prime listed more than once
     contradictsFdb: [],  // we say fully factored, FactorDB says composite
     fullNoFactors:  [],  // marked fully factored while holding no factors at all
+    wrongExponent:  [],  // recorded as p^k but p^k does not divide E(n)
   };
   let checked = 0, skippedPrimality = 0, timedOut = false;
   const deadline = Date.now() + INTEGRITY_BUDGET_MS;
@@ -8220,6 +8239,21 @@ async function runDataIntegrityCheck(onProgress) {
       seen.add(bStr);
 
       if (val % base !== 0n) { issues.notDividing.push({ n: e.n, factor: bStr, digits: bStr.length }); bad = true; }
+      // The base dividing is NOT enough — the whole power has to divide. Nothing
+      // checked this, so a factor wrongly recorded as p^2 passed every test: the
+      // base divides, the base is prime, and the export then wrote "N = p*p*...".
+      // These arise when a prime ends up listed twice and collapsePowers folds the
+      // duplicate into an exponent; the collapse preserves the (already wrong)
+      // product, so the result looks internally consistent.
+      const exp = parseInt(xStr || 1);
+      if (exp > 1 && val % base === 0n) {
+        let trueExp = 0, r = val;
+        while (r % base === 0n && trueExp < exp) { r /= base; trueExp++; }
+        if (trueExp < exp) {
+          issues.wrongExponent.push({ n: e.n, factor: bStr, claimed: exp, actual: trueExp, digits: bStr.length });
+          bad = true;
+        }
+      }
       // A single factor equal to the whole value claims "E(n) is prime". Beyond the
       // primality ceiling we cannot verify that claim, and it is exactly the shape
       // the cofactor-as-prime bug produced (E(14710): one 52,026-digit "factor"
@@ -8292,7 +8326,7 @@ async function runDataIntegrityCheck(onProgress) {
 // written, and anything that would require guessing is left for a FactorDB
 // re-check instead. Returns a summary of what it did and what it declined to do.
 async function fixIntegrityIssues(scan) {
-  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0 };
+  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0 };
   const needsRecheck = [];
   const byN = new Map(allEntries.map(e => [e.n, e]));
   const deadline = Date.now() + 20000;
@@ -8381,6 +8415,29 @@ async function fixIntegrityIssues(scan) {
     needsRecheck.push(it.n);   // FactorDB may well know factors we never recorded
   }
 
+  // 2d) A factor recorded as p^k where p^k does not divide E(n). The true
+  //     multiplicity is computable exactly, so this is a precise correction rather
+  //     than a guess: divide down and record what really divides.
+  for (const it of (scan.issues.wrongExponent || [])) {
+    const e = byN.get(it.n); if (!e) continue;
+    let val;
+    try { val = BigInt(e.val); } catch(err) { logSwallowed('fixIntegrity/expVal', err); continue; }
+    const base = BigInt(it.factor);
+    let trueExp = 0, r = val;
+    try { while (r % base === 0n) { r /= base; trueExp++; } }
+    catch(err) { logSwallowed('fixIntegrity/expDivide', err); continue; }
+    if (trueExp < 1) continue;                 // shouldn't happen; leave it for notDividing
+    e.factors = (e.factors || []).map(f => {
+      const [b] = String(f).split('^');
+      if (b !== it.factor) return f;
+      return trueExp > 1 ? b + '^' + trueExp : b;
+    });
+    e.status = 'partial';                       // the product changed; re-verify below
+    e.cofactor = null;
+    fixed.fixedExponent++;
+    needsRecheck.push(it.n);
+  }
+
   // 3) Duplicate primes — collapse to powers. Verified: the product must not change.
   for (const it of (scan.issues.duplicate || [])) {
     const e = byN.get(it.n); if (!e) continue;
@@ -8458,7 +8515,7 @@ async function runIntegrityFix() {
   const autoFixable = counts.notDividing.length + counts.wholeValue.length
                     + counts.duplicate.length + counts.compositeFactor.length
                     + counts.unmarkedFull.length + counts.contradictsFdb.length
-                    + counts.fullNoFactors.length;
+                    + counts.fullNoFactors.length + counts.wrongExponent.length;
   if (!autoFixable && !counts.fullMismatch.length) {
     setStatus('', ''); alert('Nothing to fix — no issues found.'); return;
   }
@@ -8472,6 +8529,7 @@ async function runIntegrityFix() {
     counts.unmarkedFull.length    && counts.unmarkedFull.length + ' complete entr(y/ies) — mark as fully factored',
     counts.contradictsFdb.length  && counts.contradictsFdb.length + ' entr(y/ies) we call full but FactorDB calls composite — remove the unfactored cofactor',
     counts.fullNoFactors.length   && counts.fullNoFactors.length + ' entr(y/ies) marked full with no factors — correct the status',
+    counts.wrongExponent.length   && counts.wrongExponent.length + ' factor power(s) that do not divide E(n) — reduce to the true multiplicity',
   ].filter(Boolean).join('\n  • ');
   const note = counts.fullMismatch.length
     ? '\n\n' + counts.fullMismatch.length + ' entr(y/ies) marked full but missing a factor CANNOT be fixed locally — '
@@ -8495,6 +8553,7 @@ async function runIntegrityFix() {
     f.split        && f.split + ' composite(s) split into primes' + (f.viaFdb ? ' (' + f.viaFdb + ' via FactorDB)' : ''),
     f.promoted     && f.promoted + ' entr(y/ies) promoted to fully factored',
     f.demotedEmpty && f.demotedEmpty + ' factorless "full" entr(y/ies) corrected',
+    f.fixedExponent && f.fixedExponent + ' factor power(s) corrected to the true multiplicity',
   ].filter(Boolean).join('\n  • ');
   addLog('Integrity fix: ' + (done.replace(/\n  • /g, ', ') || 'no changes'), 'ok');
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
@@ -8521,6 +8580,7 @@ async function showDataIntegrityReport() {
     ['fullMismatch',    'Marked full but factors fall short', 'Status says fully factored, yet the stored factors do not multiply back to E(n). These entries were most likely factored correctly and then lost a large prime to a storage bug that dropped factors over 100 digits (fixed). Re-check them on FactorDB to restore the missing factor.'],
     ['unmarkedFull',    'Factors complete but not marked full','The factors DO multiply to E(n) — the entry should be marked fully factored.'],
     ['duplicate',       'Duplicate prime in factor list',     'The same prime appears more than once instead of as a power.'],
+    ['wrongExponent',   'Factor power does not divide E(n)',  'Recorded as p^k, but p^k does not actually divide E(n) — usually a duplicate prime folded into an exponent. The submission export turns these into repeated factors (N = p*p*...), so they would be sent to FactorDB as false claims.'],
     ['fullNoFactors',   'Marked full but holds no factors',   'An entry cannot be fully factored while knowing no factors at all — there is nothing backing the claim. Re-check these; whatever FactorDB knows will replace the empty state.'],
     ['contradictsFdb',  'We say full, FactorDB says composite','A direct contradiction. Usually an unfactored cofactor recorded as a prime factor: the arithmetic still adds up, so no other check can see it — only FactorDB\'s verdict gives it away. Common just above the old query size limit, where these numbers were never verified.'],
   ];
