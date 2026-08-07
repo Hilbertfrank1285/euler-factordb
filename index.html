@@ -8197,6 +8197,7 @@ async function runDataIntegrityCheck(onProgress) {
     contradictsFdb: [],  // we say fully factored, FactorDB says composite
     fullNoFactors:  [],  // marked fully factored while holding no factors at all
     wrongExponent:  [],  // recorded as p^k but p^k does not divide E(n)
+    missingPrime:   [],  // fully factored, but the final prime cofactor was never recorded
   };
   let checked = 0, skippedPrimality = 0, timedOut = false;
   const deadline = Date.now() + INTEGRITY_BUDGET_MS;
@@ -8210,6 +8211,11 @@ async function runDataIntegrityCheck(onProgress) {
     }
     const e = allEntries[i];
     if (!e || !e.val) continue;
+
+    // E(0) and E(2) are 1. A unit has no prime factors, so "fully factored with no
+    // factors" is the correct description of it, not a contradiction — FactorDB has
+    // a dedicated "Unit" status for exactly this. Skip before any check runs.
+    if (e.val === '1') continue;
 
     // Check this BEFORE skipping factorless entries. "Fully factored" with no
     // factors at all is self-evidently wrong — there is nothing backing the claim —
@@ -8296,7 +8302,23 @@ async function runDataIntegrityCheck(onProgress) {
     }
     if (bad) continue;
 
-    if (e.status === 'full' && product !== val) issues.fullMismatch.push({ n: e.n, factors: e.factors.length });
+    if (e.status === 'full' && product !== val) {
+      // Before calling this a shortfall, check what is actually missing. If the
+      // remainder is a single PRIME, the entry genuinely IS fully factored — the
+      // final prime cofactor simply was never written into the factor list. That
+      // is a recording gap, not lost data, and it is fixable locally with no
+      // FactorDB round trip. Treating it as "factors fall short" sent people off
+      // to re-check entries that were already complete.
+      let rem = null;
+      try { if (product > 0n && val % product === 0n) rem = val / product; }
+      catch(err) { logSwallowed('integrity/remainder', err); }
+      let remIsPrime = false;
+      if (rem && rem > 1n && rem.toString().length <= PRIMALITY_SCAN_MAX_DIGITS) {
+        try { remIsPrime = isProbablePrime(rem); } catch(err) { logSwallowed('integrity/remPrime', err); }
+      }
+      if (remIsPrime) issues.missingPrime.push({ n: e.n, digits: rem.toString().length });
+      else            issues.fullMismatch.push({ n: e.n, factors: e.factors.length });
+    }
     if (e.status !== 'full' && product === val) issues.unmarkedFull.push({ n: e.n, factors: e.factors.length });
 
     // Direct contradiction: we claim fully factored, FactorDB says composite.
@@ -8326,7 +8348,7 @@ async function runDataIntegrityCheck(onProgress) {
 // written, and anything that would require guessing is left for a FactorDB
 // re-check instead. Returns a summary of what it did and what it declined to do.
 async function fixIntegrityIssues(scan) {
-  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0 };
+  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0 };
   const needsRecheck = [];
   const byN = new Map(allEntries.map(e => [e.n, e]));
   const deadline = Date.now() + 20000;
@@ -8438,6 +8460,31 @@ async function fixIntegrityIssues(scan) {
     needsRecheck.push(it.n);
   }
 
+  // 2e) The final prime cofactor was never written into the factor list. The entry
+  //     is already correct in substance; recompute the remainder, re-verify it is
+  //     prime, and record it. Everything needed is local — no FactorDB round trip.
+  for (const it of (scan.issues.missingPrime || [])) {
+    const e = byN.get(it.n); if (!e) continue;
+    let val, product = 1n;
+    try {
+      val = BigInt(e.val);
+      for (const f of (e.factors || [])) { const [b, x] = String(f).split('^'); product *= BigInt(b) ** BigInt(x || 1); }
+    } catch(err) { logSwallowed('fixIntegrity/missingPrime', err); continue; }
+    if (product <= 0n || val % product !== 0n) continue;
+    const rem = val / product;
+    if (rem <= 1n) continue;
+    // Re-verify rather than trusting the scan — data can change in between, and
+    // adding a COMPOSITE here would recreate the cofactor-as-prime bug exactly.
+    let isP = false;
+    try { isP = rem.toString().length <= PRIMALITY_SCAN_MAX_DIGITS && isProbablePrime(rem); }
+    catch(err) { logSwallowed('fixIntegrity/missingPrimeVerify', err); }
+    if (!isP) continue;
+    e.factors  = sortFactorsAsc([...(e.factors || []), rem.toString()]);
+    e.cofactor = null;
+    e.status   = 'full';
+    fixed.addedPrime++;
+  }
+
   // 3) Duplicate primes — collapse to powers. Verified: the product must not change.
   for (const it of (scan.issues.duplicate || [])) {
     const e = byN.get(it.n); if (!e) continue;
@@ -8515,7 +8562,8 @@ async function runIntegrityFix() {
   const autoFixable = counts.notDividing.length + counts.wholeValue.length
                     + counts.duplicate.length + counts.compositeFactor.length
                     + counts.unmarkedFull.length + counts.contradictsFdb.length
-                    + counts.fullNoFactors.length + counts.wrongExponent.length;
+                    + counts.fullNoFactors.length + counts.wrongExponent.length
+                    + counts.missingPrime.length;
   if (!autoFixable && !counts.fullMismatch.length) {
     setStatus('', ''); alert('Nothing to fix — no issues found.'); return;
   }
@@ -8530,6 +8578,7 @@ async function runIntegrityFix() {
     counts.contradictsFdb.length  && counts.contradictsFdb.length + ' entr(y/ies) we call full but FactorDB calls composite — remove the unfactored cofactor',
     counts.fullNoFactors.length   && counts.fullNoFactors.length + ' entr(y/ies) marked full with no factors — correct the status',
     counts.wrongExponent.length   && counts.wrongExponent.length + ' factor power(s) that do not divide E(n) — reduce to the true multiplicity',
+    counts.missingPrime.length    && counts.missingPrime.length + ' unrecorded prime cofactor(s) — add them to the factor list',
   ].filter(Boolean).join('\n  • ');
   const note = counts.fullMismatch.length
     ? '\n\n' + counts.fullMismatch.length + ' entr(y/ies) marked full but missing a factor CANNOT be fixed locally — '
@@ -8554,6 +8603,7 @@ async function runIntegrityFix() {
     f.promoted     && f.promoted + ' entr(y/ies) promoted to fully factored',
     f.demotedEmpty && f.demotedEmpty + ' factorless "full" entr(y/ies) corrected',
     f.fixedExponent && f.fixedExponent + ' factor power(s) corrected to the true multiplicity',
+    f.addedPrime   && f.addedPrime + ' missing prime cofactor(s) recorded',
   ].filter(Boolean).join('\n  • ');
   addLog('Integrity fix: ' + (done.replace(/\n  • /g, ', ') || 'no changes'), 'ok');
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
@@ -8577,6 +8627,7 @@ async function showDataIntegrityReport() {
     ['notDividing',     'Factor does not divide E(n)',        'The stored value is not a factor at all — corrupt data.'],
     ['compositeFactor', 'Stored factor is composite',         'Factors are meant to be prime. A composite here is usually an unfactored cofactor recorded by mistake, which makes the entry look more complete than it is.'],
     ['wholeValue',      'Factor equals E(n) itself',          'A lone factor equal to the whole number claims E(n) is prime. Above the primality ceiling that claim cannot be verified, and it is the exact shape the cofactor-as-prime bug produced.'],
+    ['missingPrime',    'Final prime cofactor not recorded',  'The entry IS fully factored — the last prime just was not written into the factor list. Fixable here, no FactorDB round trip needed.'],
     ['fullMismatch',    'Marked full but factors fall short', 'Status says fully factored, yet the stored factors do not multiply back to E(n). These entries were most likely factored correctly and then lost a large prime to a storage bug that dropped factors over 100 digits (fixed). Re-check them on FactorDB to restore the missing factor.'],
     ['unmarkedFull',    'Factors complete but not marked full','The factors DO multiply to E(n) — the entry should be marked fully factored.'],
     ['duplicate',       'Duplicate prime in factor list',     'The same prime appears more than once instead of as a power.'],
