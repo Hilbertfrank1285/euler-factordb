@@ -1502,6 +1502,7 @@ function saveECM(d) {
         // save. Whitelisting is the right approach here, but it means any field
         // added elsewhere has to be added here too or it vanishes on write.
         if (a.date) out.date = a.date;
+        if (a.lastRun) out.lastRun = a.lastRun;
         // `ms` is the real measured run time. Dropping it would quietly downgrade
         // exact CPU figures back to estimates on the next save.
         if (a.ms > 0) out.ms = a.ms;
@@ -2830,6 +2831,8 @@ function normalizeEcmAttempts(attempts) {
     // curves takes the max), so summing the times would double-count.
     if (a.ms > 0) hit.ms = Math.max(hit.ms || 0, a.ms);
     if (a.date && !hit.date) hit.date = a.date;
+    // lastRun takes the LATER of the two — it marks the most recent work.
+    if (a.lastRun && (!hit.lastRun || a.lastRun > hit.lastRun)) hit.lastRun = a.lastRun;
     if (a.b2 && !hit.b2) hit.b2 = a.b2;
   }
   return out;
@@ -4503,6 +4506,17 @@ async function processEcmLogText(text, sourceLabel) {
         if (blk.timeMs > 0 && (!blkSigmas.length || seenGrew)) {
           existing.ms = (existing.ms || 0) + blk.timeMs;
         }
+        // Record WHEN this attempt was last extended. `date` is only set when an
+        // attempt is first created, so without this a record that gains new curves
+        // every week keeps its original date forever — and the yield report, which
+        // uses the date to decide what counts as recent work, never counts any of
+        // it. That is why "since tracking began" showed finds but no runs, curves
+        // or CPU: the finds come from the timestamped discovery history, while the
+        // effort came from dates that never moved.
+        if (!blkSigmas.length || seenGrew) {
+          existing.lastRun = new Date().toISOString().slice(0, 10);
+          if (!existing.date) existing.date = existing.lastRun;
+        }
       } else {
         ecmData[key].push({
           method: blk.method,
@@ -4517,6 +4531,7 @@ async function processEcmLogText(text, sourceLabel) {
           poly: '', I: '', tool: 'GMP-ECM', source: 'log',
           note: 'imported from log',
           date: new Date().toISOString().slice(0,10),
+          lastRun: new Date().toISOString().slice(0,10),
         });
       }
       runsRecorded++;
@@ -5302,11 +5317,21 @@ function computeYieldByLevel() {
                                        tCurves: 0, tCpuSec: 0, tRuns: 0 };
   const pm1 = { curves: 0, cpuSec: 0, runs: 0, finds: 0, tCurves: 0, tCpuSec: 0, tRuns: 0 };
   const startDate = historyStartDate();
+  // Runs with no date at all cannot be placed in time. They are counted so the
+  // report can say WHY the "since tracking began" columns look empty, instead of
+  // silently showing zeros next to a healthy finds count.
+  let undatedRuns = 0;
   // An attempt counts as tracked when its recorded date is on/after the tracking
   // start. Attempts with no date at all are treated as UNtracked — conservative,
   // since counting undated old work as tracked would inflate the denominator and
   // make recent yield look worse than it is.
-  const isTracked = (a) => !!(a && a.date && a.date >= startDate);
+  // Prefer lastRun (when the attempt was last extended) over date (when it was
+  // first created). An attempt started long ago but worked on last week IS recent
+  // work, and keying off the creation date alone made all of it invisible.
+  const isTracked = (a) => {
+    const d = a && (a.lastRun || a.date);
+    return !!(d && d >= startDate);
+  };
 
   const ecmD = loadECM();
   const byN = new Map(allEntries.map(e => [e.n, e]));
@@ -5323,6 +5348,7 @@ function computeYieldByLevel() {
         ? attemptCpuSeconds(a, cofDig)
         : 0;
       const tracked = isTracked(a);
+      if (!(a && (a.lastRun || a.date))) undatedRuns++;
       if (a.method === 'P-1' || a.method === 'P+1') {
         pm1.runs++; pm1.cpuSec += sec;
         if (tracked) { pm1.tRuns++; pm1.tCpuSec += sec; }
@@ -5400,7 +5426,7 @@ function computeYieldByLevel() {
   return { levels: levels.map(d => withRate(stats[d])), pm1: withRate(pm1),
            totalFinds, unattributed,
            fdbFinds, preHistory, historyCount: hist.length,
-           startDate, trackingStarted: historyStartTs() };
+           startDate, trackingStarted: historyStartTs(), undatedRuns };
 }
 // ── Storage headroom ────────────────────────────────────────────────
 // Browsers don't agree on how localStorage is metered, and the limit isn't
@@ -8540,6 +8566,12 @@ function showYieldReport() {
       A level with lots of CPU and no finds isn't necessarily wrong — the odds
       genuinely are low up there — but it does show where the time is going.
       The gap between the two groups is simply how much work predates tracking.
+      ${y.undatedRuns ? `<br><br><span style="color:var(--yellow)"><strong>${y.undatedRuns.toLocaleString()} run(s) carry no date</strong>, so they cannot be placed in time and are
+      excluded from the right-hand columns — which is why those can look empty while
+      finds are populated. Dates were not recorded on imported runs until recently,
+      and merging new curves into an existing run did not refresh them (both fixed).
+      Re-importing a log stamps the runs it touches, and everything imported from now
+      on is dated, so these columns fill in as you go.</span>` : ''}
       <br><br>
       <strong style="color:var(--text)">Reliability.</strong>
       Runs and curves come straight from your recorded run log and are exact.
