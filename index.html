@@ -8183,6 +8183,20 @@ function clearEntryCache(n) {
 // factor ECM produces; anything larger is simply not primality-checked.
 const PRIMALITY_SCAN_MAX_DIGITS = 120;
 const INTEGRITY_BUDGET_MS = 15000;   // hard ceiling; report partial rather than hang
+// The REMAINDER test (val / product, for an entry whose factors fall short) gets a
+// far higher ceiling than individual factors, because it runs at most ONCE per
+// failing entry rather than once per factor — and it is the test that decides
+// whether an entry is recoverable locally or needs a FactorDB round trip.
+//
+// This matters more than it sounds: a fully-factored E(n) almost always ends in one
+// large prime. At the 120-digit factor ceiling that final prime could never be
+// verified, so entries that were simply missing their last prime were reported as
+// "factors fall short" and sent off to FactorDB — when the answer was computable
+// here all along. Measured on real primes: 400d ~0.18s, 800d ~1.1s, 1500d ~5.6s,
+// hence a 1000-digit cap plus a cumulative budget so a run of large remainders
+// cannot eat the whole scan.
+const REMAINDER_PRIMALITY_MAX_DIGITS = 1000;
+const REMAINDER_PRIMALITY_BUDGET_MS = 6000;
 
 // Async and chunked: a synchronous pass over a large database blocks the tab
 // completely, and this can genuinely be a lot of BigInt work.
@@ -8200,6 +8214,7 @@ async function runDataIntegrityCheck(onProgress) {
     missingPrime:   [],  // fully factored, but the final prime cofactor was never recorded
   };
   let checked = 0, skippedPrimality = 0, timedOut = false;
+  let remainderMsSpent = 0, remainderUnverified = 0;
   const deadline = Date.now() + INTEGRITY_BUDGET_MS;
   const CHUNK = 200;
 
@@ -8312,12 +8327,22 @@ async function runDataIntegrityCheck(onProgress) {
       let rem = null;
       try { if (product > 0n && val % product === 0n) rem = val / product; }
       catch(err) { logSwallowed('integrity/remainder', err); }
-      let remIsPrime = false;
-      if (rem && rem > 1n && rem.toString().length <= PRIMALITY_SCAN_MAX_DIGITS) {
-        try { remIsPrime = isProbablePrime(rem); } catch(err) { logSwallowed('integrity/remPrime', err); }
+      let remIsPrime = false, tested = false;
+      if (rem && rem > 1n) {
+        const rd = rem.toString().length;
+        if (rd <= REMAINDER_PRIMALITY_MAX_DIGITS && remainderMsSpent < REMAINDER_PRIMALITY_BUDGET_MS) {
+          const t0 = Date.now();
+          try { remIsPrime = isProbablePrime(rem); tested = true; }
+          catch(err) { logSwallowed('integrity/remPrime', err); }
+          remainderMsSpent += Date.now() - t0;
+        }
       }
       if (remIsPrime) issues.missingPrime.push({ n: e.n, digits: rem.toString().length });
-      else            issues.fullMismatch.push({ n: e.n, factors: e.factors.length });
+      else {
+        if (rem && rem > 1n && !tested) remainderUnverified++;
+        issues.fullMismatch.push({ n: e.n, factors: e.factors.length,
+                                   remDigits: rem ? rem.toString().length : null, tested });
+      }
     }
     if (e.status !== 'full' && product === val) issues.unmarkedFull.push({ n: e.n, factors: e.factors.length });
 
@@ -8340,7 +8365,7 @@ async function runDataIntegrityCheck(onProgress) {
       }
     }
   }
-  return { issues, checked, skippedPrimality, timedOut };
+  return { issues, checked, skippedPrimality, timedOut, remainderUnverified };
 }
 
 // Apply the repairs that can be made with certainty from local data alone.
@@ -8476,7 +8501,9 @@ async function fixIntegrityIssues(scan) {
     // Re-verify rather than trusting the scan — data can change in between, and
     // adding a COMPOSITE here would recreate the cofactor-as-prime bug exactly.
     let isP = false;
-    try { isP = rem.toString().length <= PRIMALITY_SCAN_MAX_DIGITS && isProbablePrime(rem); }
+    // Same ceiling the scan used — a lower one here would make the fixer refuse to
+    // record exactly the remainders the scan just identified as recoverable.
+    try { isP = rem.toString().length <= REMAINDER_PRIMALITY_MAX_DIGITS && isProbablePrime(rem); }
     catch(err) { logSwallowed('fixIntegrity/missingPrimeVerify', err); }
     if (!isP) continue;
     e.factors  = sortFactorsAsc([...(e.factors || []), rem.toString()]);
@@ -8656,7 +8683,7 @@ async function showDataIntegrityReport() {
     ['compositeFactor', 'Stored factor is composite',         'Factors are meant to be prime. A composite here is usually an unfactored cofactor recorded by mistake, which makes the entry look more complete than it is.'],
     ['wholeValue',      'Factor equals E(n) itself',          'A lone factor equal to the whole number claims E(n) is prime. Above the primality ceiling that claim cannot be verified, and it is the exact shape the cofactor-as-prime bug produced.'],
     ['missingPrime',    'Final prime cofactor not recorded',  'The entry IS fully factored — the last prime just was not written into the factor list. Fixable here, no FactorDB round trip needed.'],
-    ['fullMismatch',    'Marked full but factors fall short', 'Status says fully factored, yet the stored factors do not multiply back to E(n). These entries were most likely factored correctly and then lost a large prime to a storage bug that dropped factors over 100 digits (fixed). Re-check them on FactorDB to restore the missing factor.'],
+    ['fullMismatch',    'Marked full but factors fall short', 'The stored factors do not multiply back to E(n), and the missing remainder is either composite (so several primes are missing) or too large to verify here. Re-check these on FactorDB to recover the missing factor(s).'],
     ['unmarkedFull',    'Factors complete but not marked full','The factors DO multiply to E(n) — the entry should be marked fully factored.'],
     ['duplicate',       'Duplicate prime in factor list',     'The same prime appears more than once instead of as a power.'],
     ['wrongExponent',   'Factor power does not divide E(n)',  'Recorded as p^k, but p^k does not actually divide E(n) — usually a duplicate prime folded into an exponent. The submission export turns these into repeated factors (N = p*p*...), so they would be sent to FactorDB as false claims.'],
@@ -8673,7 +8700,8 @@ async function showDataIntegrityReport() {
          This checks entries against themselves — that every factor divides E(n), that
          factors are prime, and that the status matches what the factors actually prove.
          It needs no network, so it can be run any time.
-         ${skippedPrimality ? '<br><br>' + skippedPrimality + ' factor(s) were larger than ' + PRIMALITY_SCAN_MAX_DIGITS + ' digits and were not primality-checked — that test gets expensive quickly, so those are reported here rather than silently assumed prime.' : ''}
+         ${remainderUnverified ? '<br><br>' + remainderUnverified + ' entr(y/ies) have a missing remainder too large to verify here, so they are listed as unresolved rather than recovered. Re-checking them on FactorDB will supply the missing factor directly.' : ''}
+        ${skippedPrimality ? '<br><br>' + skippedPrimality + ' factor(s) were larger than ' + PRIMALITY_SCAN_MAX_DIGITS + ' digits and were not primality-checked — that test gets expensive quickly, so those are reported here rather than silently assumed prime.' : ''}
          ${timedOut ? '<br><br><span style="color:var(--yellow)">The scan hit its time budget and stopped early, so this is a partial result.</span>' : ''}
        </div>`
     : `<div class="modal-section">
