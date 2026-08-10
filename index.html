@@ -8348,7 +8348,7 @@ async function runDataIntegrityCheck(onProgress) {
 // written, and anything that would require guessing is left for a FactorDB
 // re-check instead. Returns a summary of what it did and what it declined to do.
 async function fixIntegrityIssues(scan) {
-  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0 };
+  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0 };
   const needsRecheck = [];
   const byN = new Map(allEntries.map(e => [e.n, e]));
   const deadline = Date.now() + 20000;
@@ -8532,10 +8532,36 @@ async function fixIntegrityIssues(scan) {
     fixed.promoted++;
   }
 
-  // 6) Marked full but short — NOT fixable here. The missing factor is unknown by
-  //    definition, so guessing would be worse than leaving it. These get flagged
-  //    for a FactorDB re-check, which is what actually restores the data.
-  for (const it of (scan.issues.fullMismatch || [])) needsRecheck.push(it.n);
+  // 6) Marked full but short, with a remainder we cannot resolve. The missing
+  //    primes are genuinely unknown, so they must not be invented — but the entry
+  //    must also stop CLAIMING to be fully factored, which is simply false. It was
+  //    previously left at 'full' and only flagged for re-check, so the app went on
+  //    asserting something it had just proved wrong.
+  for (const it of (scan.issues.fullMismatch || [])) {
+    const e = byN.get(it.n);
+    if (e && e.status === 'full') { e.status = 'partial'; e.cofactor = null; fixed.demotedShort++; }
+    needsRecheck.push(it.n);
+  }
+
+  // FINAL RECONCILIATION. Every repair above changes the factor list, which can
+  // change what the status should be — a corrected exponent may complete an entry,
+  // a removed factor may un-complete one. Without this the status reflects the
+  // state BEFORE the repair, so running the fixer twice produced different results
+  // (found by fuzzing: the fix was not idempotent). Deriving the status from the
+  // arithmetic at the end makes it a function of the data rather than of history.
+  for (const e of allEntries) {
+    if (!e || !e.val || !Array.isArray(e.factors)) continue;
+    if (e.val === '1') continue;                      // units: nothing to prove
+    if (!e.factors.length) continue;                  // handled by the empty-full pass
+    let val, prod = 1n, ok = true;
+    try {
+      val = BigInt(e.val);
+      for (const f of e.factors) { const [b, x] = String(f).split('^'); prod *= BigInt(b) ** BigInt(x || 1); }
+    } catch(err) { logSwallowed('fixIntegrity/reconcile', err); ok = false; }
+    if (!ok) continue;
+    if (prod === val && e.status !== 'full') { e.status = 'full'; e.cofactor = null; }
+    else if (prod !== val && e.status === 'full') { e.status = 'partial'; e.cofactor = null; }
+  }
 
   // Persist whatever changed, through the normal paths so the cache stays in step.
   for (const e of allEntries) {
@@ -8581,8 +8607,9 @@ async function runIntegrityFix() {
     counts.missingPrime.length    && counts.missingPrime.length + ' unrecorded prime cofactor(s) — add them to the factor list',
   ].filter(Boolean).join('\n  • ');
   const note = counts.fullMismatch.length
-    ? '\n\n' + counts.fullMismatch.length + ' entr(y/ies) marked full but missing a factor CANNOT be fixed locally — '
-      + 'the missing prime is unknown by definition. They will be listed for a FactorDB re-check.'
+    ? '\n\n' + counts.fullMismatch.length + ' entr(y/ies) are marked full but missing a factor that cannot be '
+      + 'determined here. Their factors will be left alone, but the false "fully factored" status will be '
+      + 'corrected to partial, and they will be listed for a FactorDB re-check.'
     : '';
   setStatus('', '');
   if (!confirm('This will change stored factor data:\n\n  • ' + plan + note
@@ -8604,6 +8631,7 @@ async function runIntegrityFix() {
     f.demotedEmpty && f.demotedEmpty + ' factorless "full" entr(y/ies) corrected',
     f.fixedExponent && f.fixedExponent + ' factor power(s) corrected to the true multiplicity',
     f.addedPrime   && f.addedPrime + ' missing prime cofactor(s) recorded',
+    f.demotedShort && f.demotedShort + ' unprovable "full" entr(y/ies) demoted to partial',
   ].filter(Boolean).join('\n  • ');
   addLog('Integrity fix: ' + (done.replace(/\n  • /g, ', ') || 'no changes'), 'ok');
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
