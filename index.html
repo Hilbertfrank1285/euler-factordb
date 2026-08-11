@@ -1076,6 +1076,7 @@ const IDB_KEYS = new Set([
   'eulerFDB_changelog_v1',    // CHANGELOG_KEY
   'eulerFDB_calib_v1',        // CALIB_KEY     — timing calibration samples
   'eulerFDB_history_v1',      // HISTORY_KEY   — append-only discovery log (uncapped)
+  'eulerFDB_verifiedComplete_v1', // VERIFIED_KEY — entries confirmed complete externally
 ]);
 let _kv = Object.create(null);      // in-memory mirror (session-authoritative)
 let _kvDirty = new Set();
@@ -2323,6 +2324,49 @@ function optimalB1(digits) {
 
 // Inverse: map a B1 value to the digit level it's optimal for, by inverting the
 // GMP-ECM table (the old (lnB1²)/(ln10·lnln) formula was off by 3-5 digits).
+// The P-1/P+1 analogue of ECM's t-level.
+//
+// ECM's "t40" means: after the table's C_opt(40) curves you have ~63% odds of
+// finding a 40-digit factor. P-1 has no such published table — a run is a single
+// deterministic test, not a curve count — but the same question can be asked of it:
+// at what factor size does ONE run with these bounds reach ~63%? Using the same
+// 63% convention makes the two directly comparable, so "P-1 ≈ t18" means it carries
+// roughly the finding power of a completed t18 ECM level.
+//
+// The probability falls monotonically with digit size, so this scans upward and
+// interpolates across the crossing point. Returns null when the bounds do not reach
+// 63% even at 10 digits — worth showing as "<10d" rather than a misleading number.
+const PM1_LEVEL_TARGET = 0.63;
+function pm1ToDigits(b1, b2, method) {
+  const b1n = parseB1(b1);
+  if (!b1n || b1n <= 1) return null;
+  const b2n = b2 ? parseB1(b2) : (typeof pm1DefaultB2 === 'function' ? pm1DefaultB2(b1n) : null);
+  const m = method || 'P-1';
+  // P+1 succeeds only for the ~half of primes where p+1 (rather than p−1) is
+  // smooth, so its probability is capped near 50% and a flat 63% threshold could
+  // NEVER be met — it would report "no level" for every P+1 run ever made. The
+  // threshold is therefore taken as 63% of what the method can achieve at all, so
+  // the label means the same thing for both: "this bound reaches about here".
+  const ceiling = (m === 'P+1') ? 0.5 : 1;
+  const target = PM1_LEVEL_TARGET * ceiling;
+  const pAt = (d) => {
+    try { return pm1Probability(d, b1n, b2n, m); }
+    catch(e) { logSwallowed('pm1ToDigits', e); return 0; }
+  };
+  if (pAt(10) < target) return null;   // below the smallest level we report
+  let prev = 10, pPrev = pAt(10);
+  for (let d = 11; d <= 200; d++) {
+    const p = pAt(d);
+    if (p < target) {
+      // Linear interpolation between the bracketing digit sizes.
+      const frac = (pPrev - target) / Math.max(pPrev - p, 1e-12);
+      return Math.round(prev + frac);
+    }
+    prev = d; pPrev = p;
+  }
+  return 200;
+}
+
 function b1ToDigits(b1str) {
   const b1val = parseB1(b1str);
   if (!b1val || b1val <= 1) return 0;
@@ -3081,6 +3125,10 @@ function buildSyncPayload() {
     // would recreate exactly the problem it exists to solve. Deduped on merge by
     // (n, factorHash), so repeated pull/push cycles converge rather than grow.
     history: loadHistory(),
+    // Entries confirmed fully factored on FactorDB whose missing prime is too large
+    // to verify locally. Shared so the acknowledgement does not have to be repeated
+    // on every machine.
+    verifiedComplete: loadVerifiedComplete(),
     // ECM run logs now live in their own file (results_ecm.json), pushed separately.
     // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
@@ -3188,6 +3236,10 @@ function mergeSyncPayload(remote) {
   // recomputing it locally.
   if (Array.isArray(remote.history) && remote.history.length) {
     try { mergeHistory(remote.history); } catch(e) { logSwallowed('merge/history', e); }
+  }
+
+  if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
+    try { mergeVerifiedComplete(remote.verifiedComplete); } catch(e) { logSwallowed('merge/verifiedComplete', e); }
   }
 }
 
@@ -7052,7 +7104,12 @@ function recommendNextRun(digits, attempts) {
       : (targetCv > 50 && remaining < 50 ? 50 : remaining);
     const pAfter   = ecmProbability(d, haveEff + addCurves, b1);
     const pExists  = pFactorExists(d, digits);
-    const gain     = pExists * (pAfter - pBefore) * 100;
+    // Net out work the OTHER method has already done. (pAfter - pBefore) already
+    // discounts this method's own prior runs, but each method was blind to the
+    // other's coverage — so a factor prior P-1 would almost certainly have caught
+    // was still being counted as freshly findable here.
+    const pm1Already = bestPm1Prob(d, pm1Attempts);
+    const gain     = pExists * (1 - pm1Already) * (pAfter - pBefore) * 100;
     const cpuSec   = estimateCpuSeconds('ECM', b1, null, addCurves, digits);
 
     candidates.push({
@@ -7086,7 +7143,15 @@ function recommendNextRun(digits, attempts) {
       const pNew   = pm1Probability(d, newB1, newB2, method);
       const pPrior = priorB1 != null ? pm1Probability(d, priorB1, priorB2, method) : 0;
       const marginal = Math.max(0, pNew - pPrior);
-      const contrib = pFactorExists(d, digits) * marginal;
+      // The correction that matters most. P-1's value is concentrated in SMALL
+      // factors (15-25 digits), and on any entry with real ECM history those have
+      // already been searched to near-certainty — a few hundred curves at B1=3M
+      // covers 15d at 100% and 20d at 99.4%. Without this the escalation was
+      // credited with finding factors ECM had effectively ruled out, which on a
+      // well-worked number overstated its value by around 5x and pushed P-1 above
+      // ECM runs that were genuinely worth more.
+      const ecmAlready = ecmProbForDigit(d, ecmAttempts);
+      const contrib = pFactorExists(d, digits) * (1 - ecmAlready) * marginal;
       g += contrib;
       if (contrib > bestContrib) { bestContrib = contrib; bestD = d; }
     }
@@ -7156,9 +7221,16 @@ function recommendNextRun(digits, attempts) {
       candidates.push({
         method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
         gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', newB1, null, 1, digits),
-        reason: priorP1
-          ? 'You already tried P-1 at B1=' + fmtB1(priorP1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p−1 values — only worth it because the smaller bound didn\'t already catch it.'
-          : 'A single P-1 run is fast and catches primes p where p−1 is smooth (best at small factors) — a class ECM can miss. Worth doing once.',
+        reason: (() => {
+          // Quote the level in ECM's own terms so the two can be compared directly:
+          // "roughly a t18" is far more meaningful next to an ECM suggestion than a
+          // bare B1 value.
+          const lvl = pm1ToDigits(newB1, pm1DefaultB2(newB1), 'P-1');
+          const lvlTxt = lvl === null ? '' : ' These bounds reach about ' + lvl + ' digits (~63% odds there), comparable to a completed t' + lvl + ' ECM level.';
+          return (priorP1
+            ? 'You already tried P-1 at B1=' + fmtB1(priorP1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p−1 values — only worth it because the smaller bound didn\'t already catch it.'
+            : 'A single P-1 run is fast and catches primes p where p−1 is smooth (best at small factors) — a class ECM can miss. Worth doing once.') + lvlTxt;
+        })(),
       });
     }
   }
@@ -7169,9 +7241,16 @@ function recommendNextRun(digits, attempts) {
       candidates.push({
         method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
         gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', newB1, null, 1, digits),
-        reason: priorPp1
-          ? 'You already tried P+1 at B1=' + fmtB1(priorPp1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p+1 values — only worth it because the smaller bound didn\'t already catch it.'
-          : 'P+1 hits the complementary half of primes (smooth p+1) for little extra cost — a class both ECM and P-1 can miss.',
+        reason: (() => {
+          const lvl = pm1ToDigits(newB1, pm1DefaultB2(newB1), 'P+1');
+          // Deliberately NOT phrased as "comparable to t{lvl}" like P-1: P+1 reaches
+          // the same factor size but only for the ~half of primes where p+1 is
+          // smooth, so its odds there are about half.
+          const lvlTxt = lvl === null ? '' : ' These bounds reach about ' + lvl + ' digits, though at roughly half the odds of P-1 at the same bounds, since only about half of primes have p+1 smooth.';
+          return (priorPp1
+            ? 'You already tried P+1 at B1=' + fmtB1(priorPp1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p+1 values — only worth it because the smaller bound didn\'t already catch it.'
+            : 'P+1 hits the complementary half of primes (smooth p+1) for little extra cost — a class both ECM and P-1 can miss.') + lvlTxt;
+        })(),
       });
     }
   }
@@ -7482,94 +7561,59 @@ function buildECMSection(n, e) {
       }
       const totalECMCurves = ecmAttempts.reduce((s,a) => s + (parseInt(a.curves)||0), 0);
 
-      // ── Combined matrix (ECM + P-1/P+1 together) ──────────────────────────
-      if (ecmAttempts.length && pm1Attempts.length) {
+      // ── One combined probability table ────────────────────────────────────
+      // There used to be three tables here: combined, ECM-only and P-1-only. The two
+      // single-method ones were redundant — the combined table already shows each
+      // method's contribution per row, and the recommendation engine now scales every
+      // suggested run's gain by exactly this table's COMPLEMENT (the chance a factor
+      // of that size is still undiscovered by either method). So this is the number
+      // that actually drives decisions; the other two were detail nobody acted on.
+      //
+      // Renders whenever EITHER method has attempts, treating the absent one as zero.
+      // The old combined table required BOTH, which would have left an ECM-only entry
+      // with no table at all once the single-method ones were removed.
+      if (ecmAttempts.length || pm1Attempts.length) {
         probHtml += `<div style="margin-bottom:12px">
           <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
-            ★ Combined ECM + P-1/P+1 — P(at least one method finds N-digit factor)
+            ★ P(at least one method finds an N-digit factor)${totalECMCurves ? ' · ' + totalECMCurves + ' curves' : ''}${pm1Attempts.length ? ' · ' + pm1Attempts.length + ' P±1 run' + (pm1Attempts.length > 1 ? 's' : '') : ''}
           </div>
           <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--border2);padding-left:8px">
-            Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your ECM and P-1/P+1 runs together would have caught it?
-            Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance that at least one method succeeds.
+            Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your runs would already have caught it?
+            Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance at least one method succeeds.
+            The complement of this scales every suggested run's gain, so a level near 100% here is one where further work has little left to find.
+            <br><br>
+            <span style="color:var(--text)">ECM</span> runs random elliptic curves; each is an independent attempt, so more curves means better odds.
+            Uses the empirical GMP-ECM expected-curve table: P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%).
+            <br>
+            <span style="color:var(--text)">P-1</span> finds a prime p when p−1 is <span style="color:var(--text)">B1-smooth</span>; stage 2 also catches p where p−1 has one extra prime in (B1,B2]. Uses Dickman's ρ (computed numerically, ~1–3% accurate).
+            <span style="color:var(--text)">P+1</span> is the same formula × 0.5 — it works on the complementary half of primes, where p+1 rather than p−1 is smooth.
+            Unlike ECM, <span style="color:var(--text)">each P±1 run is a single deterministic test</span>: repeating the same B1/B2 gains nothing, only a higher bound does.
           </div>
           <div class="prob-grid">
             ${checkDigits.map(d => {
-              // ECM probability (per-attempt B1 efficiency, combined across runs)
-              const ecmP      = ecmProbForDigit(d, ecmAttempts);
-              // P-1/P+1: best attempt (deterministic — don't compound duplicates)
-              const pm1P      = bestPm1Prob(d, pm1Attempts);
-              const combined = 1 - (1 - ecmP) * (1 - pm1P);
-              const cls    = combined > 0.5 ? 'prob-high' : combined > 0.1 ? 'prob-mid' : 'prob-low';
-              const nfs    = d > 65;
-              const style  = nfs ? 'opacity:0.45' : '';
-              const pDisp  = nfs
-                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
-                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
-              return `<div class="prob-cell" style="${style}">
-                <div class="prob-d">${d}-digit factor</div>
-                ${pDisp}
-                <div class="prob-b1">ECM: ${fmtPct(ecmP)} · P±1: ${fmtPct(pm1P)}</div>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`;
-      }
-      if (ecmAttempts.length) {
-        probHtml += `<div style="margin-bottom:12px">
-          <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-            ECM — P(find N-digit factor) · ${totalECMCurves} curves total · B1 optimal range ≤65d
-          </div>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--purple);padding-left:8px">
-            ECM finds a d-digit factor by running random elliptic curves; each curve is an independent attempt, so more curves = higher chance.
-            Probabilities use the empirical <span style="color:var(--text)">GMP-ECM expected-curve table</span> (default Brent–Suyama polynomial): P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%). <span style="color:var(--text)">done</span> = curves you've run targeting that digit size (binned from each run's B1 via the table). <span style="color:var(--text)">90%→</span> = curves needed for 90% (≈2.3× C_opt).
-          </div>
-          <div class="prob-grid">
-            ${checkDigits.map(d => {
-              const curves   = curvesPerDigit[d] || 0; // banding count for the "done" label
-              const p        = ecmProbForDigit(d, ecmAttempts); // efficiency-based probability
-              const b1opt    = optimalB1(d);
-              const cls      = p > 0.5 ? 'prob-high' : p > 0.1 ? 'prob-mid' : 'prob-low';
-              const need     = curvesForProb(d, 0.9);
-              const nfs      = d > 65;
-              const style    = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
-              const pDisp    = nfs
+              const ecmP  = ecmAttempts.length ? ecmProbForDigit(d, ecmAttempts) : 0;
+              const pm1P  = pm1Attempts.length ? bestPm1Prob(d, pm1Attempts) : 0;
+              const both  = 1 - (1 - ecmP) * (1 - pm1P);
+              const cls   = both > 0.5 ? 'prob-high' : both > 0.1 ? 'prob-mid' : 'prob-low';
+              const nfs   = d > 65;
+              const style = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
+              const pDisp = nfs
                 ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">use NFS</div>`
-                : `<div class="prob-v ${cls}">${fmtPct(p)}</div>`;
-              const doneNote = `<div class="prob-b1">B1≈${fmtB1(b1opt)} · done: ${fmtCurves(curves)}${nfs ? '' : ' · 90%→'+fmtCurves(need)}</div>`;
+                : `<div class="prob-v ${cls}">${fmtPct(both)}</div>`;
+              const parts = [];
+              if (ecmAttempts.length) parts.push('ECM: ' + fmtPct(ecmP));
+              if (pm1Attempts.length) parts.push('P±1: ' + fmtPct(pm1P));
+              // Curve counts and the 90% target were the useful part of the old
+              // ECM-only table, kept here rather than lost with it.
+              const curves = curvesPerDigit[d] || 0;
+              const extra  = (!nfs && ecmAttempts.length)
+                ? `<div class="prob-b1">B1≈${fmtB1(optimalB1(d))} · done: ${fmtCurves(curves)} · 90%→${fmtCurves(curvesForProb(d, 0.9))}</div>`
+                : '';
               return `<div class="prob-cell" style="${style}">
                 <div class="prob-d">${d}-digit factor</div>
                 ${pDisp}
-                ${doneNote}
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`;
-      }
-
-      if (pm1Attempts.length) {
-        probHtml += `<div style="margin-bottom:12px">
-          <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">
-            P-1 / P+1 — P(find N-digit factor) · ${pm1Attempts.length} attempt${pm1Attempts.length>1?'s':''} combined
-          </div>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--yellow);padding-left:8px">
-            P-1 finds a prime factor p if p−1 is <span style="color:var(--text)">B1-smooth</span> (all its prime factors ≤ B1); stage 2 also catches p where p−1 has one extra prime in (B1,B2].
-            Probabilities use <span style="color:var(--text)">Dickman's ρ function</span> (computed numerically to ~1–3% accuracy): stage 1 = ρ(ln p / ln B1), stage 2 adds the semismooth "one large prime" integral over (B1,B2].
-            <span style="color:var(--text)">P+1</span> uses the same formula × 0.5 (it works on the ~half of primes where p+1 — not p−1 — is smooth, a complementary set to P-1).
-            Unlike ECM, <span style="color:var(--text)">each P-1/P+1 run is a single independent test</span> — repeating with the same B1/B2 doesn't help; only higher B1/B2 improves odds. <span style="color:var(--text)">best single</span> = the best individual attempt for that digit size.
-          </div>
-          <div class="prob-grid">
-            ${checkDigits.map(d => {
-              // P-1 is deterministic — show the BEST attempt, not a compounded product
-              const combined = bestPm1Prob(d, pm1Attempts);
-              const cls    = combined > 0.3 ? 'prob-high' : combined > 0.05 ? 'prob-mid' : 'prob-low';
-              const nfs    = d > 65;
-              const style  = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
-              const pDisp  = nfs
-                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">N/A</div>`
-                : `<div class="prob-v ${cls}">${fmtPct(combined)}</div>`;
-              return `<div class="prob-cell" style="${style}">
-                <div class="prob-d">${d}-digit factor</div>
-                ${pDisp}
+                <div class="prob-b1">${parts.join(' · ')}</div>
+                ${extra}
               </div>`;
             }).join('')}
           </div>
@@ -7689,7 +7733,11 @@ function buildECMSection(n, e) {
               const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
               return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
             }).join(' ');
-            probCell = probParts || `<span style="font-size:10px;color:var(--text-muted)">—</span>`;
+            const lvl = pm1ToDigits(a.b1, a.b2, a.method);
+            const lvlLabel = lvl === null
+              ? `<span style="color:var(--text-dim);font-size:10px" title="These bounds do not reach 63% odds even for a 10-digit factor">targets &lt;10d</span> `
+              : `<span style="color:var(--text-dim);font-size:10px" title="How far these bounds reach: the digit size at which one run attains 63% of what the method can achieve. For P-1 that is ~63% odds, matching ECM's t-level convention. P+1 only works on the ~half of primes where p+1 is smooth, so it reaches the same size at about half the odds — see the per-digit figures alongside.">targets ~${lvl}d</span> `;
+            probCell = lvlLabel + (probParts || `<span style="font-size:10px;color:var(--text-muted)">—</span>`);
           }
           return `<tr>
             <td>${a.method}</td>
@@ -8200,6 +8248,67 @@ const REMAINDER_PRIMALITY_BUDGET_MS = 6000;
 
 // Async and chunked: a synchronous pass over a large database blocks the tab
 // completely, and this can genuinely be a lot of BigInt work.
+// ── Externally-verified entries ──────────────────────────────────────────────
+// Some entries genuinely ARE fully factored, but the app cannot prove it: the
+// missing piece is a prime too large to primality-test in reasonable time (beyond
+// ~1000 digits a single test runs into seconds). Those get reported forever as
+// "factors fall short", which is noise once you have confirmed them on FactorDB.
+//
+// This records that you have verified an entry externally. It is deliberately
+// narrow: it suppresses ONLY the "factors fall short" finding for that entry, and
+// nothing else. A factor that does not divide, a composite recorded as a prime, a
+// wrong exponent — all still report normally, because acknowledging "I know this is
+// complete" must not become a blanket "stop checking this number". The count is
+// shown separately in the report rather than vanishing, so it stays visible that
+// these rest on an external check rather than on arithmetic done here.
+const VERIFIED_KEY = 'eulerFDB_verifiedComplete_v1';
+function loadVerifiedComplete() {
+  try {
+    const v = JSON.parse(kvGet(VERIFIED_KEY) || '{}');
+    return (v && typeof v === 'object') ? v : {};
+  } catch(e) { logSwallowed('loadVerifiedComplete', e); return {}; }
+}
+function saveVerifiedComplete(v) { kvSet(VERIFIED_KEY, JSON.stringify(v)); }
+function isVerifiedComplete(n) { return !!loadVerifiedComplete()[n]; }
+function markVerifiedComplete(ns) {
+  const v = loadVerifiedComplete();
+  const ts = Math.floor(Date.now() / 1000);
+  for (const n of ns) v[n] = ts;
+  saveVerifiedComplete(v);
+  return Object.keys(v).length;
+}
+function clearVerifiedComplete(ns) {
+  const v = loadVerifiedComplete();
+  if (!ns) { saveVerifiedComplete({}); return 0; }
+  for (const n of ns) delete v[n];
+  saveVerifiedComplete(v);
+  return Object.keys(v).length;
+}
+// Merge across devices — union, keeping the earliest acknowledgement.
+function mergeVerifiedComplete(remote) {
+  if (!remote || typeof remote !== 'object') return;
+  const v = loadVerifiedComplete();
+  for (const [n, ts] of Object.entries(remote)) {
+    if (!v[n] || ts < v[n]) v[n] = ts;
+  }
+  saveVerifiedComplete(v);
+}
+
+// Offered from the integrity report for the entries it could not resolve.
+function acknowledgeListedComplete(ns) {
+  if (!ns || !ns.length) return;
+  if (!confirm('Mark ' + ns.length + ' entr' + (ns.length === 1 ? 'y' : 'ies') + ' as verified complete?\n\n'
+    + 'Use this only for entries you have confirmed fully factored on FactorDB but whose\n'
+    + 'missing prime is too large for this app to verify locally.\n\n'
+    + 'It suppresses ONLY the "factors fall short" finding. Every other integrity\n'
+    + 'check still applies to these entries, and the count stays visible in the report.')) return;
+  const total = markVerifiedComplete(ns);
+  markDirty();
+  addLog('Marked ' + ns.length + ' entr' + (ns.length === 1 ? 'y' : 'ies') + ' as externally verified complete (' + total + ' total)', 'ok');
+  closeModal();
+  showDataIntegrityReport();
+}
+
 async function runDataIntegrityCheck(onProgress) {
   const issues = {
     notDividing:    [],  // a stored factor that does not divide E(n)
@@ -8214,7 +8323,8 @@ async function runDataIntegrityCheck(onProgress) {
     missingPrime:   [],  // fully factored, but the final prime cofactor was never recorded
   };
   let checked = 0, skippedPrimality = 0, timedOut = false;
-  let remainderMsSpent = 0, remainderUnverified = 0;
+  let remainderMsSpent = 0, remainderUnverified = 0, acknowledged = 0;
+  const verified = loadVerifiedComplete();
   const deadline = Date.now() + INTEGRITY_BUDGET_MS;
   const CHUNK = 200;
 
@@ -8338,7 +8448,11 @@ async function runDataIntegrityCheck(onProgress) {
         }
       }
       if (remIsPrime) issues.missingPrime.push({ n: e.n, digits: rem.toString().length });
-      else {
+      else if (verified[e.n]) {
+        // Confirmed complete externally. Counted, not reported — and note this only
+        // reaches here for the shortfall check; every other finding still applies.
+        acknowledged++;
+      } else {
         if (rem && rem > 1n && !tested) remainderUnverified++;
         issues.fullMismatch.push({ n: e.n, factors: e.factors.length,
                                    remDigits: rem ? rem.toString().length : null, tested });
@@ -8365,7 +8479,7 @@ async function runDataIntegrityCheck(onProgress) {
       }
     }
   }
-  return { issues, checked, skippedPrimality, timedOut, remainderUnverified };
+  return { issues, checked, skippedPrimality, timedOut, remainderUnverified, acknowledged };
 }
 
 // Apply the repairs that can be made with certainty from local data alone.
@@ -8566,7 +8680,9 @@ async function fixIntegrityIssues(scan) {
   //    asserting something it had just proved wrong.
   for (const it of (scan.issues.fullMismatch || [])) {
     const e = byN.get(it.n);
-    if (e && e.status === 'full') { e.status = 'partial'; e.cofactor = null; fixed.demotedShort++; }
+    if (e && e.status === 'full' && !isVerifiedComplete(it.n)) {
+      e.status = 'partial'; e.cofactor = null; fixed.demotedShort++;
+    }
     needsRecheck.push(it.n);
   }
 
@@ -8587,7 +8703,10 @@ async function fixIntegrityIssues(scan) {
     } catch(err) { logSwallowed('fixIntegrity/reconcile', err); ok = false; }
     if (!ok) continue;
     if (prod === val && e.status !== 'full') { e.status = 'full'; e.cofactor = null; }
-    else if (prod !== val && e.status === 'full') { e.status = 'partial'; e.cofactor = null; }
+    // An externally-verified entry keeps its 'full' status: the arithmetic here is
+    // incomplete, not wrong, and demoting it would undo the acknowledgement on
+    // every run.
+    else if (prod !== val && e.status === 'full' && !isVerifiedComplete(e.n)) { e.status = 'partial'; e.cofactor = null; }
   }
 
   // Persist whatever changed, through the normal paths so the cache stays in step.
@@ -8676,7 +8795,7 @@ async function showDataIntegrityReport() {
   try { res = await runDataIntegrityCheck((i, total) => setStatus('Scanning data integrity… ' + i + '/' + total, '')); }
   catch(err) { setStatus('', ''); alert('Integrity scan failed: ' + err.message); return; }
   setStatus('', '');
-  const { issues, checked, skippedPrimality, timedOut } = res;
+  const { issues, checked, skippedPrimality, timedOut, remainderUnverified, acknowledged } = res;
 
   const groups = [
     ['notDividing',     'Factor does not divide E(n)',        'The stored value is not a factor at all — corrupt data.'],
@@ -8722,7 +8841,19 @@ async function showDataIntegrityReport() {
          Re-checking the listed entries on FactorDB resolves most of these, since a
          fresh result restores whatever the local copy is missing. Entries marked
          <em>factors complete but not marked full</em> are safe to promote as-is.
+         ${acknowledged ? '<br><br>' + acknowledged + ' entr(y/ies) are marked as verified complete externally and are not re-reported here. They rest on your FactorDB check rather than on arithmetic done in this app; every other integrity check still applies to them. <a href="#" onclick="event.preventDefault(); if(confirm(\'Clear all ' + acknowledged + ' acknowledgement(s)? They will be re-reported until acknowledged again or resolved.\')) { clearVerifiedComplete(); markDirty(); closeModal(); showDataIntegrityReport(); }" style="color:var(--accent)">clear</a>' : ''}
        </div>
+       ${issues.fullMismatch.length ? `<div class="modal-section">
+         <button class="fdb-check-btn" style="background:var(--surface2)"
+           onclick="acknowledgeListedComplete([${issues.fullMismatch.map(i => i.n).join(',')}])">
+           ✓ Mark these ${issues.fullMismatch.length} as verified complete
+         </button>
+         <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5">
+           For entries you have confirmed fully factored on FactorDB whose missing prime is
+           too large to verify here. Suppresses only this finding — every other check still
+           applies, and the count stays visible above.
+         </div>
+       </div>` : ''}
        <div class="modal-section">
          <button class="fdb-check-btn" onclick="closeModal(); runIntegrityFix();">⚕ Fix what can be fixed safely</button>
          <div style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5">
