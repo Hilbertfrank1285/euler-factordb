@@ -7138,7 +7138,7 @@ function recommendNextRun(digits, attempts) {
   // independent" logic, just applied to a proposed future attempt instead of only
   // to attempts already made.
   const pmGain = (method, newB1, newB2, priorB1, priorB2) => {
-    let g = 0, bestD = levels[0] || 15, bestContrib = -1;
+    let g = 0, bestD = levels[0] || 15, bestContrib = -1, bestEcmCov = 0;
     for (const d of levels) {
       const pNew   = pm1Probability(d, newB1, newB2, method);
       const pPrior = priorB1 != null ? pm1Probability(d, priorB1, priorB2, method) : 0;
@@ -7153,9 +7153,9 @@ function recommendNextRun(digits, attempts) {
       const ecmAlready = ecmProbForDigit(d, ecmAttempts);
       const contrib = pFactorExists(d, digits) * (1 - ecmAlready) * marginal;
       g += contrib;
-      if (contrib > bestContrib) { bestContrib = contrib; bestD = d; }
+      if (contrib > bestContrib) { bestContrib = contrib; bestD = d; bestEcmCov = ecmAlready; }
     }
-    return { gain: g * 100, bestD };
+    return { gain: g * 100, bestD, bestEcmCov, bestShare: g > 0 ? bestContrib / g : 0 };
   };
   // Best EXISTING attempt per method (if any) — a later, higher-B1 attempt
   // subsumes an earlier lower one, so only the highest B1 tried matters here.
@@ -7211,46 +7211,62 @@ function recommendNextRun(digits, attempts) {
     for (const b of _STANDARD_B1S) if (b >= target) return b;
     return _STANDARD_B1S[_STANDARD_B1S.length - 1] * 10; // beyond the table, still bounded
   };
+  // Explain WHERE the value is, not just how far the bounds reach.
+  //
+  // The two are often different places, and quoting only the reach was actively
+  // misleading: on a well-worked number a P-1 escalation might "reach ~22 digits"
+  // while 22 digits is already exhausted by ECM and contributes literally nothing.
+  // The real value sits in the TAIL — P-1's odds decay gradually rather than
+  // stopping at its 63% point, so a thin chance at 40 digits can dominate when ECM
+  // has barely searched there. bestD is the level actually contributing most, so
+  // that is what gets named.
+  const pm1Reason = (method, prior, newB1, res) => {
+    const reach = pm1ToDigits(newB1, pm1DefaultB2(newB1), method);
+    const sign  = method === 'P-1' ? 'p−1' : 'p+1';
+    const lead  = prior
+      ? 'Already run at B1=' + fmtB1(prior.b1) + '. Raising it to ' + fmtB1(newB1) + ' covers strictly more ' + sign + ' values.'
+      : 'A single ' + method + ' run is quick and catches primes where ' + sign + ' is smooth — a class ECM can miss.';
+    if (!res || res.bestD == null) return lead;
+    const cov = Math.round((res.bestEcmCov || 0) * 100);
+    const where = 'Most of its value here is around ' + res.bestD + ' digits'
+      + (cov < 95 ? ', where ECM has searched only ' + cov + '%.' : '.');
+    // The "but that range is already covered" clause has to be gated on the reach
+    // range ACTUALLY being covered, not merely on it differing from bestD. Gating on
+    // distance alone told a fresh number with no ECM history that its best range was
+    // already covered — the exact opposite of the truth.
+    let reachCovered = 0;
+    if (reach) { try { reachCovered = ecmProbForDigit(reach, ecmAttempts); } catch(e) { logSwallowed('pm1Reason/reachCov', e); } }
+    const reachTxt = !reach ? ''
+      : (Math.abs(reach - res.bestD) >= 5 && reachCovered > 0.9)
+        ? ' It is strongest at ~' + reach + ' digits, but that range is already exhausted.'
+        : ' Reaches ~' + reach + ' digits.';
+    return lead + reachTxt + ' ' + where;
+  };
+
   // Both P-1 and P+1 are proposed as separate candidates rather than gating one
   // behind the other — the efficiency ranking below already picks whichever (if
   // either) is actually worth including in the final top-3.
   {
     const newB1 = priorP1 ? nextStandardB1(priorP1.b1) : 1e7;
-    const { gain, bestD } = pmGain('P-1', newB1, pm1DefaultB2(newB1), priorP1 && priorP1.b1, priorP1 && priorP1.b2);
+    const p1res = pmGain('P-1', newB1, pm1DefaultB2(newB1), priorP1 && priorP1.b1, priorP1 && priorP1.b2);
+    const { gain, bestD } = p1res;
     if (gain > 0.0005) { // skip proposing a near-zero-value escalation
       candidates.push({
         method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
         gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', newB1, null, 1, digits),
-        reason: (() => {
-          // Quote the level in ECM's own terms so the two can be compared directly:
-          // "roughly a t18" is far more meaningful next to an ECM suggestion than a
-          // bare B1 value.
-          const lvl = pm1ToDigits(newB1, pm1DefaultB2(newB1), 'P-1');
-          const lvlTxt = lvl === null ? '' : ' These bounds reach about ' + lvl + ' digits (~63% odds there), comparable to a completed t' + lvl + ' ECM level.';
-          return (priorP1
-            ? 'You already tried P-1 at B1=' + fmtB1(priorP1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p−1 values — only worth it because the smaller bound didn\'t already catch it.'
-            : 'A single P-1 run is fast and catches primes p where p−1 is smooth (best at small factors) — a class ECM can miss. Worth doing once.') + lvlTxt;
-        })(),
+        reason: pm1Reason('P-1', priorP1, newB1, p1res),
       });
     }
   }
   {
     const newB1 = priorPp1 ? nextStandardB1(priorPp1.b1) : 1e7;
-    const { gain, bestD } = pmGain('P+1', newB1, pm1DefaultB2(newB1), priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
+    const pp1res = pmGain('P+1', newB1, pm1DefaultB2(newB1), priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
+    const { gain, bestD } = pp1res;
     if (gain > 0.0005) {
       candidates.push({
         method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
         gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', newB1, null, 1, digits),
-        reason: (() => {
-          const lvl = pm1ToDigits(newB1, pm1DefaultB2(newB1), 'P+1');
-          // Deliberately NOT phrased as "comparable to t{lvl}" like P-1: P+1 reaches
-          // the same factor size but only for the ~half of primes where p+1 is
-          // smooth, so its odds there are about half.
-          const lvlTxt = lvl === null ? '' : ' These bounds reach about ' + lvl + ' digits, though at roughly half the odds of P-1 at the same bounds, since only about half of primes have p+1 smooth.';
-          return (priorPp1
-            ? 'You already tried P+1 at B1=' + fmtB1(priorPp1.b1) + '. Escalating to B1=' + fmtB1(newB1) + ' covers a strictly larger set of possible p+1 values — only worth it because the smaller bound didn\'t already catch it.'
-            : 'P+1 hits the complementary half of primes (smooth p+1) for little extra cost — a class both ECM and P-1 can miss.') + lvlTxt;
-        })(),
+        reason: pm1Reason('P+1', priorPp1, newB1, pp1res),
       });
     }
   }
