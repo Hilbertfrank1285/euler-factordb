@@ -925,7 +925,20 @@ function labelFactor(f) {
 // 96.5% at 10^7, 97.0% at 10^8. Going to 10^7 buys 0.6 percentage points for 10x
 // the runtime.
 const SIEVE_LIMIT = 1000000;
-let _primeTree = null, _sievePrimes = null;
+// Cap on how large any single BigInt in the tree may get.
+//
+// The first version built ONE tree over all 78,498 primes, whose root is the full
+// primorial — 433,637 digits. Node allocates that happily; Firefox does not, and
+// threw "BigInt is too large to allocate". Browsers differ on the ceiling and none
+// of them document it usefully, so the safe move is not to go anywhere near it.
+//
+// A FOREST of small trees is equivalent and just as fast: each chunk of primes gets
+// its own tree, and a number is reduced through each in turn. Measured on a
+// 50,000-digit number, the cap barely affects speed (0.32s at 2,000 digits vs 0.33s
+// at 50,000) because the work is dominated by the lower levels either way — so
+// there is no reason to pick anything but a very conservative cap.
+const SIEVE_MAX_BIGINT_DIGITS = 4000;
+let _primeForest = null, _sievePrimes = null;
 
 function sievePrimesTo(n) {
   const mark = new Uint8Array(n + 1);
@@ -942,29 +955,58 @@ function buildPrimeTree(primes, lo, hi) {
   const R = buildPrimeTree(primes, mid, hi);
   return { M: L.M * R.M, lo, hi, L, R };
 }
-function ensurePrimeTree() {
-  if (_primeTree) return _primeTree;
-  _sievePrimes = sievePrimesTo(SIEVE_LIMIT);
-  _primeTree = buildPrimeTree(_sievePrimes, 0, _sievePrimes.length);
-  return _primeTree;
+// Split the primes so each subtree's product stays under the cap, using bit counts
+// rather than building first and measuring after — which would defeat the point.
+function _chunkPrimes(primes, maxDigits) {
+  const maxBits = maxDigits * 3.32, chunks = [];
+  let i = 0;
+  while (i < primes.length) {
+    const start = i;
+    let bits = 0;
+    // Check BEFORE adding, not after. Adding first and testing after overshoots by
+    // one prime, which made the "cap" an approximation rather than a bound — and a
+    // cap that can be exceeded is no use as a guard against an allocation limit.
+    while (i < primes.length && bits + Math.log2(primes[i]) <= maxBits) {
+      bits += Math.log2(primes[i]); i++;
+    }
+    if (i === start) i++;   // a single prime larger than the cap still needs its own chunk
+    chunks.push([start, i]);
+  }
+  return chunks;
 }
-// Descend the tree, collecting every prime that divides. Prunes whole branches:
-// if the residue against a subtree's product is non-zero the entire branch is
-// skipped, which is where most of the speed comes from.
+function ensurePrimeTree(maxDigits) {
+  if (_primeForest) return _primeForest;
+  _sievePrimes = sievePrimesTo(SIEVE_LIMIT);
+  let cap = maxDigits || SIEVE_MAX_BIGINT_DIGITS;
+  // Defensive: if a browser refuses even this, halve and retry rather than failing
+  // outright. Smaller chunks always work, they just cost slightly more reductions.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      _primeForest = _chunkPrimes(_sievePrimes, cap).map(([a, b]) => buildPrimeTree(_sievePrimes, a, b));
+      return _primeForest;
+    } catch(e) {
+      logSwallowed('ensurePrimeTree/cap' + cap, e);
+      _primeForest = null;
+      cap = Math.floor(cap / 2);
+      if (cap < 50) throw new Error('Could not build the prime table — this browser cannot allocate BigInts large enough.');
+    }
+  }
+  throw new Error('Could not build the prime table.');
+}
+// Descend one tree, collecting every prime that divides.
 function _sieveDescend(node, r, out) {
   const rr = r % node.M;
   if (node.hi - node.lo === 1) { if (rr === 0n) out.push(_sievePrimes[node.lo]); return; }
-  // Both children are always visited: a non-zero residue against this subtree still
-  // says nothing about the individual primes inside it. (An earlier version had a
-  // separate rr===0 branch doing exactly the same thing — dead code, removed.)
+  // Both children are always visited: a non-zero residue against this subtree says
+  // nothing about the individual primes inside it.
   _sieveDescend(node.L, rr, out);
   _sieveDescend(node.R, rr, out);
 }
 // Every prime below SIEVE_LIMIT dividing n, with multiplicity.
 function sieveSmallFactors(n) {
-  ensurePrimeTree();
+  const forest = ensurePrimeTree();
   const hits = [];
-  _sieveDescend(_primeTree, n, hits);
+  for (const tree of forest) _sieveDescend(tree, n, hits);
   const out = [];
   for (const p of hits) {
     const bp = BigInt(p);
