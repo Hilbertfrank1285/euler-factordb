@@ -4627,12 +4627,28 @@ async function exportNextRuns() {
 // browser none of that applies — no proxy, no CORS, and POST available — so these
 // are checkable there and nowhere else.
 function exportFDBCheckList() {
-  const cap = currentQueryCap();
   const lim = loadQueryLimits();
-  const tooBig = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length > cap);
+  // Which entries are actually out of reach?
+  //
+  // currentQueryCap() is the size the app is still willing to ATTEMPT, which sits at
+  // the 500,000 sanity ceiling until a rejection has been recorded. That is the right
+  // rule for deciding whether to try a query, and the wrong one here — an entry can
+  // be unreachable long before any failure has been logged against it. Using the cap
+  // alone reported "nothing to export" to someone holding numbers that had visibly
+  // failed moments earlier.
+  //
+  // The honest threshold is the largest size CONFIRMED to work. Anything above that
+  // is unproven, and unproven is exactly what this script is for. Entries between
+  // maxOk and the true limit may well succeed — no harm, the script checks them too
+  // and they are quick.
+  const cap = currentQueryCap();
+  const threshold = lim.minFail ? lim.minFail - 1
+                  : lim.maxOk   ? lim.maxOk
+                  : cap;
+  const tooBig = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length > threshold);
   if (!tooBig.length) {
-    alert('Nothing to export — every unfinished entry is within the current '
-      + cap.toLocaleString() + '-digit limit.'
+    alert('Nothing to export — every unfinished entry is within '
+      + threshold.toLocaleString() + ' digits.'
       + (lim.maxOk ? '\n\nLargest query confirmed working: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
       + (lim.minFail ? '\nSmallest size rejected: ' + lim.minFail.toLocaleString() + ' digits.' : ''));
     return;
@@ -4644,8 +4660,13 @@ function exportFDBCheckList() {
   downloadText('fdb_labels.txt',  tooBig.map(e => 'E' + e.n).join('\n') + '\n');
   const mb = tooBig.reduce((s, e) => s + e.val.length, 0) / 1024 / 1024;
   addLog('Exported ' + tooBig.length + ' oversized entries for fdb_check.py', 'ok');
-  alert('Exported ' + tooBig.length + ' entr' + (tooBig.length === 1 ? 'y' : 'ies') + ' above the '
-    + cap.toLocaleString() + '-digit limit (' + mb.toFixed(1) + 'MB of digits).\n\n'
+  alert('Exported ' + tooBig.length + ' entr' + (tooBig.length === 1 ? 'y' : 'ies') + ' above '
+    + threshold.toLocaleString() + ' digits (' + mb.toFixed(1) + 'MB).\n\n'
+    + (lim.minFail
+        ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
+        : lim.maxOk
+          ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
+          : '')
     + 'Run on any machine with Python 3 — no server needed:\n\n'
     + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt \\\n'
     + '      -o fdb_results.json --limit 5\n\n'
