@@ -2429,11 +2429,49 @@ async function queryFactorDB(numberStr, knownId) {
   // Only refuse when a size failure has actually been observed at or below this
   // size. Otherwise attempt it — the point is to discover the real ceiling rather
   // than enforce a guessed one.
+  // ── POST: the number goes in the BODY, so no URL-length limit applies ──────
+  //
+  // Above the URL ceiling this is the only route left in a browser, and it is a
+  // better one than it looks:
+  //   * the direct GET to factordb.com already works from here (that is how a
+  //     65,478-digit query succeeded — too large for the proxy, fine direct), so
+  //     CORS plainly permits reading responses from this origin;
+  //   * a POST with Content-Type application/x-www-form-urlencoded is a CORS
+  //     SIMPLE request — one of exactly three content types that skip the preflight
+  //     — so it gets the same treatment as the GET that already works;
+  //   * the number travels in the body, and bodies are megabytes.
+  //
+  // It is tried BEFORE giving up on size, and also as a fallback when the URL route
+  // fails, so a number just over the line is not abandoned on the strength of a
+  // limit that does not apply to this method. Whether FactorDB accepts POST at all
+  // is the open question — but this asks it from the one client demonstrably not
+  // being blocked, which a local script is not: Python gets 503 from bot protection
+  // that fingerprints the TLS handshake, and no amount of header-faking fixes that.
+  async function tryPost() {
+    const r = await fetchWithTimeout('https://factordb.com/api', timeout, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'query=' + encodeURIComponent(numberStr),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const result = JSON.parse(await r.text());
+    if (!result || !result.status) throw new Error('No status in POST response');
+    return result;
+  }
+
   const cap = currentQueryCap();
   if (numberStr.length > cap) {
-    throw new Error('Skipping ' + numberStr.length + 'd — a query already failed on size at '
-      + loadQueryLimits().minFail + 'd, so this is above the measured limit. '
-      + 'Use "Export FDB check list" and run fdb_check.py, which has no URL-length limit.');
+    try {
+      const viaPost = await tryPost();
+      noteQuerySuccess(numberStr.length);
+      if (numberStr.length > _sessionMaxOkDigits) _sessionMaxOkDigits = numberStr.length;
+      logSwallowed('queryFactorDB/postWorked', new Error('POST succeeded at ' + numberStr.length + 'd'));
+      return viaPost;
+    } catch(e) {
+      logSwallowed('queryFactorDB/postFailed', e);
+      throw new Error('Above the ' + cap.toLocaleString() + 'd URL limit, and POST also failed ('
+        + e.message + '). FactorDB may not accept POST queries.');
+    }
   }
 
   const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
@@ -2485,6 +2523,15 @@ async function queryFactorDB(numberStr, knownId) {
   // week says nothing about whether the connection is up right now, and using it
   // would let a genuine outage record a bogus limit.
   if (_sessionMaxOkDigits > 0 && numberStr.length > _sessionMaxOkDigits) {
+    // Before recording a size limit, try POST — it has no URL-length constraint, so
+    // the very failure that suggests the URL was too long is the case it exists for.
+    // Recording a cap without trying it would rule out numbers that are reachable.
+    try {
+      const viaPost = await tryPost();
+      noteQuerySuccess(numberStr.length);
+      _sessionMaxOkDigits = numberStr.length;
+      return viaPost;
+    } catch(e) { logSwallowed('queryFactorDB/postFallback', e); }
     noteQuerySizeFailure(numberStr.length);
     throw new Error('Failed at ' + numberStr.length + 'd on every route, while '
       + _sessionMaxOkDigits.toLocaleString() + 'd succeeded moments ago — recorded as a size limit. '
