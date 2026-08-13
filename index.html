@@ -575,6 +575,18 @@
   <button class="poll-btn" onclick="runFactorAudit()" style="background:var(--surface2)" title="Check that every stored factor actually divides its E(n)">
     ✓ Audit factors
   </button>
+  <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)" title="Export entries above the browser's 64KiB URL limit, for fdb_check.py to run against on any machine with Python">
+    ↓ Export FDB check list
+  </button>
+  <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
+    ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
+    ondragleave="this.style.outline='';"
+    ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importFDBResults(event.dataTransfer.files[0]);"
+    style="background:var(--surface2)" title="Load fdb_results.json produced by fdb_check.py">
+    ↑ Import FDB results
+  </button>
+  <input type="file" id="fdbResultsInput" accept=".json,application/json" style="display:none"
+    onchange="if(this.files.length) importFDBResults(this.files[0]); this.value='';">
   <button class="poll-btn" onclick="showSievePromptGuarded()" style="background:var(--surface2)" title="Sieve every prime below 1,000,000 out of the remaining cofactors — exhaustive, and far cheaper than ECM at that range">
     ⌗ Sieve small primes
   </button>
@@ -2421,7 +2433,7 @@ async function queryFactorDB(numberStr, knownId) {
   if (numberStr.length > cap) {
     throw new Error('Skipping ' + numberStr.length + 'd — a query already failed on size at '
       + loadQueryLimits().minFail + 'd, so this is above the measured limit. '
-      + 'Check it directly at factordb.com and record the result manually.');
+      + 'Use "Export FDB check list" and run fdb_check.py, which has no URL-length limit.');
   }
 
   const fdbApiUrl = `https://factordb.com/api?query=${numberStr}`;
@@ -2445,18 +2457,39 @@ async function queryFactorDB(numberStr, knownId) {
       const result = data.contents ? JSON.parse(data.contents) : data;
       if (!result.status) throw new Error('No status in response');
       noteQuerySuccess(numberStr.length); // this size demonstrably works
+      // Session-scoped proof that the network is working. Needed below to tell a
+      // size rejection apart from being offline.
+      if (numberStr.length > _sessionMaxOkDigits) _sessionMaxOkDigits = numberStr.length;
       return result;
     } catch(e) {
       lastErr = e.message;
       logSwallowed('queryFactorDB/route', e);
     }
   }
-  // Only record a size limit when a server actually said "too long". Every route
-  // failing for other reasons says nothing reliable about size.
   if (sawSizeRejection) {
     noteQuerySizeFailure(numberStr.length);
     throw new Error('Rejected as too long at ' + numberStr.length + 'd (HTTP 414/413). '
       + 'Recorded as the measured limit — smaller numbers still query normally.');
+  }
+
+  // A size rejection does not always arrive as a clean 414. When a proxy refuses an
+  // over-long request line it typically resets the connection instead, which the
+  // browser reports as a bare "NetworkError when attempting to fetch resource" —
+  // indistinguishable, on its own, from being offline. Requiring a 414 meant these
+  // were classed as transient and retried forever, so the limit could never be
+  // learned. Observed at ~65,500 digits.
+  //
+  // Corroboration settles it: if a SMALLER number succeeded earlier in this same
+  // session, the network demonstrably works, so a larger one failing on every route
+  // is about size. The proof has to be session-scoped — a stored success from last
+  // week says nothing about whether the connection is up right now, and using it
+  // would let a genuine outage record a bogus limit.
+  if (_sessionMaxOkDigits > 0 && numberStr.length > _sessionMaxOkDigits) {
+    noteQuerySizeFailure(numberStr.length);
+    throw new Error('Failed at ' + numberStr.length + 'd on every route, while '
+      + _sessionMaxOkDigits.toLocaleString() + 'd succeeded moments ago — recorded as a size limit. '
+      + 'Proxies reject an over-long request line by closing the connection rather than '
+      + 'returning 414, so this is what that looks like.');
   }
   throw new Error('All query routes failed (' + numberStr.length + 'd number): ' + lastErr);
 }
@@ -4585,6 +4618,72 @@ async function exportNextRuns() {
   console.error('exportNextRuns failed:', err);
   alert('Export failed: ' + err.message);
  }
+}
+
+// Export the entries the browser cannot ask FactorDB about, for fdb_check.py.
+//
+// The ceiling is a hard 64 KiB request-line limit: the number goes in the URL, and
+// the CORS proxy's wrapper costs 69 bytes of it, leaving 65,467 digits. Outside a
+// browser none of that applies — no proxy, no CORS, and POST available — so these
+// are checkable there and nowhere else.
+function exportFDBCheckList() {
+  const cap = currentQueryCap();
+  const lim = loadQueryLimits();
+  const tooBig = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length > cap);
+  if (!tooBig.length) {
+    alert('Nothing to export — every unfinished entry is within the current '
+      + cap.toLocaleString() + '-digit limit.'
+      + (lim.maxOk ? '\n\nLargest query confirmed working: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
+      + (lim.minFail ? '\nSmallest size rejected: ' + lim.minFail.toLocaleString() + ' digits.' : ''));
+    return;
+  }
+  tooBig.sort((a, b) => a.n - b.n);
+  // Two matching files, same order. Labels are kept separate so the numbers file
+  // stays machine-clean, exactly like the ECM export's numbers file.
+  downloadText('fdb_numbers.txt', tooBig.map(e => e.val).join('\n') + '\n');
+  downloadText('fdb_labels.txt',  tooBig.map(e => 'E' + e.n).join('\n') + '\n');
+  const mb = tooBig.reduce((s, e) => s + e.val.length, 0) / 1024 / 1024;
+  addLog('Exported ' + tooBig.length + ' oversized entries for fdb_check.py', 'ok');
+  alert('Exported ' + tooBig.length + ' entr' + (tooBig.length === 1 ? 'y' : 'ies') + ' above the '
+    + cap.toLocaleString() + '-digit limit (' + mb.toFixed(1) + 'MB of digits).\n\n'
+    + 'Run on any machine with Python 3 — no server needed:\n\n'
+    + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt \\\n'
+    + '      -o fdb_results.json --limit 5\n\n'
+    + 'Start with --limit 5. That is enough to tell you whether these are reachable\n'
+    + 'at all, before committing to the full run. Then drop --limit and add --resume.\n\n'
+    + 'Bring the results back with "Import FDB results".');
+}
+
+// Import what fdb_check.py produced. Everything is routed through applyFdbResult,
+// the same path a live query uses, so status, factors, provenance and the stored
+// FactorDB id all behave exactly as an in-browser check would.
+async function importFDBResults(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); }
+  catch(e) { alert('Could not read that file as JSON: ' + e.message); return; }
+
+  let applied = 0, skipped = 0, notFound = 0, biggest = 0;
+  for (const [label, rec] of Object.entries(data)) {
+    const m = String(label).match(/^E?(\d+)$/);
+    if (!m) { skipped++; continue; }
+    const n = parseInt(m[1]);
+    const entry = allEntries.find(e => e.n === n);
+    if (!entry || !entry.val) { notFound++; continue; }
+    if (!rec || !rec.status) { skipped++; continue; }
+    try {
+      applyFdbResult({ status: rec.status, factors: rec.factors || [], id: rec.id }, n, entry.val);
+      applied++;
+      if (entry.val.length > biggest) biggest = entry.val.length;
+    } catch(e) { logSwallowed('importFDBResults/apply:' + n, e); skipped++; }
+  }
+  allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
+  markDirty();
+  addLog('Imported ' + applied + ' FactorDB results from fdb_check.py', 'ok');
+  alert('Imported ' + applied + ' result(s).'
+    + (biggest ? '\n\nLargest was ' + biggest.toLocaleString() + ' digits — '
+        + (biggest > currentQueryCap() ? 'past what the browser can reach.' : 'within browser range.') : '')
+    + (notFound ? '\n' + notFound + ' referred to entries not present here.' : '')
+    + (skipped ? '\n' + skipped + ' skipped (unreadable or no status).' : ''));
 }
 
 function downloadText(filename, text) {
