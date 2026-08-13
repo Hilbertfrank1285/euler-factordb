@@ -924,7 +924,20 @@ function labelFactor(f) {
 // never-sieved number has a factor below B is ~1 - e^(-gamma)/ln(B): 95.9% at 10^6,
 // 96.5% at 10^7, 97.0% at 10^8. Going to 10^7 buys 0.6 percentage points for 10x
 // the runtime.
-const SIEVE_LIMIT = 1000000;
+// Sieve bound. Variable, but hard-capped — the ceiling is set by generating the
+// primes, not by the tree. A simple Eratosthenes sieve needs one byte per integer,
+// so 10^8 already means a 95MB array plus ~46MB for the prime list; 10^9 would be
+// 1GB and 10^10 is not remotely possible in a browser. Measured per 50,000-digit
+// number: 10^6 -> 0.14s, 10^7 -> 1.5s, 10^8 -> 14.2s.
+//
+// The right way to use the higher bounds is STAGED, not as a single deep pass. The
+// figure that matters is conditional: of the numbers that survive a 10^6 sieve, 25%
+// still have a factor below 10^8. So sieve everything cheaply first, then re-sieve
+// only the ~4% of survivors deeply — about 2 hours for 10,000 entries, against 39
+// hours to run 10^8 over all of them for the same result.
+const SIEVE_LIMIT_DEFAULT = 1000000;
+const SIEVE_LIMIT_MAX = 100000000;
+let SIEVE_LIMIT = SIEVE_LIMIT_DEFAULT;
 // Cap on how large any single BigInt in the tree may get.
 //
 // The first version built ONE tree over all 78,498 primes, whose root is the full
@@ -938,7 +951,7 @@ const SIEVE_LIMIT = 1000000;
 // at 50,000) because the work is dominated by the lower levels either way — so
 // there is no reason to pick anything but a very conservative cap.
 const SIEVE_MAX_BIGINT_DIGITS = 4000;
-let _primeForest = null, _sievePrimes = null;
+let _primeForest = null, _sievePrimes = null, _forestLimit = null;
 
 function sievePrimesTo(n) {
   const mark = new Uint8Array(n + 1);
@@ -975,7 +988,10 @@ function _chunkPrimes(primes, maxDigits) {
   return chunks;
 }
 function ensurePrimeTree(maxDigits) {
-  if (_primeForest) return _primeForest;
+  // Keyed by the bound: without this, changing the limit would silently reuse the
+  // table built for the previous one and quietly sieve to the wrong depth.
+  if (_primeForest && _forestLimit === SIEVE_LIMIT) return _primeForest;
+  _primeForest = null;
   _sievePrimes = sievePrimesTo(SIEVE_LIMIT);
   let cap = maxDigits || SIEVE_MAX_BIGINT_DIGITS;
   // Defensive: if a browser refuses even this, halve and retry rather than failing
@@ -983,6 +999,7 @@ function ensurePrimeTree(maxDigits) {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       _primeForest = _chunkPrimes(_sievePrimes, cap).map(([a, b]) => buildPrimeTree(_sievePrimes, a, b));
+      _forestLimit = SIEVE_LIMIT;
       return _primeForest;
     } catch(e) {
       logSwallowed('ensurePrimeTree/cap' + cap, e);
@@ -1025,11 +1042,13 @@ function sieveSmallFactors(n) {
 // The first pass deliberately covers EVERYTHING anyway: at 0.13s per number that is
 // minutes, and it doubles as a correctness check. A 5-digit factor turning up in an
 // entry FactorDB calls fully factored would be a data bug worth knowing about.
-function sieveCandidates(onlyUnsearched) {
+function sieveCandidates(onlyUnsearched, nFrom, nTo) {
   const out = [];
   for (const e of allEntries) {
     if (!e || !e.val || e.val === '1') continue;
     if (e.status === 'full') continue;          // nothing left to find
+    if (nFrom != null && e.n < nFrom) continue;
+    if (nTo   != null && e.n > nTo)   continue;
     if (onlyUnsearched) {
       const rec = fdbCache[e.val];
       const fdbSeen = rec && ['FF','CF','C','P','PRP'].includes(rec.status);
@@ -1042,8 +1061,8 @@ function sieveCandidates(onlyUnsearched) {
 }
 
 // Scan without writing anything. Chunked so the tab stays responsive.
-async function runSmallPrimeSieve(onlyUnsearched, onProgress) {
-  const cands = sieveCandidates(onlyUnsearched);
+async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo) {
+  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo);
   ensurePrimeTree();
   const findings = [];
   let scanned = 0, skipped = 0;
@@ -2909,6 +2928,7 @@ function renderChangelog() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GH_SETTINGS_KEY = 'eulerFDB_ghSettings';
+const FDBW_KEY = 'eulerFDB_fdbUnknownWeight_v1';
 const GH_DATA_FILE    = 'results.json';
 const GH_ECM_FILE     = 'results_ecm.json'; // ECM/P±1 run logs, synced separately
 // results.json schema version. Bump when the on-disk format changes so old
@@ -4139,6 +4159,32 @@ async function exportNextRuns() {
     if (rangeMin > rangeMax) [rangeMin, rangeMax] = [rangeMax, rangeMin];
   }
 
+  // ── Priority for entries FactorDB has no record of ────────────────────────
+  // A factor found on one of these is worth more than the raw odds suggest: nobody
+  // else is looking at them, FactorDB has nothing to contribute, and your own ECM is
+  // the only thing that will ever move them. Entries FactorDB already knows may well
+  // be picked up by someone else's work, and a factor there is more likely to be
+  // rediscovery than discovery.
+  //
+  // That is a judgement about what the work is FOR, not something the probability
+  // model can express — so it is asked rather than assumed, and 1 (no preference)
+  // leaves the ranking exactly as it was.
+  const lastW = parseFloat(localStorage.getItem(FDBW_KEY)) || 1;
+  const wInput = prompt(
+    'Prioritise entries FactorDB has never seen?\n\n'
+    + 'These are numbers where your ECM is the only thing that will move them —\n'
+    + 'nothing else is working on them, and any factor found is genuinely new.\n\n'
+    + '  1    no preference — rank purely by odds per CPU-second\n'
+    + '  2    count them as twice as valuable\n'
+    + '  5    strong preference\n'
+    + '  0    exclude them entirely (work only on numbers FactorDB knows)\n\n'
+    + 'Any positive number works; it multiplies their ranking score.',
+    String(lastW));
+  if (wInput === null) return;
+  const FDB_WEIGHT = Math.max(0, parseFloat(wInput));
+  if (!isFinite(FDB_WEIGHT)) { alert('That is not a number.'); return; }
+  try { localStorage.setItem(FDBW_KEY, String(FDB_WEIGHT)); } catch(e) { logSwallowed('export/saveWeight', e); }
+
   const ecmData = loadECM();
   const runs = [];
 
@@ -4171,9 +4217,13 @@ async function exportNextRuns() {
       try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
       catch(_) { continue; }
       if (!recs || !recs.length) continue;
+      // FactorDB has no record of this number if it has never been processed —
+      // either explicitly flagged unknown, or simply never queried.
+      const _rec = fdbCache[e.val];
+      const fdbUnknown = !_rec || !['FF','CF','C','P','PRP'].includes(_rec.status);
       for (const r of recs) {
         runs.push({
-          n: e.n, entry: e, digits: runDigits,   // keep entry ref; resolve value lazily
+          n: e.n, entry: e, digits: runDigits, fdbUnknown,   // keep entry ref; resolve value lazily
           method: r.method, b1: r.b1, b2: r.b2, rawB1: r.rawB1, rawB2: r.rawB2,
           curves: r.curves, rawCurves: r.rawCurves,
           gain: parseFloat(r.gain) || 0, cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
@@ -4193,9 +4243,20 @@ async function exportNextRuns() {
   // Rank by EFFICIENCY — overall-odds gained per second of CPU — so the top CAP
   // are the best-value runs, not merely the quickest. Tiebreak by speed (faster
   // first) so equal-value runs still surface the cheaper one.
-  const eff = r => r.gain / Math.max(r.cpuTime, 1);
-  runs.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
-  const top = runs.slice(0, CAP);
+  //
+  // The FactorDB-unknown weight multiplies that score. It is applied to the RANKING
+  // only and never to the reported gain: the odds are what they are, and inflating
+  // them would corrupt every downstream figure (the CPU-per-find statistics, the
+  // export summary, the calibration) to express a preference. A weight of 0 drops
+  // those runs entirely rather than ranking them last, since 0 means "do not work
+  // on these" and leaving them at the bottom of a long list would not honour that.
+  const eff = r => (r.gain / Math.max(r.cpuTime, 1)) * (r.fdbUnknown ? FDB_WEIGHT : 1);
+  let ranked = runs;
+  if (FDB_WEIGHT === 0) ranked = runs.filter(r => !r.fdbUnknown);
+  if (!ranked.length) { alert('Excluding FactorDB-unknown entries leaves no runs to export.'); return; }
+  ranked.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
+  const top = ranked.slice(0, CAP);
+  const unknownCount = top.filter(r => r.fdbUnknown).length;
   const totalSec = top.reduce((s, r) => s + (r.cpuTime || 0), 0);
 
   // Now resolve the exact cofactor VALUE for just the top runs (BigInt division is
@@ -4510,7 +4571,14 @@ async function exportNextRuns() {
     : '';
   const msg = (multi
     ? 'Exported ' + top.length + ' runs across ' + totalCores + ' cores / ' + coresPerMachine.length + ' machine(s) → ' + filesToDownload.length + ' files'
-    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs' + ext + ' + ecm_runs_summary.txt') + rangeStr;
+    : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs' + ext + ' + ecm_runs_summary.txt') + rangeStr
+    // Report what the weighting actually did, so its effect is visible rather than
+    // silently folded into the ordering.
+    + (FDB_WEIGHT === 0
+        ? ' · FactorDB-unknown entries excluded'
+        : FDB_WEIGHT !== 1
+          ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has never seen (weighted ×' + FDB_WEIGHT + ')'
+          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has never seen' : ''));
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
@@ -8980,40 +9048,182 @@ async function runIntegrityFix() {
 // had, a bulk operation that silently rewrites factor lists is the last thing it
 // needs — so the scan is read-only and everything found is shown before anything is
 // applied. Each factor is re-verified against the entry at apply time as well.
+// Predict how long a sieve run will take, by MEASURING rather than extrapolating.
+//
+// The obvious approach — a constant seconds-per-number — is wrong by an order of
+// magnitude either way, because cost depends on the cofactor's size: measured here,
+// a 200-digit cofactor takes ~28ms and an 80,000-digit one ~270ms at the same bound.
+// Predicting from my own machine's constants would be wrong again, since the browser
+// and hardware differ.
+//
+// So it times a handful of real entries spanning the actual size range, fits
+// cost = A + B x digits to those samples, and applies the fit to every candidate.
+// Same principle as the ECM timing calibration: measure, don't assume.
+async function estimateSieveCost(cands, onProgress) {
+  const sizes = [];
+  for (const e of cands) {
+    let d = 0;
+    try { const cof = getCofactor(e); d = cof && cof.big > 1n ? cof.digits : 0; }
+    catch(err) { logSwallowed('estimateSieve/size', err); }
+    if (d > 0) sizes.push({ e, d });
+  }
+  if (!sizes.length) return { total: 0, samples: 0, buildMs: 0, sizes: 0 };
+
+  // Build the table first — that cost is real and has to be reported separately.
+  const t0 = Date.now();
+  ensurePrimeTree();
+  const buildMs = Date.now() - t0;
+  if (onProgress) onProgress('measuring');
+
+  // Sample across the size range rather than the first few, so the fit covers both
+  // ends. A run of similar-sized entries at the start would otherwise mislead badly.
+  const sorted = [...sizes].sort((a, b) => a.d - b.d);
+  const picks = [];
+  const nSamples = Math.min(5, sorted.length);
+  for (let i = 0; i < nSamples; i++) picks.push(sorted[Math.floor(i * (sorted.length - 1) / Math.max(nSamples - 1, 1))]);
+
+  const meas = [];
+  for (const p of picks) {
+    let target = null;
+    try { const cof = getCofactor(p.e); target = cof && cof.big > 1n ? cof.big : null; }
+    catch(err) { logSwallowed('estimateSieve/cof', err); }
+    if (!target) continue;
+    const s = performance.now();
+    try { sieveSmallFactors(target); } catch(err) { logSwallowed('estimateSieve/scan', err); continue; }
+    meas.push({ d: p.d, ms: performance.now() - s });
+    await new Promise(r => setTimeout(r, 0));
+  }
+  if (!meas.length) return { total: 0, samples: 0, buildMs, sizes: sizes.length };
+
+  // Least-squares fit of ms = A + B*digits. Falls back to a flat mean when the
+  // samples are all the same size (B would be undefined).
+  let A, B;
+  const n = meas.length;
+  const sx = meas.reduce((s, m) => s + m.d, 0), sy = meas.reduce((s, m) => s + m.ms, 0);
+  const sxx = meas.reduce((s, m) => s + m.d * m.d, 0), sxy = meas.reduce((s, m) => s + m.d * m.ms, 0);
+  const den = n * sxx - sx * sx;
+  if (n >= 2 && Math.abs(den) > 1e-9) { B = (n * sxy - sx * sy) / den; A = (sy - B * sx) / n; }
+  else { B = 0; A = sy / n; }
+  if (B < 0) { B = 0; A = sy / n; }   // a negative slope is noise, not signal
+
+  let total = 0;
+  for (const s of sizes) total += Math.max(1, A + B * s.d);
+  return { total: total / 1000, samples: meas.length, buildMs, sizes: sizes.length,
+           A, B, minD: sorted[0].d, maxD: sorted[sorted.length - 1].d };
+}
+
 async function showSievePrompt() {
   if (polling) { alert('Wait for the current poll to finish.'); return; }
-  const all = sieveCandidates(false).length;
-  const fresh = sieveCandidates(true).length;
-  const onlyUnsearched = !confirm(
-    'Sieve every prime below 1,000,000 out of the remaining cofactors.\n\n'
-    + 'OK      — scan all ' + all.toLocaleString() + ' unfinished entries (~' + Math.ceil(all * 0.13 / 60) + ' min)\n'
-    + 'Cancel  — scan only the ' + fresh.toLocaleString() + ' FactorDB has never processed (~' + Math.ceil(fresh * 0.13 / 60) + ' min)\n\n'
-    + 'FactorDB strips small factors from anything it has seen, so those entries are\n'
-    + 'usually already clean — but scanning them anyway doubles as a correctness check.\n\n'
-    + 'Nothing is written until you have seen what it found.');
+  const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
+  const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
+
+  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false;
+
+  // Settings loop: nothing runs until the estimate has been seen and accepted.
+  // The estimate is measured, not guessed, so it costs a few seconds to produce —
+  // which is why it is worth being able to adjust and re-measure rather than
+  // committing to a multi-hour run on a number from a formula.
+  while (true) {
+    const bRaw = prompt(
+      'Sieve bound — test every prime below this value.\n\n'
+      + '  1e6   default; catches ~96% of never-sieved numbers\n'
+      + '  1e7   ~10x slower\n'
+      + '  1e8   maximum (the prime table alone needs ~140MB)\n\n'
+      + 'Best used staged: sieve everything at 1e6, then re-run higher on just the\n'
+      + 'survivors. A quarter of numbers with no factor below 1e6 still have one below 1e8.',
+      String(bound));
+    if (bRaw === null) return;
+    bound = Math.floor(Number(bRaw));
+    if (!isFinite(bound) || bound < 100) { alert('Bound must be at least 100.'); continue; }
+    if (bound > SIEVE_LIMIT_MAX) {
+      alert('Capped at ' + SIEVE_LIMIT_MAX.toExponential(0) + '.\n\nBeyond this the prime table cannot be built in a '
+        + 'browser: a plain sieve needs one byte per integer, so 1e9 would be a 1GB array and 1e10 a 10GB one.');
+      bound = SIEVE_LIMIT_MAX;
+    }
+
+    const rRaw = prompt('Range of n — "from-to", or blank for all.\n\n'
+      + 'Available: E(' + loDef + ') to E(' + hiDef + ')\n'
+      + 'Examples:  14000-15000    or    500-    or    -2000', rangeStr);
+    if (rRaw === null) return;
+    rangeStr = rRaw;
+    nFrom = null; nTo = null;
+    if (rangeStr.trim()) {
+      const m = rangeStr.trim().match(/^(\d*)\s*-\s*(\d*)$/);
+      if (!m || (!m[1] && !m[2])) { alert('Could not read that range. Use "from-to", e.g. 14000-15000.'); continue; }
+      if (m[1]) nFrom = parseInt(m[1]);
+      if (m[2]) nTo = parseInt(m[2]);
+      if (nFrom != null && nTo != null && nFrom > nTo) { alert('"from" is larger than "to".'); continue; }
+    }
+
+    const all = sieveCandidates(false, nFrom, nTo);
+    const fresh = sieveCandidates(true, nFrom, nTo);
+    if (!all.length) { alert('No unfinished entries in that range.'); continue; }
+    onlyUnsearched = !confirm(
+      all.length.toLocaleString() + ' unfinished entries in range, '
+      + fresh.length.toLocaleString() + ' of which FactorDB has never processed.\n\n'
+      + 'OK      — sieve all ' + all.toLocaleString() + '\n'
+      + 'Cancel  — sieve only the ' + fresh.length.toLocaleString() + ' unprocessed ones');
+    const cands = onlyUnsearched ? fresh : all;
+    if (!cands.length) { alert('Nothing to sieve with that choice.'); continue; }
+
+    // Measure.
+    SIEVE_LIMIT = bound;
+    setStatus('Timing a sample to estimate the run…', '');
+    await new Promise(r => setTimeout(r, 30));
+    let est;
+    try { est = await estimateSieveCost(cands); }
+    catch(err) { setStatus('', ''); alert('Could not estimate: ' + err.message); continue; }
+    setStatus('', '');
+
+    const secs = est.total;
+    const pretty = secs < 90 ? Math.round(secs) + ' seconds'
+                 : secs < 5400 ? (secs / 60).toFixed(0) + ' minutes'
+                 : (secs / 3600).toFixed(1) + ' hours';
+    const go = confirm(
+      'ESTIMATE\n\n'
+      + '  entries      ' + cands.length.toLocaleString() + '\n'
+      + '  bound        ' + bound.toExponential(0) + '\n'
+      + '  cofactors    ' + est.minD.toLocaleString() + ' to ' + est.maxD.toLocaleString() + ' digits\n'
+      + '  prime table  ' + (est.buildMs / 1000).toFixed(1) + 's (already built)\n\n'
+      + '  scan time    ~' + pretty + '\n\n'
+      + 'Timed from ' + est.samples + ' real entries across the size range, so this reflects '
+      + 'your machine rather than an assumed speed.\n\n'
+      + 'OK      — run it\n'
+      + 'Cancel  — change the bound or range');
+    if (go) break;
+  }
 
   polling = true; cancelRequested = false;
   const cancelBtn = document.getElementById('cancelBtn');
   if (cancelBtn) { cancelBtn.style.display = 'flex'; cancelBtn.disabled = false; }
-  setStatus('Building prime table…', '');
-  await new Promise(r => setTimeout(r, 30));
 
+  const started = Date.now();
   let res;
   try {
-    res = await runSmallPrimeSieve(onlyUnsearched, (i, total, found) =>
-      setStatus('Sieving ' + i.toLocaleString() + '/' + total.toLocaleString() + ' — ' + found + ' with factors', ''));
+    res = await runSmallPrimeSieve(onlyUnsearched, (i, total, found) => {
+      const el = total ? (Date.now() - started) / i : 0;
+      const left = el > 0 ? Math.round((total - i) * el / 1000) : null;
+      setStatus('Sieving ' + i.toLocaleString() + '/' + total.toLocaleString()
+        + ' — ' + found + ' with factors'
+        + (left != null && i > 5 ? ' — ~' + (left > 90 ? Math.round(left / 60) + ' min' : left + 's') + ' left' : ''), '');
+    }, nFrom, nTo);
   } catch(err) {
-    polling = false; setStatus('', ''); alert('Sieve failed: ' + err.message); return;
+    polling = false; setStatus('', ''); if (cancelBtn) cancelBtn.style.display = 'none';
+    alert('Sieve failed: ' + err.message); return;
   }
   polling = false;
   if (cancelBtn) cancelBtn.style.display = 'none';
   setStatus('', '');
 
   const { findings, scanned, skipped } = res;
+  const took = (Date.now() - started) / 1000;
+  const tookTxt = took < 90 ? Math.round(took) + 's' : (took / 60).toFixed(1) + ' min';
   if (!findings.length) {
-    alert('Scanned ' + scanned.toLocaleString() + ' cofactor(s) — no factors below 1,000,000 found.\n\n'
+    alert('Scanned ' + scanned.toLocaleString() + ' cofactor(s) below ' + bound.toExponential(0)
+      + ' in ' + tookTxt + ' — nothing found.\n\n'
       + (skipped ? skipped.toLocaleString() + ' skipped (no remaining cofactor).\n\n' : '')
-      + 'That is the expected result for entries FactorDB has already processed.');
+      + 'These are now the candidates for a deeper pass: of the numbers with no factor below 1e6, '
+      + 'about a quarter still have one below 1e8.');
     return;
   }
   const totalFactors = findings.reduce((s, f) => s + f.hits.length, 0);
@@ -9025,8 +9235,9 @@ async function showSievePrompt() {
     <div class="modal-section">
       <div class="modal-section-label">${totalFactors} factor(s) across ${findings.length} entr${findings.length === 1 ? 'y' : 'ies'}</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:8px">
-        Scanned ${scanned.toLocaleString()} cofactor(s) against every prime below 1,000,000.
-        This is exhaustive, not probabilistic: any factor in that range is found with certainty.
+        Scanned ${scanned.toLocaleString()} cofactor(s) against every prime below ${bound.toExponential(0)} in ${tookTxt}.
+        Exhaustive, not probabilistic: any factor in that range is found with certainty.
+        The ${(scanned - findings.length).toLocaleString()} that came back clean are the ones worth a deeper pass.
       </div>
       <table style="width:100%;font-size:11px;border-collapse:collapse">${rows}</table>
       ${findings.length > 40 ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px">…and ${findings.length - 40} more</div>` : ''}
