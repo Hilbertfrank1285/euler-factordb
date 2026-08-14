@@ -5695,7 +5695,12 @@ function applyFdbResult(data, n, numberStr) {
       entry.cofactor = null;
       if (entry.status !== 'full' && entry.status !== 'partial') statusChanged = true;
       if (entry.status !== 'full') entry.status = 'partial';
-      entry._fdbVerified = true;
+      // NOT _fdbVerified. CF means "composite, partially factored" — FactorDB has
+      // looked at the number but has NOT declared its listed factors prime, and it
+      // may well be listing an unfactored cofactor among them. The flag is read as
+      // "every factor here is confirmed prime", so setting it on CF made partial
+      // results claim a confirmation FactorDB never gave.
+      entry._fdbVerified = false;
     } else if (status === 'C') {
       // Composite, no factors — only downgrade if we have nothing of our own
       if (entry.status !== 'full' && entry.status !== 'partial' && priorCount === 0) {
@@ -7126,8 +7131,18 @@ function openModal(n) {
   // Check both the full value AND any cofactor FDB result for FF confirmation
   const entryFDBByVal      = e.val    ? fdbCache[e.val]    : null;
   const entryFDBByCofactor = e._resolvedViaCofactor ? fdbCache[String(e._resolvedViaCofactor)] : null;
-  const allVerifiedPrime   = (entryFDBByVal      && entryFDBByVal.status      === 'FF') ||
-                             (entryFDBByCofactor  && entryFDBByCofactor.status === 'FF') ||
+  // "FactorDB says every listed factor is prime." Only an FF/P/PRP verdict supports
+  // that: FF means fully factored (so each factor is prime by definition), P and PRP
+  // mean the number itself is prime. CF explicitly does not — it is the partial
+  // case, and may include an unfactored cofactor in its list.
+  //
+  // Deliberately independent of which route produced the result: a small number
+  // checked by "Check all" and a large one that came back through the export →
+  // script → import loop both store the same cache status, so both land here the
+  // same way.
+  const _fdbVerdict = (entryFDBByVal && entryFDBByVal.status)
+                   || (entryFDBByCofactor && entryFDBByCofactor.status) || null;
+  const allVerifiedPrime   = ['FF', 'P', 'PRP'].includes(_fdbVerdict) ||
                              e._fdbVerified === true;
 
   let factorsHtml = '';
@@ -7161,14 +7176,22 @@ function openModal(n) {
           lbl = labelFactor(f);
         }
       }
-      // Distinguish HOW primality was established. Both are sound — FactorDB runs
-      // the same kind of probabilistic test — but "which did I learn this from" was
-      // a question the display could not answer, and conflating them hid the fact
-      // that a factor had never been checked at all.
+      // Has FACTORDB confirmed this factor is prime?
+      //
+      // Deliberately independent of HOW the result arrived. A small number checked
+      // by "Check all" and a large one that went out through the export → local
+      // script → import loop both end up calling applyFdbResult with the same
+      // arguments, so both leave the same cache state — and both must therefore
+      // produce the same tag. Anything else would make the offline loop look like a
+      // second-class path when it stores exactly the same information.
+      //
+      // Two ways FactorDB can establish it:
+      //   * the entry came back FF — every factor it listed is prime by definition
+      //   * this specific factor was queried and returned P or PRP
       const fdbConfirmed = allVerifiedPrime || !!(fdbCache[f] && ['P','PRP'].includes(fdbCache[f].status));
       const tag = lbl === 'prime'  ? (fdbConfirmed
-                    ? '<span class="prime-tag" title="Confirmed prime by FactorDB">PRIME · FDB</span>'
-                    : '<span class="prime-tag" title="Prime by Miller-Rabin here — not separately confirmed by FactorDB, though the test is equally sound">PRIME</span>')
+                    ? '<span class="prime-tag" style="color:var(--green)" title="FactorDB confirms this factor is prime">PRIME · FDB</span>'
+                    : '<span class="prime-tag" title="Prime by Miller-Rabin here, not confirmed by FactorDB. The test is equally sound — this is where the factor was established, not how strongly. These are the factors that go into an FDB submission export.">PRIME</span>')
                 : lbl === 'prp'    ? '<span class="prime-tag" style="color:var(--purple)">PRP</span>'
                 : lbl === 'composite' ? '<span class="composite-tag">COMPOSITE?</span>'
                 : '<span class="prime-tag">LARGE</span>';
@@ -7179,8 +7202,13 @@ function openModal(n) {
       // existed, in which case we say nothing rather than guess.
       let prov = null;
       try { prov = factorProvenance(n, f); } catch(err) { logSwallowed('modal/provenance', err); }
+      // Provenance answers a different question — who FOUND the factor, as opposed
+      // to who confirmed it prime. The FDB case is suppressed when the primality tag
+      // already says FDB, which was rendering "PRIME · FDB  FDB" on every
+      // FactorDB-supplied factor. YOURS is still worth showing alongside it: a factor
+      // you found by ECM that FactorDB has since confirmed is genuinely both.
       const provTag = prov === 'e' ? '<span class="prime-tag" style="color:var(--green)" title="Found by your own ECM/P±1 run">YOURS</span>'
-                    : prov === 'f' ? '<span class="prime-tag" style="color:var(--text-muted)" title="Supplied by FactorDB">FDB</span>'
+                    : (prov === 'f' && !fdbConfirmed) ? '<span class="prime-tag" style="color:var(--text-muted)" title="Supplied by FactorDB">FDB</span>'
                     : prov === 'm' ? '<span class="prime-tag" style="color:var(--text-muted)" title="Entered manually">MANUAL</span>'
                     : '';
       return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}<span class="fdb-arrow">↗</span></a>`;
