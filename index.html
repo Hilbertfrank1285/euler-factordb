@@ -1904,7 +1904,10 @@ const AUTO_INTERVAL   = 24 * 60 * 60 * 1000;
 const MANUAL_COOLDOWN = 0; // 10 seconds
 
 // Request spacing — be polite to FactorDB
-const REQUEST_DELAY_MS = 250;  // 250ms between requests
+// Halved rate (was 250ms). FactorDB is a free service run for the community and
+// there is no deadline on any of this work — a check that takes twice as long costs
+// nothing that matters, while the traffic it generates is someone else's bandwidth.
+const REQUEST_DELAY_MS = 500;  // 500ms between numbers = 2/sec at most
 let MAX_PER_SESSION    = 500;   // cap requests per manual session (user-adjustable)
 
 // Maximum number size (in digits) we attempt to auto-query on FactorDB. Above this
@@ -2415,7 +2418,7 @@ function timeoutForNumber(numStr) {
 //
 // Two fixes: a pause between route attempts, and a breaker that stops the whole run
 // after a run of total failures rather than grinding through thousands more.
-const FDB_ROUTE_DELAY_MS = 300;   // between route attempts within one number
+const FDB_ROUTE_DELAY_MS = 600;   // between route attempts within one number (was 300)
 const FDB_BREAKER_LIMIT  = 8;     // consecutive total failures before stopping
 let _fdbConsecutiveFails = 0;
 let _fdbBreakerTripped   = false;
