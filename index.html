@@ -2184,6 +2184,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushKvNow().catch(err => logSwallowed('visibilitychange/flush', err));
 });
 let cancelRequested = false;
+// Largest number successfully queried THIS session. Session-scoped on purpose: it
+// is the proof that the network is working right now, used to tell a size rejection
+// apart from an outage. A stored value from a previous session says nothing about
+// whether the connection is up.
+let _sessionMaxOkDigits = 0;
 let sortMode     = 'default'; // 'default' | 'diff-asc' | 'diff-desc'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5709,6 +5714,9 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
   const queue = targets.filter(t => isManual || needsDailyCheck(t.number, forceU));
   const total = noCap ? queue.length : Math.min(queue.length, MAX_PER_SESSION);
+  // Set when the circuit breaker aborts the run, so the completion message reports
+  // STOPPED rather than Done.
+  let breakerStopped = false;
 
   setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB — safe to switch tabs`);
   // Update title to show progress when tab is in background
