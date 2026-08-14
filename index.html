@@ -2396,8 +2396,44 @@ function timeoutForNumber(numStr) {
   return 90000;                     // 90s for very large
 }
 
+// ── Circuit breaker for FactorDB ─────────────────────────────────────────────
+// The per-number rate limit was the only throttle, and it left a bad failure mode:
+// one number can try up to seven routes (three for an id lookup, three for a query,
+// one POST), all fired back-to-back with no pause. On success the first route
+// returns and it costs one request — but on FAILURE all seven go out, so a failing
+// streak ran at ~28 requests/second rather than the 4/second the delay implies.
+//
+// The worst time for that is exactly when FactorDB is unwell: every request fails,
+// so every number costs the full seven, and the client hammers hardest precisely
+// when the server can least take it. That is backwards, and it is the kind of thing
+// that turns someone else's outage into a contribution to it.
+//
+// Two fixes: a pause between route attempts, and a breaker that stops the whole run
+// after a run of total failures rather than grinding through thousands more.
+const FDB_ROUTE_DELAY_MS = 300;   // between route attempts within one number
+const FDB_BREAKER_LIMIT  = 8;     // consecutive total failures before stopping
+let _fdbConsecutiveFails = 0;
+let _fdbBreakerTripped   = false;
+
+function noteFdbFailure() {
+  _fdbConsecutiveFails++;
+  if (_fdbConsecutiveFails >= FDB_BREAKER_LIMIT) _fdbBreakerTripped = true;
+  return _fdbBreakerTripped;
+}
+function noteFdbSuccess() { _fdbConsecutiveFails = 0; _fdbBreakerTripped = false; }
+function fdbBreakerOpen() { return _fdbBreakerTripped; }
+function resetFdbBreaker() { _fdbConsecutiveFails = 0; _fdbBreakerTripped = false; }
+
 async function queryFactorDB(numberStr, knownId) {
   if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
+
+  // Stop before generating any traffic at all. Once FactorDB has refused this many
+  // in a row it is down or refusing us, and continuing to ask can only make it worse.
+  if (fdbBreakerOpen()) {
+    throw new Error('Stopped contacting FactorDB after ' + FDB_BREAKER_LIMIT
+      + ' consecutive failures — it appears to be down or refusing requests. '
+      + 'Nothing further will be sent until a check succeeds again.');
+  }
 
   const timeout = timeoutForNumber(numberStr);
 
@@ -2420,6 +2456,7 @@ async function queryFactorDB(numberStr, knownId) {
         if (result && result.status) return result;
       } catch(e) {
         logSwallowed('queryFactorDB/byId', e);
+        await cancellableSleep(FDB_ROUTE_DELAY_MS);   // do not burst through routes
       }
     }
     // Fall through to a normal query if the id route didn't work — the id may be
@@ -2495,6 +2532,7 @@ async function queryFactorDB(numberStr, knownId) {
       const result = data.contents ? JSON.parse(data.contents) : data;
       if (!result.status) throw new Error('No status in response');
       noteQuerySuccess(numberStr.length); // this size demonstrably works
+      noteFdbSuccess();                   // the service is answering; reset the breaker
       // Session-scoped proof that the network is working. Needed below to tell a
       // size rejection apart from being offline.
       if (numberStr.length > _sessionMaxOkDigits) _sessionMaxOkDigits = numberStr.length;
@@ -2502,6 +2540,7 @@ async function queryFactorDB(numberStr, knownId) {
     } catch(e) {
       lastErr = e.message;
       logSwallowed('queryFactorDB/route', e);
+      await cancellableSleep(FDB_ROUTE_DELAY_MS);     // do not burst through routes
     }
   }
   if (sawSizeRejection) {
@@ -2537,6 +2576,11 @@ async function queryFactorDB(numberStr, knownId) {
       + _sessionMaxOkDigits.toLocaleString() + 'd succeeded moments ago — recorded as a size limit. '
       + 'Proxies reject an over-long request line by closing the connection rather than '
       + 'returning 414, so this is what that looks like.');
+  }
+  if (noteFdbFailure()) {
+    throw new Error('All routes failed for ' + numberStr.length + 'd, and that is '
+      + FDB_BREAKER_LIMIT + ' failures in a row — FactorDB looks down. Stopping so we '
+      + 'do not keep hammering it. Try again later.');
   }
   throw new Error('All query routes failed (' + numberStr.length + 'd number): ' + lastErr);
 }
@@ -5115,7 +5159,10 @@ async function processEcmLogText(text, sourceLabel) {
         let primes = null;
         try { primes = factorizeSmall(BigInt(f.value)); } catch(_) { primes = null; }
         let viaFdb = false;
-        if ((!primes || !primes.length)) {
+        if ((!primes || !primes.length) && !fdbBreakerOpen()) {
+          // Skip entirely once the breaker is open. The breaker already prevents the
+          // request, but continuing to call through logs a warning per composite —
+          // 200 identical lines that bury whatever the real problem was.
           if (fdbCompositeLookups > 0) await cancellableSleep(REQUEST_DELAY_MS); // be gentle with FDB's API
           fdbCompositeLookups++;
           setStatus('Checking FactorDB for an unresolved composite (' + f.value.length + 'd)…');
@@ -5785,6 +5832,13 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
 
     done++;
 
+    // Abandon the whole run once the breaker trips. Continuing would mean thousands
+    // more requests to a server that has already refused everything recently.
+    if (fdbBreakerOpen()) {
+      breakerStopped = true;
+      break;
+    }
+
     // Rate limit: wait between requests (cancellable)
     if (done < total && !cancelRequested) await cancellableSleep(REQUEST_DELAY_MS);
   }
@@ -5805,14 +5859,30 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB unknown`);
   const detailStr = details.length ? ' (' + details.join(', ') + ')' : '';
 
-  let msg = cancelRequested
-    ? `Cancelled — ${done} checked, ${updated} updated${detailStr} · ${errors} errors · ${total - done} not checked`
-    : `Done — ${done} checked, ${updated} updated${detailStr}${errors ? ' · ' + errors + ' errors' : ''}`;
-  if (!cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (cap)`;
+  // A run halted by the breaker must NOT report as "Done". The completion path used
+  // to overwrite the stop message with a bland success line, so a run that aborted
+  // after 8 numbers of 5,000 looked indistinguishable from one that finished — the
+  // one situation where the user most needs to know something is wrong.
+  let msg = breakerStopped
+    ? `STOPPED — FactorDB not responding (${FDB_BREAKER_LIMIT} failures in a row). ${done}/${total} checked, ${total - done} not attempted`
+    : cancelRequested
+      ? `Cancelled — ${done} checked, ${updated} updated${detailStr} · ${errors} errors · ${total - done} not checked`
+      : `Done — ${done} checked, ${updated} updated${detailStr}${errors ? ' · ' + errors + ' errors' : ''}`;
+  if (!breakerStopped && !cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (cap)`;
 
-  setStatus(msg, updated > 0 ? 'ok' : '');
-  addLog(msg, updated > 0 ? 'ok' : '');
-  if (updated > 0) maybeAutoPush();
+  setStatus(msg, breakerStopped ? 'err' : (updated > 0 ? 'ok' : ''));
+  addLog(msg, breakerStopped ? 'err' : (updated > 0 ? 'ok' : ''));
+  if (breakerStopped) {
+    // Unmissable, deliberately: silently stopping is how someone re-runs a poll
+    // against a struggling server without realising.
+    alert('Stopped contacting FactorDB.\n\n'
+      + FDB_BREAKER_LIMIT + ' queries in a row failed, so it appears to be down or refusing requests.\n\n'
+      + '  checked before stopping : ' + done + '\n'
+      + '  not attempted           : ' + (total - done) + '\n\n'
+      + 'Nothing further was sent. Wait for FactorDB to recover, then run the check '
+      + 'again — it will resume from where the data left off.');
+  }
+  if (updated > 0 && !breakerStopped) maybeAutoPush();
 
   const qi = document.getElementById('queueInfo'); if (qi) qi.style.display = 'none';
   const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
@@ -6143,6 +6213,10 @@ function setStatus(msg, cls = '') {
 }
 
 async function quickCheckFDB(n, btn) {
+  // A deliberate single-entry click is the natural way to test whether FactorDB is
+  // back. Clear the breaker so it is allowed — the cost is one number's requests,
+  // and if it fails the breaker simply re-arms.
+  resetFdbBreaker();
   if (polling) return;
   const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) return;
@@ -6478,6 +6552,9 @@ function startUnknownPoll() {
 }
 
 function startManualPoll() {
+  // A deliberate re-run is the natural way to test whether FactorDB has recovered,
+  // so clear the breaker. If it is still down it re-arms after 8 numbers.
+  resetFdbBreaker();
   if (polling) return;
   const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
   const wait = MANUAL_COOLDOWN - (Date.now() - last);
@@ -7152,6 +7229,10 @@ function openModal(n) {
 // One-off modal check for cofactor
 
 async function modalCheckFull(n) {
+  // A deliberate single-entry click is the natural way to test whether FactorDB is
+  // back. Clear the breaker so it is allowed — the cost is one number's requests,
+  // and if it fails the breaker simply re-arms.
+  resetFdbBreaker();
   const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) return;
 
