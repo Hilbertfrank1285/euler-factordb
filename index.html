@@ -904,14 +904,27 @@ function isProbablePrime(n, rounds = 20) {
   }
   return true;
 }
+// Ceiling on primality testing for display labels.
+//
+// This was 15 digits (10^15), a threshold left over from when the check was trial
+// division — where an unlucky semiprime meant tens of millions of BigInt operations
+// and a visibly frozen modal. The check is Miller-Rabin now, which settles a
+// 200-digit number in ~50ms, so the old cutoff was labelling perfectly testable
+// factors as "LARGE" and giving up. A 19-digit prime was shown as unknown despite
+// taking 5ms to confirm.
+//
+// Measured cost per test on an actual prime (the worst case, since composites bail
+// early): 50d ~7ms, 100d ~11ms, 200d ~49ms, 300d ~123ms. A modal shows perhaps
+// 10-20 factors, so 300 digits is a few hundred milliseconds in the worst case and
+// usually far less. Above it the label stays "LARGE" rather than risk a stall.
+const LABEL_PRIMALITY_MAX_DIGITS = 300;
 function labelFactor(f) {
   try {
-    const big = BigInt(f);
-    // Use isProbablePrime (Miller-Rabin) — deterministic for this range and vastly
-    // faster than trial division, which could take tens of millions of BigInt mod
-    // operations (and visibly freeze the modal) for an unlucky ~15-digit semiprime.
-    return big > 999999999999999n ? 'large' : (isProbablePrime(big) ? 'prime' : 'composite');
-  } catch { return 'large'; }
+    const s = String(f).split('^')[0];
+    if (s.length > LABEL_PRIMALITY_MAX_DIGITS) return 'large';
+    const big = BigInt(s);
+    return isProbablePrime(big) ? 'prime' : 'composite';
+  } catch(e) { logSwallowed('labelFactor', e); return 'large'; }
 }
 
 // Fully factor a small-ish integer into its prime factors. Trial-divides small
@@ -2524,9 +2537,39 @@ async function queryFactorDB(numberStr, knownId) {
   // allorigins handles longer URLs better than corsproxy for big numbers
   const proxyUrl2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(fdbApiUrl)}`;
 
+  // Skip routes whose URL cannot fit, rather than sending a request that is certain
+  // to be refused.
+  //
+  // The URL budget is ~65,536 bytes (2^16) and each route spends a different amount
+  // of it on its prefix: corsproxy 69 bytes, allorigins 78, direct 31. So the usable
+  // ceiling differs by route — 65,467 / 65,458 / 65,505 digits respectively.
+  //
+  // Trying them in a fixed order meant a 65,486-digit number sent TWO doomed proxy
+  // requests before reaching the direct one that could actually work. That is pure
+  // waste aimed at a free service, and it also made the failure look like a size
+  // limit when the direct route was still viable — a local run proved GET succeeds
+  // at 65,486 and 65,494 digits, so the wall was the proxy wrapper, not FactorDB.
+  const URL_BYTE_BUDGET = 65536;
+  const routes = [proxyUrl, proxyUrl2, fdbApiUrl].filter(u => u.length <= URL_BYTE_BUDGET);
+  if (!routes.length) {
+    // Even the shortest prefix does not fit; POST is the only remaining option.
+    try {
+      const viaPost = await tryPost();
+      noteQuerySuccess(numberStr.length);
+      noteFdbSuccess();
+      if (numberStr.length > _sessionMaxOkDigits) _sessionMaxOkDigits = numberStr.length;
+      return viaPost;
+    } catch(e) {
+      logSwallowed('queryFactorDB/postOnly', e);
+      noteQuerySizeFailure(numberStr.length);
+      throw new Error(numberStr.length + 'd exceeds what any URL can carry ('
+        + URL_BYTE_BUDGET.toLocaleString() + ' bytes), and POST failed too: ' + e.message);
+    }
+  }
+
   let lastErr = '';
   let sawSizeRejection = false;
-  for (const url of [proxyUrl, proxyUrl2, fdbApiUrl]) {
+  for (const url of routes) {
     try {
       const r = await fetchWithTimeout(url, timeout);
       // 414 (URI Too Long) and 413 (Payload Too Large) are unambiguous size
@@ -7118,7 +7161,14 @@ function openModal(n) {
           lbl = labelFactor(f);
         }
       }
-      const tag = lbl === 'prime'  ? '<span class="prime-tag">PRIME</span>'
+      // Distinguish HOW primality was established. Both are sound — FactorDB runs
+      // the same kind of probabilistic test — but "which did I learn this from" was
+      // a question the display could not answer, and conflating them hid the fact
+      // that a factor had never been checked at all.
+      const fdbConfirmed = allVerifiedPrime || !!(fdbCache[f] && ['P','PRP'].includes(fdbCache[f].status));
+      const tag = lbl === 'prime'  ? (fdbConfirmed
+                    ? '<span class="prime-tag" title="Confirmed prime by FactorDB">PRIME · FDB</span>'
+                    : '<span class="prime-tag" title="Prime by Miller-Rabin here — not separately confirmed by FactorDB, though the test is equally sound">PRIME</span>')
                 : lbl === 'prp'    ? '<span class="prime-tag" style="color:var(--purple)">PRP</span>'
                 : lbl === 'composite' ? '<span class="composite-tag">COMPOSITE?</span>'
                 : '<span class="prime-tag">LARGE</span>';
