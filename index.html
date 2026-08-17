@@ -87,6 +87,8 @@
   .header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
   /* ── FactorDB Status Bar ── */
+  /* Visual break between workflow groups in the toolbar. */
+  .bar-sep { width:1px; align-self:stretch; background:var(--border2); margin:0 4px; opacity:.7; }
   .factordb-bar {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
@@ -554,16 +556,66 @@
 </div>
 
 <!-- FactorDB status bar -->
+<!--
+  Grouped by WORKFLOW rather than by when each button happened to be added.
+  The previous order interleaved exports, imports, checks and destructive actions,
+  so the two halves of a round trip sat far apart while "Clear all local data" sat
+  between two routine exports. Reading order now follows the order things are used:
+  look at FactorDB -> run ECM -> handle numbers too large for the browser ->
+  verify -> maintain.
+-->
 <div class="factordb-bar">
 
-  <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
-    ↓ Export CSV
+  <!-- ── 1. Ask FactorDB ─────────────────────────────────────────────────── -->
+  <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border2);padding:6px 10px;background:var(--bg)">
+    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Range E(</label>
+    <input type="number" id="minNInput" value="0" min="0" step="2" onchange="applyRangeInputs();"
+      style="width:100px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
+    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
+    <input type="number" id="maxNInput" value="20000" min="2" step="2" onchange="applyRangeInputs();"
+      style="width:100px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
+    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border2);padding:4px 8px;background:var(--bg)">
+    <label style="font-size:10px;color:var(--text-muted);white-space:nowrap">Max requests</label>
+    <input type="number" id="maxRequestsInput" value="500" min="1" max="9999"
+      onchange="MAX_PER_SESSION = Math.max(1, parseInt(this.value)||500)"
+      style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
+  </div>
+
+  <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check all
   </button>
-  <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)" title="Generate a file to paste into factordb.com/report.php">
-    ↓ Export FDB submission
+  <button class="poll-btn" id="pollPartialBtn" onclick="startPartialPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check partially factored
   </button>
-  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)" title="Export the best-value recommended ECM/P-1 runs (odds gained per unit time) as GMP-ECM commands — asks how many">
-    ↓ Export runs
+  <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check no known factors
+  </button>
+  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check unknown
+  </button>
+  <button class="poll-btn" id="pollFdbUnknownBtn" onclick="startFdbUnknownPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check FDB unknown
+  </button>
+  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
+    <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
+      <span class="poll-icon">↻</span><span class="spinner">◌</span> Check old records (&gt;
+    </button><input type="number" id="staleDaysInput" value="31" min="1" max="365"
+      style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
+    days)
+  </span>
+  <button class="poll-btn" id="pollSubmittedBtn" onclick="startSubmittedPoll()" style="display:none;background:var(--surface2)"
+    title="Re-check every entry from your last FactorDB submission in one pass. Entries clear themselves once FactorDB confirms them.">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check submitted (<span class="submitted-count">0</span>)
+  </button>
+
+  <span class="bar-sep"></span>
+
+  <!-- ── 2. Run ECM: export work, import results ──────────────────────────── -->
+  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)"
+    title="Export the best-value recommended ECM/P±1 runs (odds gained per unit time) as GMP-ECM commands — asks how many, and whether to prioritise entries FactorDB has never seen">
+    ↓ Export ECM
   </button>
   <button class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
@@ -572,10 +624,12 @@
     style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations.">
     ↑ Import ECM results
   </button>
-  <button class="poll-btn" onclick="runFactorAudit()" style="background:var(--surface2)" title="Check that every stored factor actually divides its E(n)">
-    ✓ Audit factors
-  </button>
-  <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)" title="Export entries above the browser's 64KiB URL limit, for fdb_check.py to run against on any machine with Python">
+
+  <span class="bar-sep"></span>
+
+  <!-- ── 3. Numbers the browser cannot reach, and giving back ─────────────── -->
+  <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)"
+    title="Export entries above the browser's ~65,470-digit URL limit, for fdb_check.py to run against on any machine with Python">
     ↓ Export FDB check list
   </button>
   <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
@@ -585,86 +639,50 @@
     style="background:var(--surface2)" title="Load fdb_results.json produced by fdb_check.py">
     ↑ Import FDB results
   </button>
-  <input type="file" id="fdbResultsInput" accept=".json,application/json" style="display:none"
-    onchange="if(this.files.length) importFDBResults(this.files[0]); this.value='';">
-  <button class="poll-btn" onclick="showSievePromptGuarded()" style="background:var(--surface2)" title="Sieve every prime below 1,000,000 out of the remaining cofactors — exhaustive, and far cheaper than ECM at that range">
+  <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)"
+    title="Export your factors for submission to FactorDB — paste into factordb.com/report.php, or run fdb_submit.py">
+    ↑ Export FDB submission
+  </button>
+
+  <span class="bar-sep"></span>
+
+  <!-- ── 4. Find and verify, no network needed ────────────────────────────── -->
+  <button class="poll-btn" onclick="showSievePromptGuarded()" style="background:var(--surface2)"
+    title="Sieve every small prime out of the remaining cofactors — exhaustive, and far cheaper than ECM at that range">
     ⌗ Sieve small primes
   </button>
-  <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)" title="Scan every entry for self-contradictory factor data — no network needed">
+  <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)"
+    title="Scan every entry for self-contradictory factor data — no network needed">
     ⚕ Check data integrity
   </button>
-  <button class="poll-btn" onclick="clearAllLocalData()"
-    style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
-    title="Wipes all localStorage — ECM logs, FDB cache, factors. Cannot be undone.">
-    ⊗ Clear all local data
+  <button class="poll-btn" onclick="runFactorAudit()" style="background:var(--surface2)"
+    title="Check that every stored factor actually divides its E(n)">
+    ✓ Audit factors
   </button>
+  <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
+    ↓ Export CSV
+  </button>
+
+  <span class="bar-sep"></span>
+
+  <!-- ── 5. Destructive — deliberately last, away from routine actions ────── -->
   <button class="poll-btn" onclick="clearEulerValueCache().then(()=>setStatus('Value cache cleared — reload to re-download','ok'))"
     style="background:var(--surface2)"
     title="Clears the cached Euler values (IndexedDB). Use if the chunk files on GitHub were updated. They re-download on next load.">
     ⊗ Clear value cache
   </button>
+  <button class="poll-btn" onclick="clearAllLocalData()"
+    style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
+    title="Wipes all local data — ECM logs, FDB cache, factors. Cannot be undone.">
+    ⊗ Clear all local data
+  </button>
+
+  <input type="file" id="fdbResultsInput" accept=".json,application/json" style="display:none"
+    onchange="if(this.files.length) importFDBResults(this.files[0]); this.value='';">
+
   <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
   <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
-  <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">
-    ⊘ Cancel
-  </button>
-  <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border2);padding:6px 12px;background:var(--bg)">
-    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Range E(</label>
-    <input type="number" id="minNInput" value="0" min="0" step="2"
-      onchange="applyRangeInputs();"
-      style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
-    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">) – E(</label>
-    <input type="number" id="maxNInput" value="20000" min="2" step="2"
-      onchange="applyRangeInputs();"
-      style="width:120px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
-    <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
-  </div>
-  <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border2);padding:4px 8px;background:var(--bg)">
-    <label style="font-size:10px;color:var(--text-muted);white-space:nowrap">Max requests</label>
-    <input type="number" id="maxRequestsInput" value="500" min="1" max="9999"
-      onchange="MAX_PER_SESSION = Math.max(1, parseInt(this.value)||500)"
-      style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
-  </div>
-  <button class="poll-btn" id="pollPartialBtn" onclick="startPartialPoll()">
-    <span class="poll-icon">↻</span>
-    <span class="spinner">◌</span>
-    Check partially factored
-  </button>
-  <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
-    <span class="poll-icon">↻</span>
-    <span class="spinner">◌</span>
-    Check no known factors
-  </button>
-  <button class="poll-btn" id="pollFdbUnknownBtn" onclick="startFdbUnknownPoll()">
-    <span class="poll-icon">↻</span>
-    <span class="spinner">◌</span>
-    Check FDB unknown
-  </button>
-  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
-    <span class="poll-icon">↻</span>
-    <span class="spinner">◌</span>
-    Check unknown
-  </button>
-  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
-    <button class="poll-btn" id="pollSubmittedBtn" onclick="startSubmittedPoll()" style="display:none;background:var(--surface2)"
-      title="Re-check every entry from your last FactorDB submission in one pass, instead of opening each number. Entries clear themselves once FactorDB confirms them.">
-      <span class="poll-icon">↻</span>
-      <span class="spinner">◌</span>
-      Check submitted (<span class="submitted-count">0</span>)
-    </button>
-    <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
-      <span class="poll-icon">↻</span>
-      <span class="spinner">◌</span>
-      Check old records (&gt;
-    </button><input type="number" id="staleDaysInput" value="31" min="1" max="365"
-      style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
-    days)
-  </span>
-  <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
-    <span class="poll-icon">↻</span>
-    <span class="spinner">◌</span>
-    Check all
-  </button>
+  <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">⊘ Cancel</button>
 </div>
 <div class="poll-progress" id="pollProgress">
   <div class="poll-progress-inner" id="pollProgressInner" style="width:0%"></div>
