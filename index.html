@@ -1998,6 +1998,38 @@ function currentQueryCap() {
 // reflects what has actually been measured rather than this fixed floor.
 const QUERY_MAX_DIGITS = QUERY_FLOOR_DIGITS;
 
+// Largest size CONFIRMED to work from the browser. The other half of the pair
+// above, and the two must not be confused — conflating them has already produced
+// one real failure.
+//
+//   currentQueryCap()      what is still worth ATTEMPTING. Sits at the 500,000
+//                          sanity ceiling until a rejection has actually been
+//                          recorded, so it is optimistic on purpose: a number
+//                          should get a genuine try before being written off.
+//
+//   confirmedQueryDigits() what is KNOWN to work. Never optimistic. Everything
+//                          above it is unproven, and unproven is precisely the
+//                          territory fdb_check.py exists to cover.
+//
+// Use the cap to decide whether to try one query. Use this to decide whether a
+// whole batch belongs in the browser at all — because there the cost of being
+// wrong is a run of failures rather than one, and each failure is a wasted
+// 64 KiB request that a person is sitting and watching.
+//
+// Was inline in exportFDBCheckList, where the same expression also had a copy in
+// the test harness — so the rule existed three times and no test touched the real
+// one.
+function confirmedQueryDigits() {
+  const l = loadQueryLimits();
+  // A recorded rejection is the tighter and more direct bound: it was measured,
+  // not inferred from the last success.
+  if (l.minFail) return l.minFail - 1;
+  if (l.maxOk)   return l.maxOk;
+  // Nothing measured either way — no evidence anything is out of reach, so fall
+  // back to what we would be willing to attempt.
+  return currentQueryCap();
+}
+
 // Parse a B1/B2 bound that may be written as "3e6", "3000000", or "3,000,000".
 // Returns a Number (0 if blank/invalid). Used everywhere ECM/P±1 bounds are read.
 function parseB1(v) {
@@ -4260,43 +4292,88 @@ function reconcileSubmitted() {
   if (cleared) saveSubmitted(s);
   return { cleared, remaining: Object.keys(s).length };
 }
+// Pending submissions the BROWSER can re-check. Anything larger is not a failure
+// waiting to happen, it is a certainty: the number travels in the URL and the
+// request line is capped at 64 KiB, so a 75,000-digit entry cannot be asked about
+// from here at all. Queueing it produced a run of errors, moved the poll's failure
+// counters, and left the entry pending anyway.
+//
+// Those entries are not stranded — they are exactly what "Export FDB check list"
+// and fdb_check.py handle, and importing those results sets source 'fdb', which
+// clears them from the pending list through reconcileSubmitted() like any other
+// confirmation. So the two routes partition the pending list rather than overlap:
+// this button takes everything provably reachable, the script takes the rest.
+//
+// Gated on confirmedQueryDigits() rather than currentQueryCap() deliberately. The
+// cap is optimistic by design — it sits at the sanity ceiling until something has
+// actually been rejected — which is right when deciding to try ONE query and wrong
+// here, where being wrong means a batch of failures a person is sitting watching.
 function submittedTargets() {
   const s = loadSubmitted();
+  const limit = confirmedQueryDigits();
   const out = [];
+  let oversized = 0;
   for (const nStr of Object.keys(s)) {
     const e = entryByN(parseInt(nStr));
-    if (e && e.val) out.push({ n: e.n, number: e.val });
+    if (!e || !e.val) continue;
+    if (e.val.length <= confirmedQueryDigits()) out.push({ n: e.n, number: e.val });
+    else oversized++;
   }
-  return out;
+  return { targets: out, oversized, limit };
 }
 async function startSubmittedPoll() {
   if (polling) return;
   const before = reconcileSubmitted();   // clear anything already confirmed
-  const targets = submittedTargets();
+  const { targets, oversized, limit } = submittedTargets();
+
+  // Saying "nothing to check" while entries are still pending would be a lie, and
+  // the useful half of the answer is where they DO get checked.
+  const offlineNote = '\n\n' + oversized + ' pending entr' + (oversized === 1 ? 'y is' : 'ies are')
+    + ' above ' + limit.toLocaleString() + ' digits, which the browser cannot query — '
+    + 'the number travels in the URL and the request line is capped at 64 KiB.\n\n'
+    + 'Use "Export FDB check list", run fdb_check.py, then "Import FDB results". '
+    + 'That confirms them and clears them from this list too.';
+
   if (!targets.length) {
-    alert(before.cleared
-      ? before.cleared + ' submitted entr(y/ies) already confirmed by FactorDB — nothing left to check.'
-      : 'No pending submissions. Export a submission file first, paste it into FactorDB, then come back here.');
+    alert(oversized
+      ? 'Nothing here for the browser to check.' + offlineNote
+      : before.cleared
+        ? before.cleared + ' submitted entr(y/ies) already confirmed by FactorDB — nothing left to check.'
+        : 'No pending submissions. Export a submission file first, paste it into FactorDB, then come back here.');
     updateSubmittedBtn();
     return;
   }
-  addLog('Checking ' + targets.length + ' submitted entries against FactorDB', '');
+  addLog('Checking ' + targets.length + ' submitted entries against FactorDB'
+    + (oversized ? ' (' + oversized + ' too large for the browser — see fdb_check.py)' : ''), '');
   await runPollQueue(targets, true, document.getElementById('pollSubmittedBtn'), true, true);
   const after = reconcileSubmitted();
   updateSubmittedBtn();
-  const landed = targets.length - after.remaining;
+  // after.remaining counts everything still pending, including the oversized ones
+  // this pass never touched — so landed has to be measured against what was queued.
+  const stillPendingHere = submittedTargets().targets.length;
+  const landed = targets.length - stillPendingHere;
   alert('Checked ' + targets.length + ' submitted entr' + (targets.length === 1 ? 'y' : 'ies') + '.\n\n'
     + landed + ' now confirmed on FactorDB and cleared from the pending list.\n'
-    + after.remaining + ' still pending — FactorDB can take a while to process a submission, '
-    + 'so re-checking later usually resolves the rest.');
+    + stillPendingHere + ' still pending — FactorDB can take a while to process a submission, '
+    + 'so re-checking later usually resolves the rest.'
+    + (oversized ? offlineNote : ''));
 }
 function updateSubmittedBtn() {
   const btn = document.getElementById('pollSubmittedBtn');
   if (!btn) return;
-  const n = Object.keys(loadSubmitted()).length;
-  btn.style.display = n ? '' : 'none';
+  const pending = Object.keys(loadSubmitted()).length;
+  const { targets, oversized, limit } = submittedTargets();
+  // Visible while anything is pending, so oversized entries are not forgotten —
+  // but the count is what this button will actually do. A count that includes
+  // entries it cannot check never goes down, and invites clicking it again.
+  btn.style.display = pending ? '' : 'none';
   const label = btn.querySelector('.submitted-count');
-  if (label) label.textContent = n;
+  if (label) label.textContent = oversized ? targets.length + '/' + pending : String(targets.length);
+  btn.title = oversized
+    ? targets.length + ' of ' + pending + ' pending submissions are within the '
+      + limit.toLocaleString() + '-digit browser limit. The other ' + oversized
+      + ' need fdb_check.py — see "Export FDB check list".'
+    : 'Re-check the ' + targets.length + ' pending submission(s) against FactorDB';
 }
 
 function exportFDBSubmission() {
@@ -4925,10 +5002,7 @@ function exportFDBCheckList() {
   // is unproven, and unproven is exactly what this script is for. Entries between
   // maxOk and the true limit may well succeed — no harm, the script checks them too
   // and they are quick.
-  const cap = currentQueryCap();
-  const threshold = lim.minFail ? lim.minFail - 1
-                  : lim.maxOk   ? lim.maxOk
-                  : cap;
+  const threshold = confirmedQueryDigits();
   const tooBig = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length > threshold);
   if (!tooBig.length) {
     alert('Nothing to export — every unfinished entry is within '
