@@ -2149,6 +2149,60 @@ function buildEntries() {
   return entries;
 }
 
+// ── the n → entry index ──────────────────────────────────────────────────────
+// One shared lookup, replacing 22 separate `entryByN(n)`
+// scans and four hand-rolled local maps. Five of the scans sat inside loops over
+// the whole dataset, which is O(entries x records): the FDB import alone was
+// ~6,850 records x 10,001 entries.
+//
+// A STALE INDEX IS WORSE THAN A SLOW SCAN. It hands back an entry object that is
+// no longer the one in allEntries, so mutations land on an orphan and vanish at
+// the next render — silent, and exactly the failure mode this project keeps
+// having. So the index is never trusted on faith: every lookup first checks it
+// against the live array — identity, length, and the first and last elements —
+// and rebuilds if any of them moved. Four O(1) comparisons instead of a scan.
+//
+// That check IS the mechanism, not a backstop. buildEntries() was also rebuilding
+// the index eagerly for the array it returns, which reads like the obvious place
+// for it; a mutation removing that line left the whole suite green, because the
+// guard rebuilds on the next lookup regardless. It was duplication, so it is gone
+// and buildEntries knows nothing about the index.
+//
+// The alternative was an explicit invalidate() at every mutation site. That is
+// more discipline of the kind the buildEntries/replayFDBCache pair already
+// demands, and forgetting it would be silent rather than loud.
+let _entryIndex      = new Map();
+let _entryIndexFrom  = null;   // the array the index was built from
+let _entryIndexLen   = -1;
+let _entryIndexFirst = null;
+let _entryIndexLast  = null;
+
+function rebuildEntryIndex(list) {
+  const arr = list || allEntries || [];
+  const m = new Map();
+  // First occurrence wins, exactly like Array.prototype.find, so this is a drop-in
+  // replacement even if a duplicate n ever appears.
+  for (const e of arr) if (e && !m.has(e.n)) m.set(e.n, e);
+  _entryIndex      = m;
+  _entryIndexFrom  = arr;
+  _entryIndexLen   = arr.length;
+  _entryIndexFirst = arr.length ? arr[0] : null;
+  _entryIndexLast  = arr.length ? arr[arr.length - 1] : null;
+  return m;
+}
+
+// Returns undefined when there is no entry for n — same as the .find() it replaces.
+function entryByN(n) {
+  const arr = allEntries || [];
+  if (_entryIndexFrom !== arr
+      || _entryIndexLen !== arr.length
+      || _entryIndexFirst !== (arr.length ? arr[0] : null)
+      || _entryIndexLast !== (arr.length ? arr[arr.length - 1] : null)) {
+    rebuildEntryIndex(arr);
+  }
+  return _entryIndex.get(n);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2247,14 +2301,14 @@ function replayFDBCache() {
   if (migrated) { saveFDBCache(fdbCache); console.log('Migrated: stripped ^1 from cached factors'); }
 
   let restored = 0;
-  // Index entries by n once, so we don't do allEntries.find() inside the cache loop
-  // (that was O(cache × entries) — slow when both are large).
-  const byN = new Map();
-  for (const e of allEntries) byN.set(e.n, e);
+  // entryByN is the shared index. This used to build its own local copy — the
+  // comment here read "index entries by n once, so we don't do allEntries.find()
+  // inside the cache loop", and three other functions had independently reached
+  // the same conclusion and written the same four lines.
   for (const [number, cached] of Object.entries(fdbCache)) {
     const { status, factors, n } = cached;
     if (n == null) continue;
-    const entry = byN.get(n);
+    const entry = entryByN(n);
     if (!entry) continue;
 
     // If this was a cofactor lookup and it resolved
@@ -3513,6 +3567,85 @@ function buildSyncPayload() {
   };
 }
 
+// Combine two cached FactorDB records for the SAME number, held by two devices.
+//
+// Factors are monotone knowledge: a prime that divides E(n) divides it forever, so
+// a factor list is never wrong for being old — only for being incomplete. Both
+// sides' factors are therefore ALWAYS kept, whichever side is newer. Only the
+// metadata that can genuinely go stale — status, source, fdbId, timestamp — is
+// decided by which record is more recent.
+//
+// This used to be asymmetric, and that was a silent data-loss bug. The local-wins
+// branch took the union (with a comment about repairing truncated data); the
+// remote-wins branch replaced the record wholesale. Two machines doing ordinary
+// work hit it constantly: A finds a factor by ECM, B re-checks the same entry on
+// FactorDB afterwards and pushes, A pulls — and A's factor is gone, with A's next
+// push propagating the loss to everyone. Nothing announced it; the entry simply
+// read as less-factored than it was, and the app would go on to re-spend the CPU
+// that found it. Same shape as the saveFDBCache truncation: real work destroyed by
+// a path that had a good reason for what it was doing.
+//
+// A timestamp must never be able to remove a factor. That is the whole rule.
+function mergeFactorRecords(local, remote) {
+  const lTs = Number(local && local.timestamp) || 0;
+  const rTs = Number(remote && remote.timestamp) || 0;
+  const remoteNewer = rTs > lTs;
+  const newer = remoteNewer ? remote : local;
+  const older = remoteNewer ? local : remote;
+
+  const clean = (rec) => ((rec && rec.factors) || []).filter(f => f && f !== '1');
+  // collapseFactorPowers, not a bare Set: one side may hold "5" where the other
+  // holds "5^2". Those are the same prime at different precision, and keeping both
+  // makes the product overshoot E(n) — which reads downstream as a corrupt entry
+  // and, worse, exports to FactorDB as N=5*5*5, a claim that is simply false.
+  const union = sortFactorsAsc(collapseFactorPowers([...clean(local), ...clean(remote)]));
+
+  // A "fully factored" verdict is a claim about ONE SPECIFIC factor list — the one
+  // that multiplied back to E(n) when it was checked (applyFdbResult only caches
+  // FF/P/PRP after proving that product). If the union is larger than what a side
+  // held, that side was not looking at the whole number, so its verdict cannot be
+  // carried across. Asserting a completeness claim the current list does not
+  // support is exactly the state the integrity scan exists to clean up, and
+  // replayFDBCache promotes a cached FF straight to 'full' without re-checking the
+  // arithmetic — so a wrong one here becomes a wrong entry on every device.
+  const RESOLVED = ['FF', 'P', 'PRP'];
+  const stillProves = (rec) => RESOLVED.includes(rec && rec.status)
+    && collapseFactorPowers(clean(rec)).length === union.length;
+
+  let status;
+  if (stillProves(newer))      status = newer.status;      // its proof survives the union
+  else if (stillProves(older)) status = older.status;      // arithmetic does not expire
+  else if (RESOLVED.includes(newer && newer.status) || RESOLVED.includes(older && older.status))
+    status = 'CF';                                         // the union outgrew a completeness claim
+  else status = (newer && newer.status) || (older && older.status) || null;
+
+  // 'fdb' means FactorDB already holds everything we do — it is what makes the
+  // submission export SKIP an entry. If the union added anything to the side that
+  // claimed it, that is no longer true, and leaving it would quietly suppress
+  // submitting factors FactorDB does not have.
+  const claimant = (newer && newer.source) ? newer : older;
+  const source = (claimant && claimant.source === 'fdb'
+                  && collapseFactorPowers(clean(claimant)).length !== union.length)
+    ? 'import'
+    : ((newer && newer.source) || (older && older.source) || null);
+
+  return {
+    ...older,
+    ...newer,
+    // The two spreads above are what preserve an fdbId held by only one side: a
+    // spread adds keys, it never deletes them, so the older record's id survives a
+    // newer record that lacks one. (An explicit fdbId line here was pure
+    // duplication — a mutation that deleted it left every assertion green.)
+    ...(union.length ? { factors: union } : {}),
+    status,
+    source,
+    // "When did we last learn something about this entry" — so a re-pull of the
+    // same remote is a no-op rather than flip-flopping the winner.
+    timestamp: Math.max(lTs, rTs) || (newer && newer.timestamp) || (older && older.timestamp),
+    n: (newer && newer.n != null) ? newer.n : (older && older.n),
+  };
+}
+
 // Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
 function mergeSyncPayload(remote) {
   // Schema version check — warn (don't crash) if the remote file predates the
@@ -3537,31 +3670,22 @@ function mergeSyncPayload(remote) {
     else remoteCache[k] = entry; // fallback
   }
   const merged = { ...localCache };
-  let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0 };
+  let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0, factorsGained: 0 };
   for (const [k, v] of Object.entries(remoteCache)) {
-    const localTs  = Number(merged[k]?.timestamp) || 0;
-    const remoteTs = Number(v.timestamp) || 0;
     if (!merged[k]) {
       merged[k] = v;
       mergeStats.remoteAdded++;
-    } else if (remoteTs > localTs) {
-      merged[k] = v;
-      mergeStats.remoteWins++;
-    } else {
-      // Local wins on timestamp — but reconcile factors with remote
-      // Take the UNION of both factor lists (more complete wins, fixes truncated local data)
-      const localF  = merged[k].factors || [];
-      const remoteF = v.factors || [];
-      if (remoteF.length) {
-        const union = [...new Set([...localF, ...remoteF].map(String))];
-        merged[k] = { ...merged[k], factors: union };
-        // If remote is FF/CF and has more factors, prefer remote status too
-        if (remoteF.length > localF.length && ['FF','CF','P','PRP'].includes(v.status)) {
-          merged[k].status = v.status;
-        }
-      }
-      mergeStats.localWins++;
+      continue;
     }
+    // Both sides know this number. mergeFactorRecords keeps every factor either
+    // side holds regardless of which is newer — the timestamp decides only the
+    // metadata. Whichever "wins" is a reporting detail now, not a data decision.
+    const before = (merged[k].factors || []).length;
+    const localTs  = Number(merged[k].timestamp) || 0;
+    const remoteTs = Number(v.timestamp) || 0;
+    merged[k] = mergeFactorRecords(merged[k], v);
+    if ((merged[k].factors || []).length > before) mergeStats.factorsGained++;
+    if (remoteTs > localTs) mergeStats.remoteWins++; else mergeStats.localWins++;
   }
   console.log('FDB merge:', mergeStats);
   // Populate fdbFactors and record per-factor FDB provenance from pulled data
@@ -3909,7 +4033,7 @@ function jumpToN(n) {
   if (isNaN(n) || n < 0) return;
   // Round to nearest even (Euler numbers are E(0), E(2), E(4)...)
   if (n % 2 !== 0) n = n % 2 === 1 ? n - 1 : n;
-  const entry = allEntries.find(e => e.n === n);
+  const entry = entryByN(n);
   if (!entry) {
     // Find closest entry
     const closest = allEntries.reduce((best, e) => Math.abs(e.n - n) < Math.abs(best.n - n) ? e : best, allEntries[0]);
@@ -4128,7 +4252,7 @@ function reconcileSubmitted() {
   const s = loadSubmitted();
   let cleared = 0;
   for (const nStr of Object.keys(s)) {
-    const e = allEntries.find(x => x.n === parseInt(nStr));
+    const e = entryByN(parseInt(nStr));
     if (!e) { delete s[nStr]; cleared++; continue; }
     const rec = fdbCache[e.val];
     if (rec && rec.source === 'fdb') { delete s[nStr]; cleared++; }
@@ -4140,7 +4264,7 @@ function submittedTargets() {
   const s = loadSubmitted();
   const out = [];
   for (const nStr of Object.keys(s)) {
-    const e = allEntries.find(x => x.n === parseInt(nStr));
+    const e = entryByN(parseInt(nStr));
     if (e && e.val) out.push({ n: e.n, number: e.val });
   }
   return out;
@@ -4848,7 +4972,7 @@ async function importFDBResults(file) {
     const m = String(label).match(/^E?(\d+)$/);
     if (!m) { skipped++; continue; }
     const n = parseInt(m[1]);
-    const entry = allEntries.find(e => e.n === n);
+    const entry = entryByN(n);
     if (!entry || !entry.val) { notFound++; continue; }
     if (!rec || !rec.status) { skipped++; continue; }
     try {
@@ -5072,7 +5196,7 @@ async function processEcmLogText(text, sourceLabel) {
 
   // helper to get/make a live entry for an n (may be outside current range)
   const entryForN = (n) => {
-    let e = allEntries.find(x => x.n === n);
+    let e = entryByN(n);
     if (!e) e = { n, val: eulerValues[n] || null, status: factoData[n]?.status || 'unknown', factors: (factoData[n]?.factors || []).slice() };
     return e;
   };
@@ -5574,30 +5698,17 @@ function applyFdbResult(data, n, numberStr) {
     fdbPrimes = fdbPrimes.filter(f => String(f).split('^')[0] !== String(numberStr));
   }
 
-  const entry = allEntries.find(x => x.n === n);
+  const entry = entryByN(n);
   const priorEntryStatus = entry ? entry.status : null;
   const priorOwn = (entry?.factors || []).filter(f => f && f !== '1');
   const priorCount = priorOwn.length;
 
-  // Parse a factor string into { base, exp }. "5" → {5,1}; "5^2" → {5,2}.
-  const parsePow = (f) => {
-    const s = String(f);
-    const m = /^(\d+)\^(\d+)$/.exec(s);
-    if (m) return { base: m[1], exp: parseInt(m[2]) };
-    return { base: s, exp: 1 };
-  };
-  // Collapse a factor list so each prime base appears once at its HIGHEST power.
-  // e.g. ["5","5^2","53"] → ["5^2","53"]. "5" and "5^2" are the same prime;
-  // FactorDB's higher-power form wins (more informative, and avoids a false
-  // "we have a factor FDB lacks" that would pin source to 'import').
-  const collapsePowers = (list) => {
-    const maxExp = new Map();
-    for (const f of list) {
-      const { base, exp } = parsePow(f);
-      if (!maxExp.has(base) || exp > maxExp.get(base)) maxExp.set(base, exp);
-    }
-    return [...maxExp.entries()].map(([base, exp]) => exp === 1 ? base : `${base}^${exp}`);
-  };
+  // parseFactorPower / collapseFactorPowers are top-level (see there). They used to
+  // be defined here, which meant every other site that needed the same rule wrote
+  // its own — including the sync merge, which had none and so could combine "5" and
+  // "5^2" into both. "5" and "5^2" are the same prime; the higher-power form wins
+  // (more informative, and avoids a false "we have a factor FDB lacks" that would
+  // pin source to 'import').
 
   // Reject anything that doesn't divide the entry's value. FactorDB answers about
   // whichever number was queried — and for a partial entry that is the COFACTOR,
@@ -5614,7 +5725,7 @@ function applyFdbResult(data, n, numberStr) {
   }
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
-  const merged = sortFactorsAsc(dedupeCompositeFactors(collapsePowers([...priorOwn, ...fdbPrimes])));
+  const merged = sortFactorsAsc(dedupeCompositeFactors(collapseFactorPowers([...priorOwn, ...fdbPrimes])));
 
   // Per-factor provenance. Only factors FDB actually contributed are attributed
   // to it — recordDiscovery() keeps the FIRST attribution for a given (n, factor),
@@ -5629,11 +5740,11 @@ function applyFdbResult(data, n, numberStr) {
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
   const fdbMaxExp = new Map();
   for (const f of fdbPrimes) {
-    const { base, exp } = parsePow(f);
+    const { base, exp } = parseFactorPower(f);
     if (!fdbMaxExp.has(base) || exp > fdbMaxExp.get(base)) fdbMaxExp.set(base, exp);
   }
   const source = merged.every(f => {
-    const { base, exp } = parsePow(f);
+    const { base, exp } = parseFactorPower(f);
     return fdbMaxExp.has(base) && fdbMaxExp.get(base) >= exp;
   }) ? 'fdb' : 'import';
 
@@ -5745,10 +5856,6 @@ function applyFdbResult(data, n, numberStr) {
     }
   }
 
-  // Clear seed-new flag if FDB now fully covers the entry
-  if (source === 'fdb' && merged.length > 0) {
-  }
-
   if (numberStr) saveFDBCache(fdbCache);
 
   return {
@@ -5832,7 +5939,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       const r = applyFdbResult(data, target.n, target.number);
       const status = r.status;
       const primeFactors = r.factors;
-      const entry = allEntries.find(x => x.n === target.n);
+      const entry = entryByN(target.n);
 
       // Log what FDB returned
       addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${primeFactors.length} factor(s)${primeFactors.length ? ': '+primeFactors.slice(0,3).join(' × ')+(primeFactors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
@@ -5845,7 +5952,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       }
 
       // Tally detailed stats per entry
-      const entryNow = allEntries.find(x => x.n === target.n);
+      const entryNow = entryByN(target.n);
       if (entryNow) {
         // If the snapshot fields are missing (e.g. allEntries got rebuilt mid-poll
         // by a concurrent import/pull, replacing entry objects), default to "no
@@ -5889,7 +5996,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         err.message?.includes('Non-numeric') || err.message?.includes('too large');
       if (isQueryError) {
         errors++;
-        const failEntry = allEntries.find(e => e.n === target.n);
+        const failEntry = entryByN(target.n);
         if (failEntry && failEntry.status === 'unknown') {
           failEntry.status = 'fdb-unknown';
           fdbCache[target.number] = { status: 'U', timestamp: Date.now(), n: target.n };
@@ -6045,11 +6152,10 @@ function computeYieldByLevel() {
   };
 
   const ecmD = loadECM();
-  const byN = new Map(allEntries.map(e => [e.n, e]));
 
   // ── Effort ──
   for (const [nStr, attempts] of Object.entries(ecmD || {})) {
-    const e = byN.get(parseInt(nStr));
+    const e = entryByN(parseInt(nStr));
     const cofDig = e ? getCofactorDigits(e) : null;
     for (const a of (attempts || [])) {
       if (!a || !a.b1) continue;
@@ -6295,7 +6401,7 @@ async function quickCheckFDB(n, btn) {
   // and if it fails the breaker simply re-arms.
   resetFdbBreaker();
   if (polling) return;
-  const e = allEntries.find(x => x.n === n);
+  const e = entryByN(n);
   if (!e || !e.val) return;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
@@ -6329,6 +6435,33 @@ function parseFactorExpr(s) {
   const mul = s.match(/^(\d+)\*(\d+)$/);
   if (mul) return { value: BigInt(mul[1]) * BigInt(mul[2]), display: String(BigInt(mul[1]) * BigInt(mul[2])) };
   throw new Error('Unsupported expression — use digits, base^exp, or base*mult');
+}
+
+// Parse a factor string into { base, exp }. "5" → {5,1}; "5^2" → {5,2}.
+function parseFactorPower(f) {
+  const s = String(f);
+  const m = /^(\d+)\^(\d+)$/.exec(s);
+  if (m) return { base: m[1], exp: parseInt(m[2]) };
+  return { base: s, exp: 1 };
+}
+
+// Collapse a factor list so each prime base appears once at its HIGHEST power.
+// e.g. ["5","5^2","53"] → ["5^2","53"].
+//
+// MAX, not sum. This is for combining what two SOURCES know about the same
+// number: "5" and "5^2" are the same prime reported at different precision, so
+// the more informative one wins. Summing them would claim 5^3 divides — a factor
+// that does not, which is the one thing that must never be written.
+//
+// Note there is a separate collapse in fixIntegrityIssues that deliberately SUMS
+// exponents; see the comment there. The two are not interchangeable.
+function collapseFactorPowers(list) {
+  const maxExp = new Map();
+  for (const f of (list || [])) {
+    const { base, exp } = parseFactorPower(f);
+    if (!maxExp.has(base) || exp > maxExp.get(base)) maxExp.set(base, exp);
+  }
+  return [...maxExp.entries()].map(([base, exp]) => exp === 1 ? base : `${base}^${exp}`);
 }
 
 // Canonical factor ordering — ascending by numeric value (handles "5^3" style
@@ -6399,7 +6532,7 @@ async function verifyAndAddFactor(n) {
   const raw = input.value.trim();
   if (!raw) { msg.innerHTML = '<span style="color:var(--red)">⚠ Enter a factor</span>'; return; }
 
-  const e = allEntries.find(x => x.n === n);
+  const e = entryByN(n);
   if (!e || !e.val) {
     msg.innerHTML = '<span style="color:var(--red)">⚠ Euler value not loaded</span>'; return;
   }
@@ -6480,7 +6613,7 @@ async function verifyAndAddFactor(n) {
 }
 
 function markFactorsFdbConfirmed(n) {
-  const entry = allEntries.find(e => e.n === n);
+  const entry = entryByN(n);
   if (!entry || !entry.val) return;
   const factors = (entry.factors || []).filter(f => f && f !== '1');
   if (!factors.length) {
@@ -6506,7 +6639,7 @@ function markFactorsFdbConfirmed(n) {
 }
 
 function markAsFdbUnknown(n) {
-  const entry = allEntries.find(e => e.n === n);
+  const entry = entryByN(n);
   if (!entry || !entry.val) return;
   // Store U status in fdbCache with current timestamp
   fdbCache[entry.val] = { status: 'U', timestamp: Date.now(), n };
@@ -7033,12 +7166,9 @@ function invalidateCpuTotal() { _cpuTotalCache = null; }
 function computeTotalCpuSec() {
   if (_cpuTotalCache !== null) return _cpuTotalCache;
   const ecmD = loadECM();
-  // Build an n→entry map once (avoids O(n²) allEntries.find inside the loop)
-  const byN = new Map();
-  for (const e of allEntries) byN.set(e.n, e);
   let total = 0;
   for (const [nStr, attempts] of Object.entries(ecmD)) {
-    const entry = byN.get(parseInt(nStr));
+    const entry = entryByN(parseInt(nStr));
     const digits = entry ? getCofactorDigits(entry) : null;
     if (!digits) continue;
     for (const a of attempts) {
@@ -7130,7 +7260,7 @@ function goPage(p) {
 // MODAL
 // ─────────────────────────────────────────────────────────────────────────────
 function openModal(n) {
-  const e = allEntries.find(x => x.n === n);
+  const e = entryByN(n);
   if (!e) return;
   document.getElementById('modalTitle').textContent = `E(${n})`;
 
@@ -7244,16 +7374,24 @@ function openModal(n) {
   // Value — store in a global map to avoid attribute escaping issues with large numbers
   window._eulerValMap = window._eulerValMap || {};
   window._eulerValMap[n] = e.val || '';
+  // `let`, because this was an undeclared assignment writing to a global that
+  // outlived the modal. Declaring it is also what made the bug below visible.
+  let valueHtml = '';
   // If eulerValues not yet loaded for this entry, show loading state
   if (!e.val && Object.keys(eulerValues).length === 0) {
     valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value</div><div class="value-box" style="color:var(--text-muted)">Loading…</div></div>';
   }
   const valCopyId = 'vc_' + n;
-  valueHtml = e.val ? ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
+  // Guarded rather than unconditional. This used to be `valueHtml = e.val ? (...)
+  // : ''`, which always ran and overwrote the loading message with an empty string
+  // three lines after setting it — so the loading state was dead code that could
+  // never render. Only visible once the variable was declared and both writes
+  // could be read as one flow.
+  if (e.val) valueHtml = ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
     + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
     + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>'
-    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>')
-    : '';  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
+    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>');
+  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
   let unknownFdbHtml = '';
@@ -7340,7 +7478,7 @@ async function modalCheckFull(n) {
   // back. Clear the breaker so it is allowed — the cost is one number's requests,
   // and if it fails the breaker simply re-arms.
   resetFdbBreaker();
-  const e = allEntries.find(x => x.n === n);
+  const e = entryByN(n);
   if (!e || !e.val) return;
 
   // Show loading state on the button
@@ -8567,6 +8705,21 @@ function getBulkTargets() {
   const fromN  = from % 2 === 0 ? from : from + 1;
   const toN    = to   % 2 === 0 ? to   : to - 1;
 
+  // Both of these were referenced below as bare globals, evidently copied from
+  // applyFilters' own filter body without bringing its locals along.
+  //
+  // `ecmData` has no binding anywhere outside applyFilters, so selecting the
+  // 'attempted' filter here threw a ReferenceError and the panel produced nothing
+  // — the §7 bug class again (used but never declared, live error, invisible to
+  // `node --check` and to every test, because nothing exercises this panel).
+  //
+  // `_fdbCacheByN` did resolve, but only because applyFilters assigns it to
+  // `window` on every render, so this worked purely by render order. Building it
+  // here makes the dependency explicit rather than inherited.
+  const ecmData = loadECM();
+  const fdbByN = {};
+  for (const v of Object.values(fdbCache)) if (v && v.n != null) fdbByN[v.n] = v;
+
   return allEntries.filter(e => {
     if (e.n < fromN || e.n > toN) return false;
     if (filter === 'all')        return true;
@@ -8576,7 +8729,7 @@ function getBulkTargets() {
       // Check if fully factored — look at both e.status AND fdbCache
       if (e.status === 'full') return false;
       // Also check fdbCache directly by n (in case e.status wasn't updated yet)
-      const fdbEntry = _fdbCacheByN[e.n];
+      const fdbEntry = fdbByN[e.n];
       if (fdbEntry && ['FF','P','PRP','UN'].includes(fdbEntry.status)) return false;
       return true;
     }
@@ -8670,7 +8823,7 @@ function applyBulkECM() {
 function syncAttemptedStatus(n) {
   const ecmD  = loadECM();
   const has   = (ecmD[String(n)] || []).length > 0;
-  const entry = allEntries.find(e => e.n === n);
+  const entry = entryByN(n);
   if (entry) {
     if (entry.status === 'full') return; // fully factored — never show as ECM logged
     if (has && (entry.status === 'unknown' || entry.status === 'composite')) entry.status = 'attempted';
@@ -8728,7 +8881,7 @@ function addECMAttempt(n) {
   syncAttemptedStatus(n);
 
   const sec = document.getElementById(`ecmSection_${n}`);
-  const e   = allEntries.find(x => x.n === n);
+  const e   = entryByN(n);
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
 
@@ -8790,12 +8943,12 @@ function confirmDeleteECM(n, idx) {
   saveECM(ecmData);
   syncAttemptedStatus(n);
   const sec = document.getElementById('ecmSection_' + n);
-  const e   = allEntries.find(x => x.n === n);
+  const e   = entryByN(n);
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
 
 function clearEntryCache(n) {
-  const e = allEntries.find(x => x.n === n);
+  const e = entryByN(n);
   if (!e) return;
 
   // Remove FDB cache entries for this entry's value and cofactor
@@ -9099,7 +9252,6 @@ async function runDataIntegrityCheck(onProgress) {
 async function fixIntegrityIssues(scan) {
   const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0 };
   const needsRecheck = [];
-  const byN = new Map(allEntries.map(e => [e.n, e]));
   const deadline = Date.now() + 20000;
 
   const productOf = (factors) => {
@@ -9120,7 +9272,7 @@ async function fixIntegrityIssues(scan) {
 
   // 1) Factors that do not divide E(n) — provably wrong, so removing them is safe.
   for (const it of (scan.issues.notDividing || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== it.factor);
     e.status  = e.factors.length ? 'partial' : 'composite';
     e.cofactor = null;
@@ -9129,7 +9281,7 @@ async function fixIntegrityIssues(scan) {
 
   // 2) A lone oversized factor equal to E(n) — the cofactor-as-prime artefact.
   for (const it of (scan.issues.wholeValue || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     // Never strip a number FactorDB has confirmed prime: for those, being its own
     // sole factor is the correct representation, and removing it would destroy a
     // complete factorisation. Re-checked here rather than trusted from the scan,
@@ -9149,7 +9301,7 @@ async function fixIntegrityIssues(scan) {
   //     destructive on an entry FDB calls prime (see the E(454) case), which is why
   //     this is gated on C/CF and nothing weaker.
   for (const it of (scan.issues.contradictsFdb || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     const rec = fdbCache[e.val];
     if (!rec || !['C', 'CF'].includes(rec.status)) continue;   // re-verify, never trust the scan
     const keep = (e.factors || []).filter(f => {
@@ -9174,7 +9326,7 @@ async function fixIntegrityIssues(scan) {
   //     answers it. No factors are touched (there are none), so this is purely a
   //     status correction and cannot lose data.
   for (const it of (scan.issues.fullNoFactors || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     if (Array.isArray(e.factors) && e.factors.length) continue; // re-verify: factors appeared since the scan
     const rec = fdbCache[e.val];
     const st  = rec && rec.status;
@@ -9190,7 +9342,7 @@ async function fixIntegrityIssues(scan) {
   //     multiplicity is computable exactly, so this is a precise correction rather
   //     than a guess: divide down and record what really divides.
   for (const it of (scan.issues.wrongExponent || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('fixIntegrity/expVal', err); continue; }
     const base = BigInt(it.factor);
@@ -9213,7 +9365,7 @@ async function fixIntegrityIssues(scan) {
   //     is already correct in substance; recompute the remainder, re-verify it is
   //     prime, and record it. Everything needed is local — no FactorDB round trip.
   for (const it of (scan.issues.missingPrime || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     let val, product = 1n;
     try {
       val = BigInt(e.val);
@@ -9238,7 +9390,7 @@ async function fixIntegrityIssues(scan) {
 
   // 3) Duplicate primes — collapse to powers. Verified: the product must not change.
   for (const it of (scan.issues.duplicate || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     const before = productOf(e.factors);
     const collapsed = collapseTo(e.factors);
     if (productOf(collapsed) === before) { e.factors = sortFactorsAsc(collapsed); fixed.collapsed++; }
@@ -9248,7 +9400,7 @@ async function fixIntegrityIssues(scan) {
   //    multiply back exactly, so a partial or wrong split is never written.
   for (const it of (scan.issues.compositeFactor || [])) {
     if (Date.now() > deadline) break;
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     let parts = null;
     try { parts = factorizeSmall(BigInt(it.factor)); }
     catch(err) { logSwallowed('fixIntegrity/split', err); }
@@ -9276,7 +9428,7 @@ async function fixIntegrityIssues(scan) {
 
   // 5) Factors that already complete E(n) — promoting is purely additive.
   for (const it of (scan.issues.unmarkedFull || [])) {
-    const e = byN.get(it.n); if (!e) continue;
+    const e = entryByN(it.n); if (!e) continue;
     if (productOf(e.factors) !== BigInt(e.val)) continue; // re-verify; never promote on trust
     e.status = 'full';
     e.cofactor = null;
@@ -9289,7 +9441,7 @@ async function fixIntegrityIssues(scan) {
   //    previously left at 'full' and only flagged for re-check, so the app went on
   //    asserting something it had just proved wrong.
   for (const it of (scan.issues.fullMismatch || [])) {
-    const e = byN.get(it.n);
+    const e = entryByN(it.n);
     if (e && e.status === 'full' && !isVerifiedComplete(it.n)) {
       e.status = 'partial'; e.cofactor = null; fixed.demotedShort++;
     }
@@ -9614,7 +9766,7 @@ function applySieveFindings() {
   if (!findings || !findings.length) return;
   let applied = 0, rejected = 0;
   for (const f of findings) {
-    const e = allEntries.find(x => x.n === f.n);
+    const e = entryByN(f.n);
     if (!e || !e.val) continue;
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('sieveApply/val', err); continue; }
@@ -9917,7 +10069,7 @@ function showYieldReport() {
 function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
 
 function downloadEntry(n) {
-  const e = allEntries.find(x => x.n === n);
+  const e = entryByN(n);
   if (!e) return;
   const sign = e.sign === -1 ? '-' : '+';
   const fdbEntry = e.cofactor && fdbCache[e.cofactor]
