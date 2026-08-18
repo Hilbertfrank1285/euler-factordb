@@ -1085,13 +1085,22 @@ function sieveSmallFactors(n) {
 // The first pass deliberately covers EVERYTHING anyway: at 0.13s per number that is
 // minutes, and it doubles as a correctness check. A 5-digit factor turning up in an
 // entry FactorDB calls fully factored would be a data bug worth knowing about.
-function sieveCandidates(onlyUnsearched, nFrom, nTo) {
+// `statuses` restricts the sieve to given entry statuses — null/omitted means no
+// restriction, which is the historical behaviour and stays the default.
+//
+// The useful case is ['unknown', 'fdb-unknown']: entries where nothing is known at
+// all. The sieve tests the COFACTOR, so a 'partial' entry is already smaller than
+// what it started as and its easy factors have usually gone; the never-touched
+// ones are where a first small factor is most likely and worth most. Restricting
+// also turns an overnight run over everything into a targeted one.
+function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
   const out = [];
   for (const e of allEntries) {
     if (!e || !e.val || e.val === '1') continue;
     if (e.status === 'full') continue;          // nothing left to find
     if (nFrom != null && e.n < nFrom) continue;
     if (nTo   != null && e.n > nTo)   continue;
+    if (statuses && !statuses.includes(e.status)) continue;
     if (onlyUnsearched) {
       const rec = fdbCache[e.val];
       const fdbSeen = rec && ['FF','CF','C','P','PRP'].includes(rec.status);
@@ -1104,8 +1113,8 @@ function sieveCandidates(onlyUnsearched, nFrom, nTo) {
 }
 
 // Scan without writing anything. Chunked so the tab stays responsive.
-async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo) {
-  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo);
+async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses) {
+  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo, statuses);
   ensurePrimeTree();
   const findings = [];
   let scanned = 0, skipped = 0;
@@ -4981,6 +4990,41 @@ async function exportNextRuns() {
  }
 }
 
+// The two things you can want from an offline check, kept separate from the
+// prompting and downloading so the selection rule can actually be tested.
+//
+//   all  — every UNFINISHED entry above the threshold. Asks "what does FactorDB
+//          know that we do not?". Finished entries are excluded because there is
+//          nothing left to learn about them.
+//
+//   ours — every entry above the threshold where WE hold factors FactorDB does
+//          not. Asks "did our factors land?", which is the question after a
+//          fdb_submit.py run.
+//
+// 'ours' deliberately does NOT exclude finished entries, and that is the one place
+// the two sets are not simply nested. A number we have factored completely on our
+// own machines is `full` locally while FactorDB may still know nothing about it —
+// which makes it the clearest case of "we hold factors FactorDB lacks", exactly
+// what this mode is for. Excluding it (as 'all' rightly does) would hide the very
+// entries most worth confirming.
+//
+// Absence of a cache record counts as "FactorDB does not have it": for a number
+// too big to query from the browser there may never have been a record to begin
+// with, and that is the situation being resolved, not a reason to skip it.
+function fdbCheckListSets() {
+  const threshold = confirmedQueryDigits();
+  const over = allEntries.filter(e => e.val && e.val.length > threshold);
+  const ownFactorsFdbLacks = (e) => {
+    if (!(e.factors || []).filter(f => f && f !== '1').length) return false;
+    const cached = fdbCache[e.val];
+    return !(cached && cached.source === 'fdb');
+  };
+  const bytes = (list) => list.reduce((s, e) => s + e.val.length, 0);
+  const all  = over.filter(e => e.status !== 'full').sort((a, b) => a.n - b.n);
+  const ours = over.filter(ownFactorsFdbLacks).sort((a, b) => a.n - b.n);
+  return { threshold, all, ours, allBytes: bytes(all), oursBytes: bytes(ours) };
+}
+
 // Export the entries the browser cannot ask FactorDB about, for fdb_check.py.
 //
 // The ceiling is a hard 64 KiB request-line limit: the number goes in the URL, and
@@ -4989,42 +5033,57 @@ async function exportNextRuns() {
 // are checkable there and nowhere else.
 function exportFDBCheckList() {
   const lim = loadQueryLimits();
-  // Which entries are actually out of reach?
-  //
-  // currentQueryCap() is the size the app is still willing to ATTEMPT, which sits at
-  // the 500,000 sanity ceiling until a rejection has been recorded. That is the right
-  // rule for deciding whether to try a query, and the wrong one here — an entry can
-  // be unreachable long before any failure has been logged against it. Using the cap
-  // alone reported "nothing to export" to someone holding numbers that had visibly
-  // failed moments earlier.
-  //
-  // The honest threshold is the largest size CONFIRMED to work. Anything above that
-  // is unproven, and unproven is exactly what this script is for. Entries between
-  // maxOk and the true limit may well succeed — no harm, the script checks them too
-  // and they are quick.
-  const threshold = confirmedQueryDigits();
-  const tooBig = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length > threshold);
-  if (!tooBig.length) {
+  const { threshold, all, ours, allBytes, oursBytes } = fdbCheckListSets();
+  const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
+
+  if (!all.length && !ours.length) {
     alert('Nothing to export — every unfinished entry is within '
       + threshold.toLocaleString() + ' digits.'
       + (lim.maxOk ? '\n\nLargest query confirmed working: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
       + (lim.minFail ? '\nSmallest size rejected: ' + lim.minFail.toLocaleString() + ' digits.' : ''));
     return;
   }
-  tooBig.sort((a, b) => a.n - b.n);
+
+  // Only ask when there is a real choice. Offering a mode that would produce an
+  // empty file is a question with one answer.
+  let picked = all, mode = 'all';
+  if (all.length && ours.length) {
+    const ans = prompt(
+      'What should go in the check list?\n\n'
+      + '  "all"   = every unfinished entry above ' + threshold.toLocaleString() + ' digits\n'
+      + '            ' + all.length + ' entries, ' + mb(allBytes) + '\n\n'
+      + '  "ours"  = only those where we hold factors FactorDB does not\n'
+      + '            ' + ours.length + ' entries, ' + mb(oursBytes) + '\n\n'
+      + '"ours" is the one to use after fdb_submit.py — it answers "did our factors\n'
+      + 'land?" and is the much smaller run. "all" also turns up factorisations\n'
+      + 'FactorDB already has that we do not.',
+      'all');
+    if (ans === null) return;                       // cancelled
+    if (/^(ours|o|mine|m|2)$/i.test(ans.trim())) { picked = ours; mode = 'ours'; }
+  } else if (!all.length) {
+    picked = ours; mode = 'ours';
+  }
+
   // Two matching files, same order. Labels are kept separate so the numbers file
   // stays machine-clean, exactly like the ECM export's numbers file.
-  downloadText('fdb_numbers.txt', tooBig.map(e => e.val).join('\n') + '\n');
-  downloadText('fdb_labels.txt',  tooBig.map(e => 'E' + e.n).join('\n') + '\n');
-  const mb = tooBig.reduce((s, e) => s + e.val.length, 0) / 1024 / 1024;
-  addLog('Exported ' + tooBig.length + ' oversized entries for fdb_check.py', 'ok');
-  alert('Exported ' + tooBig.length + ' entr' + (tooBig.length === 1 ? 'y' : 'ies') + ' above '
-    + threshold.toLocaleString() + ' digits (' + mb.toFixed(1) + 'MB).\n\n'
-    + (lim.minFail
-        ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
-        : lim.maxOk
-          ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
-          : '')
+  downloadText('fdb_numbers.txt', picked.map(e => e.val).join('\n') + '\n');
+  downloadText('fdb_labels.txt',  picked.map(e => 'E' + e.n).join('\n') + '\n');
+  const sizeMb = mb(picked.reduce((s, e) => s + e.val.length, 0));
+  const what = mode === 'ours'
+    ? picked.length + ' entr' + (picked.length === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have'
+    : picked.length + ' unfinished entr' + (picked.length === 1 ? 'y' : 'ies');
+  addLog('Exported ' + what + ' for fdb_check.py', 'ok');
+  alert('Exported ' + what + ', above '
+    + threshold.toLocaleString() + ' digits (' + sizeMb + ').\n\n'
+    + (mode === 'ours'
+        ? 'This is the post-submission check: it includes entries already complete\n'
+          + 'on our side, since those are the ones FactorDB is most likely to be\n'
+          + 'missing.\n\n'
+        : (lim.minFail
+            ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
+            : lim.maxOk
+              ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
+              : ''))
     + 'Run on any machine with Python 3 — no server needed:\n\n'
     + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt \\\n'
     + '      -o fdb_results.json --limit 5\n\n'
@@ -9698,7 +9757,7 @@ async function showSievePrompt() {
   const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
   const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
 
-  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false;
+  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false, statuses = null;
 
   // Settings loop: nothing runs until the estimate has been seen and accepted.
   // The estimate is measured, not guessed, so it costs a few seconds to produce —
@@ -9736,13 +9795,45 @@ async function showSievePrompt() {
       if (nFrom != null && nTo != null && nFrom > nTo) { alert('"from" is larger than "to".'); continue; }
     }
 
-    const all = sieveCandidates(false, nFrom, nTo);
-    const fresh = sieveCandidates(true, nFrom, nTo);
-    if (!all.length) { alert('No unfinished entries in that range.'); continue; }
+    // ── which entries, by status ─────────────────────────────────────────────
+    // Offered before the estimate because it is usually the biggest lever on how
+    // long the run takes — far bigger than the range for most people.
+    const inRange = sieveCandidates(false, nFrom, nTo);
+    if (!inRange.length) { alert('No unfinished entries in that range.'); continue; }
+    const nU  = inRange.filter(e => e.status === 'unknown').length;
+    const nFU = inRange.filter(e => e.status === 'fdb-unknown').length;
+    statuses = null;
+    if (nU + nFU) {
+      const sRaw = prompt(
+        'Which entries?\n\n'
+        + '  "all"      every unfinished entry in range        ' + inRange.length.toLocaleString() + '\n'
+        + '  "unknown"  nothing known about them at all        ' + (nU + nFU).toLocaleString() + '\n'
+        + '             (UNKNOWN + FDB UNKNOWN together)\n\n'
+        + 'Or one of those two on its own:\n'
+        + '  "u"   UNKNOWN only         ' + nU.toLocaleString() + '\n'
+        + '  "f"   FDB UNKNOWN only     ' + nFU.toLocaleString() + '\n\n'
+        + 'The sieve tests the cofactor, so entries that already have factors have\n'
+        + 'usually had the easy ones taken. A first small factor is most likely — and\n'
+        + 'worth most — on numbers nothing has touched yet.',
+        'all');
+      if (sRaw === null) return;
+      const a = sRaw.trim().toLowerCase();
+      if (/^(unknown|none|nothing|n)$/.test(a))    statuses = ['unknown', 'fdb-unknown'];
+      else if (/^(u|unk)$/.test(a))                statuses = ['unknown'];
+      else if (/^(f|fu|fdb|fdb-unknown)$/.test(a)) statuses = ['fdb-unknown'];
+      // anything else, including "all" and an empty answer, leaves it unrestricted
+    }
+    const scope = !statuses ? 'unfinished'
+                : statuses.length === 2 ? 'with nothing known'
+                : statuses[0] === 'unknown' ? 'UNKNOWN' : 'FDB UNKNOWN';
+
+    const all = sieveCandidates(false, nFrom, nTo, statuses);
+    const fresh = sieveCandidates(true, nFrom, nTo, statuses);
+    if (!all.length) { alert('No ' + scope + ' entries in that range.'); continue; }
     onlyUnsearched = !confirm(
-      all.length.toLocaleString() + ' unfinished entries in range, '
+      all.length.toLocaleString() + ' ' + scope + ' entries in range, '
       + fresh.length.toLocaleString() + ' of which FactorDB has never processed.\n\n'
-      + 'OK      — sieve all ' + all.toLocaleString() + '\n'
+      + 'OK      — sieve all ' + all.length.toLocaleString() + '\n'
       + 'Cancel  — sieve only the ' + fresh.length.toLocaleString() + ' unprocessed ones');
     const cands = onlyUnsearched ? fresh : all;
     if (!cands.length) { alert('Nothing to sieve with that choice.'); continue; }
@@ -9787,7 +9878,7 @@ async function showSievePrompt() {
       setStatus('Sieving ' + i.toLocaleString() + '/' + total.toLocaleString()
         + ' — ' + found + ' with factors'
         + (left != null && i > 5 ? ' — ~' + (left > 90 ? Math.round(left / 60) + ' min' : left + 's') + ' left' : ''), '');
-    }, nFrom, nTo);
+    }, nFrom, nTo, statuses);
   } catch(err) {
     polling = false; setStatus('', ''); if (cancelBtn) cancelBtn.style.display = 'none';
     alert('Sieve failed: ' + err.message); return;
