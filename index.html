@@ -587,7 +587,7 @@
        back to that element for its spinner when a starter's own button is absent —
        which, now that the other five are gone, is every time. -->
   <button class="poll-btn" id="pollBtn" onclick="startCheck()"
-    title="Check entries against FactorDB — asks which: all, partially factored, no known factors, unknown, FDB unknown, or old records">
+    title="Check entries against FactorDB — asks which: all, partially factored, no known factors, nothing known, never checked, FDB undetermined, or old records">
     <span class="poll-icon">↻</span><span class="spinner">◌</span> Check…
   </button>
   <button class="poll-btn" id="pollSubmittedBtn" onclick="startSubmittedPoll()" style="display:none;background:var(--surface2)"
@@ -686,7 +686,7 @@
     <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
     <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
-    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown">FDB UNKNOWN</button>
+    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown" title="We asked — FactorDB has no factorisation for these">FDB UNDETERMINED</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
   </div>
@@ -2453,6 +2453,27 @@ function compositeTargets() {
 function fdbUnknownTargets(cap) {
   const out = allEntries
     .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number);
+  return cap ? out.slice(0, cap) : out;
+}
+
+// Both of the above at once: entries we know nothing about, whether because we
+// have never asked FactorDB or because we asked and it had nothing.
+//
+// This is the scope you almost always want. The two statuses are genuinely
+// different — one is an absence of data on our side, the other a positive answer
+// from FactorDB, and the ECM export's priority weight and the "our factors are
+// new" badge both key on that difference — but for the purpose of "go and find
+// out something about the numbers we know nothing about", they are one thing, and
+// asking someone to run two sweeps to cover them was busywork.
+//
+// Filtered from allEntries rather than concatenating the two lists, so the result
+// stays in n order instead of running every never-checked entry before the first
+// undetermined one.
+function nothingKnownTargets(cap) {
+  const out = allEntries
+    .filter(e => (e.status === 'unknown' || e.status === 'fdb-unknown') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }))
     .filter(t => t.number);
   return cap ? out.slice(0, cap) : out;
@@ -4602,7 +4623,7 @@ async function exportNextRuns() {
     if (rangeMin > rangeMax) [rangeMin, rangeMax] = [rangeMax, rangeMin];
   }
 
-  // ── Priority for entries FactorDB has no record of ────────────────────────
+  // ── Priority for entries FactorDB has no factorisation for ────────────────
   // A factor found on one of these is worth more than the raw odds suggest: nobody
   // else is looking at them, FactorDB has nothing to contribute, and your own ECM is
   // the only thing that will ever move them. Entries FactorDB already knows may well
@@ -4614,9 +4635,10 @@ async function exportNextRuns() {
   // leaves the ranking exactly as it was.
   const lastW = parseFloat(localStorage.getItem(FDBW_KEY)) || 1;
   const wInput = prompt(
-    'Prioritise entries FactorDB has never seen?\n\n'
-    + 'These are numbers where your ECM is the only thing that will move them —\n'
-    + 'nothing else is working on them, and any factor found is genuinely new.\n\n'
+    'Prioritise entries FactorDB has no factorisation for?\n\n'
+    + 'We asked and FactorDB came back with nothing — not even whether the number\n'
+    + 'is composite. So your ECM is the only thing that will move them, nothing\n'
+    + 'else is working on them, and any factor found is genuinely new.\n\n'
     + '  1    no preference — rank purely by odds per CPU-second\n'
     + '  2    count them as twice as valuable\n'
     + '  5    strong preference\n'
@@ -5020,8 +5042,8 @@ async function exportNextRuns() {
     + (FDB_WEIGHT === 0
         ? ' · FactorDB-unknown entries excluded'
         : FDB_WEIGHT !== 1
-          ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has never seen (weighted ×' + FDB_WEIGHT + ')'
-          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has never seen' : ''));
+          ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has nothing for (weighted ×' + FDB_WEIGHT + ')'
+          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has nothing for' : ''));
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
@@ -6054,7 +6076,11 @@ function applyFdbResult(data, n, numberStr) {
         if (entry.status !== 'composite') { entry.status = 'composite'; statusChanged = true; }
       }
     } else if (status === 'U') {
-      // FactorDB knows nothing about this number.
+      // FactorDB has no factorisation for this number — status 'U'. Not the same as
+      // never having asked: we DID ask, and the answer was that FactorDB has not
+      // determined anything about it, not even whether it is composite. That is a
+      // fact worth recording, and it is what the ECM export's priority weight and
+      // the "our factors are new" badge both key on.
       //
       // Always record that, even when we hold factors of our own. Previously this
       // branch did nothing unless the entry was already unknown, so an entry we had
@@ -6256,7 +6282,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (nowFull > 0)        details.push(`${nowFull} → fully factored`);
   if (nowPartial > 0)     details.push(`${nowPartial} → partial`);
   if (nowComposite > 0)   details.push(`${nowComposite} → no factors`);
-  if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB unknown`);
+  if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB undetermined`);
   const detailStr = details.length ? ' (' + details.join(', ') + ')' : '';
 
   // A run halted by the breaker must NOT report as "Done". The completion path used
@@ -6860,7 +6886,7 @@ function markAsFdbUnknown(n) {
   saveFDBCache(fdbCache);
   entry.status = 'fdb-unknown';
   addFdbUnknown(n); // persist in dedicated set — survives chunk load failures
-  addLog('E(' + n + ') manually marked as FDB Unknown', 'warn');
+  addLog('E(' + n + ') manually marked as FDB undetermined', 'warn');
   applyFilters();
   renderStats();
   // Refresh the modal
@@ -6898,27 +6924,34 @@ function startCheck() {
   const staleDays = loadStaleDays();
 
   const scopes = [
-    { key: 'all',     match: /^(all|a|1)$/i,
+    { key: 'all',       match: /^(all|a|1)$/i,
       label: filterActive ? 'everything in the current view' : 'every unfinished entry',
       count: allTargets(false, source).length,
       run: () => startManualPoll() },
-    { key: 'partial', match: /^(partial|p|2)$/i,
+    { key: 'partial',   match: /^(partial|p|2)$/i,
       label: 'partially factored — entries that already have factors',
       count: partialTargets(0).length,
       run: () => startPartialPoll() },
-    { key: 'none',    match: /^(none|no|n|composite|c|3)$/i,
-      label: 'no known factors',
+    { key: 'composite', match: /^(composite|comp|none|no|c|3)$/i,
+      label: 'no known factors — FactorDB says composite',
       count: compositeTargets().length,
       run: () => startCompositePoll() },
-    { key: 'unknown', match: /^(unknown|u|4)$/i,
-      label: 'unknown — never queried on FactorDB',
+    // The one to reach for. The two below it are the same entries split by WHY we
+    // know nothing, which matters for the ECM export's priority weight and almost
+    // never for deciding what to check next.
+    { key: 'nothing',   match: /^(nothing|nothingknown|both|4)$/i,
+      label: 'nothing known at all — the two below, together',
+      count: nothingKnownTargets(0).length,
+      run: () => startNothingKnownPoll() },
+    { key: 'never',     match: /^(never|unchecked|u|unknown|5)$/i,
+      label: '  · never checked — we have not asked FactorDB',
       count: getUnknownTargets().length,
       run: () => startUnknownPoll() },
-    { key: 'fdb',     match: /^(fdb|f|fdb-unknown|5)$/i,
-      label: 'FDB unknown — FactorDB has no record of them',
+    { key: 'fdb',       match: /^(fdb|f|undetermined|6)$/i,
+      label: '  · FDB undetermined — we asked, FactorDB has no factorisation',
       count: fdbUnknownTargets(0).length,
       run: () => startFdbUnknownPoll() },
-    { key: 'old',     match: /^(old|o|stale|s|6)$/i,
+    { key: 'old',       match: /^(old|o|stale|s|7)$/i,
       label: 'old records — not checked in ' + staleDays + ' days',
       count: staleTargets(staleDays).length,
       run: (days) => startStalePoll(days) },
@@ -6926,7 +6959,7 @@ function startCheck() {
 
   const pad = (s, w) => (s + ' '.repeat(w)).slice(0, w);
   const body = scopes.map(s =>
-    '  ' + pad('"' + s.key + '"', 11) + pad(s.label, 46)
+    '  ' + pad('"' + s.key + '"', 12) + pad(s.label, 52)
       + (s.count ? s.count.toLocaleString() : '—')).join('\n');
 
   const ans = prompt(
@@ -7018,6 +7051,28 @@ function startCompositePoll() {
     return;
   }
   addLog(`Checking ${targets.length} no-known-factors entries`, '');
+  runPollQueue(targets, true, null, true);
+}
+
+function startNothingKnownPoll() {
+  if (polling) return;
+  // Takes the cooldown, like the other sweeps that can queue thousands of numbers,
+  // and the request cap, because this is the widest of the three "nothing known"
+  // scopes. startFdbUnknownPoll skips the cooldown since re-checking a handful of
+  // undetermined entries is cheap; that is not true here.
+  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
+  const wait = MANUAL_COOLDOWN - (Date.now() - last);
+  if (wait > 0) {
+    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
+    return;
+  }
+  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const targets = nothingKnownTargets(cap);
+  if (!targets.length) {
+    setStatus('Nothing unchecked or undetermined to check', 'warn');
+    return;
+  }
+  addLog('Checking ' + targets.length + ' entries with nothing known (cap: ' + cap + ')', '');
   runPollQueue(targets, true, null, true);
 }
 
@@ -7296,7 +7351,7 @@ function renderGrid() {
       partial:        '<span class="card-badge badge-partial">◐ PARTIAL</span>',
       composite:      '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>',
       attempted:      '<span class="card-badge badge-attempted">⟳ ECM</span>',
-      'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNKNOWN</span>',
+      'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNDETERMINED</span>',
     }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
 
     const hasAttempt = e.status !== 'full' && (loadECM()[String(e.n)] || []).length > 0;
@@ -7369,13 +7424,13 @@ function renderGrid() {
       } catch(e) { logSwallowed('tile/ecmSummary', e); }
 
       // "We know more than FactorDB does". Worth showing prominently: when we hold
-      // factors for a number FactorDB has no record of, those factors are new to
+      // factors for a number FactorDB has no factorisation for, those factors are new to
       // FDB and worth submitting — the opposite of the usual direction. Without
       // this the entry just reads "partially factored", which looks as though FDB
       // supplied the factors.
       try {
         if (e._fdbUnknown && (e.factors || []).filter(f => f && f !== '1').length) {
-          html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no record of this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has no record — our factors are new</div>`;
+          html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no factorisation for this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has nothing on this — our factors are new</div>`;
         }
       } catch(err) { logSwallowed('tile/fdbUnknownBadge', err); }
 
@@ -7548,8 +7603,8 @@ function openModal(n) {
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
-    'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Unknown', desc:'FactorDB has seen this number but its factorization is unknown.' },
-       unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
+    'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Undetermined', desc:'We asked and FactorDB has no factorisation for it — it has not even settled whether the number is composite. Nothing else is working on it, so your own ECM is the only thing that will move it.' },
+       unknown:   { icon:'○', color:'var(--red)',     label:'Never Checked',         desc:'We have not asked FactorDB about this number yet. Checking it is cheap and almost always tells us something.' },
     composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
     attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
@@ -7803,7 +7858,7 @@ async function modalCheckFull(n) {
       const isLarge = e && e.val && e.val.length > currentQueryCap();
       errEl.innerHTML = '<span style="color:var(--red)">⚠ ' + err.message + '</span>'
         + (isLarge
-          ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB Unknown</button>'
+          ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB undetermined</button>'
           : '');
       errEl.setAttribute('data-persistent', '1');
     }
@@ -9953,26 +10008,29 @@ async function showSievePrompt() {
     if (nU + nFU) {
       const sRaw = prompt(
         'Which entries?\n\n'
-        + '  "all"      every unfinished entry in range        ' + inRange.length.toLocaleString() + '\n'
-        + '  "unknown"  nothing known about them at all        ' + (nU + nFU).toLocaleString() + '\n'
-        + '             (UNKNOWN + FDB UNKNOWN together)\n\n'
-        + 'Or one of those two on its own:\n'
-        + '  "u"   UNKNOWN only         ' + nU.toLocaleString() + '\n'
-        + '  "f"   FDB UNKNOWN only     ' + nFU.toLocaleString() + '\n\n'
+        + '  "all"      every unfinished entry in range           ' + inRange.length.toLocaleString() + '\n'
+        + '  "nothing"  nothing known about them at all           ' + (nU + nFU).toLocaleString() + '\n\n'
+        + 'Or one half of that on its own:\n'
+        + '  "never"    never checked on FactorDB                 ' + nU.toLocaleString() + '\n'
+        + '  "fdb"      checked — FactorDB has no factorisation   ' + nFU.toLocaleString() + '\n\n'
         + 'The sieve tests the cofactor, so entries that already have factors have\n'
         + 'usually had the easy ones taken. A first small factor is most likely — and\n'
         + 'worth most — on numbers nothing has touched yet.',
         'all');
       if (sRaw === null) return;
       const a = sRaw.trim().toLowerCase();
-      if (/^(unknown|none|nothing|n)$/.test(a))    statuses = ['unknown', 'fdb-unknown'];
-      else if (/^(u|unk)$/.test(a))                statuses = ['unknown'];
-      else if (/^(f|fu|fdb|fdb-unknown)$/.test(a)) statuses = ['fdb-unknown'];
+      // Same vocabulary as the Check prompt, deliberately. These two dialogs used
+      // "unknown" for different things — both categories here, only the
+      // never-checked one there — which is precisely the confusion the rename is
+      // meant to end.
+      if (/^(nothing|nothingknown|both|none|n)$/.test(a))  statuses = ['unknown', 'fdb-unknown'];
+      else if (/^(never|unchecked|u|unknown)$/.test(a))    statuses = ['unknown'];
+      else if (/^(fdb|f|undetermined)$/.test(a))           statuses = ['fdb-unknown'];
       // anything else, including "all" and an empty answer, leaves it unrestricted
     }
     const scope = !statuses ? 'unfinished'
                 : statuses.length === 2 ? 'with nothing known'
-                : statuses[0] === 'unknown' ? 'UNKNOWN' : 'FDB UNKNOWN';
+                : statuses[0] === 'unknown' ? 'never-checked' : 'FDB-undetermined';
 
     const all = sieveCandidates(false, nFrom, nTo, statuses);
     const fresh = sieveCandidates(true, nFrom, nTo, statuses);
