@@ -4990,19 +4990,25 @@ async function exportNextRuns() {
  }
 }
 
-// The two things you can want from an offline check, kept separate from the
-// prompting and downloading so the selection rule can actually be tested.
+// The three things you can want from an offline check, kept separate from the
+// prompting and downloading so the selection rules can actually be tested.
 //
-//   all  — every UNFINISHED entry above the threshold. Asks "what does FactorDB
-//          know that we do not?". Finished entries are excluded because there is
-//          nothing left to learn about them.
+//   all       — every UNFINISHED entry above the threshold. Asks "what does
+//               FactorDB know that we do not?". Finished entries are excluded
+//               because there is nothing left to learn about them.
 //
-//   ours — every entry above the threshold where WE hold factors FactorDB does
-//          not. Asks "did our factors land?", which is the question after a
-//          fdb_submit.py run.
+//   ours      — every entry above the threshold where WE hold factors FactorDB
+//               does not. Asks "does FactorDB have what we have?".
+//
+//   submitted — of those, only the ones actually sent to FactorDB and still
+//               unconfirmed. Asks "did the factors I submitted land?", which is
+//               the narrowest and by far the most common follow-up, and it is
+//               exactly the set "Check submitted" skips for being too large to
+//               query from a browser. The two buttons therefore cover the whole
+//               pending list between them with nothing falling down the middle.
 //
 // 'ours' deliberately does NOT exclude finished entries, and that is the one place
-// the two sets are not simply nested. A number we have factored completely on our
+// these sets are not simply nested. A number we have factored completely on our
 // own machines is `full` locally while FactorDB may still know nothing about it —
 // which makes it the clearest case of "we hold factors FactorDB lacks", exactly
 // what this mode is for. Excluding it (as 'all' rightly does) would hide the very
@@ -5011,18 +5017,27 @@ async function exportNextRuns() {
 // Absence of a cache record counts as "FactorDB does not have it": for a number
 // too big to query from the browser there may never have been a record to begin
 // with, and that is the situation being resolved, not a reason to skip it.
+//
+// 'submitted' re-applies the FactorDB test rather than trusting the pending list
+// alone. reconcileSubmitted() clears confirmed entries, but only when it runs, so
+// the list can be briefly stale — and re-checking something FactorDB has already
+// confirmed is exactly the wasted work this export exists to avoid.
 function fdbCheckListSets() {
   const threshold = confirmedQueryDigits();
   const over = allEntries.filter(e => e.val && e.val.length > threshold);
+  const sentList = loadSubmitted();
   const ownFactorsFdbLacks = (e) => {
     if (!(e.factors || []).filter(f => f && f !== '1').length) return false;
     const cached = fdbCache[e.val];
     return !(cached && cached.source === 'fdb');
   };
   const bytes = (list) => list.reduce((s, e) => s + e.val.length, 0);
-  const all  = over.filter(e => e.status !== 'full').sort((a, b) => a.n - b.n);
-  const ours = over.filter(ownFactorsFdbLacks).sort((a, b) => a.n - b.n);
-  return { threshold, all, ours, allBytes: bytes(all), oursBytes: bytes(ours) };
+  const byN = (a, b) => a.n - b.n;
+  const all       = over.filter(e => e.status !== 'full').sort(byN);
+  const ours      = over.filter(ownFactorsFdbLacks).sort(byN);
+  const submitted = ours.filter(e => sentList[String(e.n)]).sort(byN);
+  return { threshold, all, ours, submitted,
+           allBytes: bytes(all), oursBytes: bytes(ours), submittedBytes: bytes(submitted) };
 }
 
 // Export the entries the browser cannot ask FactorDB about, for fdb_check.py.
@@ -5033,10 +5048,28 @@ function fdbCheckListSets() {
 // are checkable there and nowhere else.
 function exportFDBCheckList() {
   const lim = loadQueryLimits();
-  const { threshold, all, ours, allBytes, oursBytes } = fdbCheckListSets();
+  const sets = fdbCheckListSets();
+  const { threshold } = sets;
   const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
 
-  if (!all.length && !ours.length) {
+  // Only offer sets that would produce a file. Asking a question whose answer
+  // yields nothing is worse than not asking.
+  const options = [
+    { key: 'all', list: sets.all, bytes: sets.allBytes,
+      match: /^(all|a|everything|1)$/i,
+      line: '  "all"        every unfinished entry above ' + threshold.toLocaleString() + ' digits',
+      noun: (n) => n + ' unfinished entr' + (n === 1 ? 'y' : 'ies') },
+    { key: 'ours', list: sets.ours, bytes: sets.oursBytes,
+      match: /^(ours|o|mine|m|2)$/i,
+      line: '  "ours"       entries holding factors FactorDB does not have',
+      noun: (n) => n + ' entr' + (n === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have' },
+    { key: 'submitted', list: sets.submitted, bytes: sets.submittedBytes,
+      match: /^(submitted|sub|sent|s|pending|p|3)$/i,
+      line: '  "submitted"  of those, only the ones already sent and still unconfirmed',
+      noun: (n) => n + ' submitted entr' + (n === 1 ? 'y' : 'ies') + ' still awaiting confirmation' },
+  ].filter(o => o.list.length);
+
+  if (!options.length) {
     alert('Nothing to export — every unfinished entry is within '
       + threshold.toLocaleString() + ' digits.'
       + (lim.maxOk ? '\n\nLargest query confirmed working: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
@@ -5044,46 +5077,42 @@ function exportFDBCheckList() {
     return;
   }
 
-  // Only ask when there is a real choice. Offering a mode that would produce an
-  // empty file is a question with one answer.
-  let picked = all, mode = 'all';
-  if (all.length && ours.length) {
+  let chosen = options[0];
+  if (options.length > 1) {
+    const body = options.map(o =>
+      o.line + '\n               ' + o.list.length.toLocaleString() + ' entries, ' + mb(o.bytes)).join('\n\n');
     const ans = prompt(
-      'What should go in the check list?\n\n'
-      + '  "all"   = every unfinished entry above ' + threshold.toLocaleString() + ' digits\n'
-      + '            ' + all.length + ' entries, ' + mb(allBytes) + '\n\n'
-      + '  "ours"  = only those where we hold factors FactorDB does not\n'
-      + '            ' + ours.length + ' entries, ' + mb(oursBytes) + '\n\n'
-      + '"ours" is the one to use after fdb_submit.py — it answers "did our factors\n'
-      + 'land?" and is the much smaller run. "all" also turns up factorisations\n'
-      + 'FactorDB already has that we do not.',
-      'all');
+      'What should go in the check list?\n\n' + body + '\n\n'
+      + '"submitted" is the post-fdb_submit.py check and the smallest run — these are\n'
+      + 'precisely the pending entries "Check submitted" cannot reach from a browser.\n'
+      + '"ours" widens that to factors we hold but never sent. "all" also turns up\n'
+      + 'factorisations FactorDB already has that we do not.',
+      chosen.key);
     if (ans === null) return;                       // cancelled
-    if (/^(ours|o|mine|m|2)$/i.test(ans.trim())) { picked = ours; mode = 'ours'; }
-  } else if (!all.length) {
-    picked = ours; mode = 'ours';
+    const hit = options.find(o => o.match.test(ans.trim()));
+    if (hit) chosen = hit;
   }
+  const picked = chosen.list;
 
   // Two matching files, same order. Labels are kept separate so the numbers file
   // stays machine-clean, exactly like the ECM export's numbers file.
   downloadText('fdb_numbers.txt', picked.map(e => e.val).join('\n') + '\n');
   downloadText('fdb_labels.txt',  picked.map(e => 'E' + e.n).join('\n') + '\n');
-  const sizeMb = mb(picked.reduce((s, e) => s + e.val.length, 0));
-  const what = mode === 'ours'
-    ? picked.length + ' entr' + (picked.length === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have'
-    : picked.length + ' unfinished entr' + (picked.length === 1 ? 'y' : 'ies');
+  const what = chosen.noun(picked.length);
   addLog('Exported ' + what + ' for fdb_check.py', 'ok');
   alert('Exported ' + what + ', above '
-    + threshold.toLocaleString() + ' digits (' + sizeMb + ').\n\n'
-    + (mode === 'ours'
-        ? 'This is the post-submission check: it includes entries already complete\n'
-          + 'on our side, since those are the ones FactorDB is most likely to be\n'
-          + 'missing.\n\n'
-        : (lim.minFail
-            ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
-            : lim.maxOk
-              ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
-              : ''))
+    + threshold.toLocaleString() + ' digits (' + mb(chosen.bytes) + ').\n\n'
+    + (chosen.key === 'submitted'
+        ? 'Importing the results clears these from the pending list, the same way an\n'
+          + 'in-browser check would.\n\n'
+        : chosen.key === 'ours'
+          ? 'This includes entries already complete on our side, since those are the\n'
+            + 'ones FactorDB is most likely to be missing.\n\n'
+          : (lim.minFail
+              ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
+              : lim.maxOk
+                ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
+                : ''))
     + 'Run on any machine with Python 3 — no server needed:\n\n'
     + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt \\\n'
     + '      -o fdb_results.json --limit 5\n\n'
