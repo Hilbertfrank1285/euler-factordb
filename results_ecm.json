@@ -5591,4 +5591,4 @@
   "11194": [{"method":"ECM","b1":"532","b2":"19446","curves":"3","sigmas":["l807wg","1irrpxv","kkz5z4"],"ms":14421,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-07"}],
   "11200": [{"method":"ECM","b1":"532","b2":"19446","curves":"1","sigmas":["olpgn9"],"ms":4515,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-07"}]
  },
-"updatedAt": "2026-08-19T12:18:01.325Z"}
+"updatedAt": "2026-08-19T12:53:30.786Z"}
