@@ -583,28 +583,13 @@
       style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
   </div>
 
-  <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check all
+  <!-- One Check button, not six. It keeps id="pollBtn" because runPollQueue falls
+       back to that element for its spinner when a starter's own button is absent —
+       which, now that the other five are gone, is every time. -->
+  <button class="poll-btn" id="pollBtn" onclick="startCheck()"
+    title="Check entries against FactorDB — asks which: all, partially factored, no known factors, unknown, FDB unknown, or old records">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check…
   </button>
-  <button class="poll-btn" id="pollPartialBtn" onclick="startPartialPoll()">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check partially factored
-  </button>
-  <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check no known factors
-  </button>
-  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check unknown
-  </button>
-  <button class="poll-btn" id="pollFdbUnknownBtn" onclick="startFdbUnknownPoll()">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check FDB unknown
-  </button>
-  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
-    <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
-      <span class="poll-icon">↻</span><span class="spinner">◌</span> Check old records (&gt;
-    </button><input type="number" id="staleDaysInput" value="31" min="1" max="365"
-      style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
-    days)
-  </span>
   <button class="poll-btn" id="pollSubmittedBtn" onclick="startSubmittedPoll()" style="display:none;background:var(--surface2)"
     title="Re-check every entry from your last FactorDB submission in one pass. Entries clear themselves once FactorDB confirms them.">
     <span class="poll-icon">↻</span><span class="spinner">◌</span> Check submitted (<span class="submitted-count">0</span>)
@@ -2434,6 +2419,61 @@ function allTargets(includeFull, source) {
   return (source || allEntries)
     .filter(e => (includeFull || e.status !== 'full') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number);
+}
+
+// The remaining check scopes, extracted from the six poll starters that used to
+// have a button each. They live here rather than inline so the single Check prompt
+// can COUNT each scope with the same rule that will then run it — a count computed
+// from a copy of the filter is a number that can quietly disagree with what the
+// button actually does.
+
+// Non-full entries that HAVE known factors — not just those labelled 'partial'.
+// An entry can hold factors while still labelled 'composite' or 'fdb-unknown' (a
+// stale status), and those must be re-checkable here too, otherwise the bulk sweep
+// silently skips them while the modal recheck handles them fine.
+function partialTargets(cap) {
+  const out = allEntries
+    .filter(e => e.status !== 'full' && e.val && e.n > 2
+                 && (e.factors || []).filter(f => f && f !== '1').length > 0)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number);
+  return cap ? out.slice(0, cap) : out;
+}
+
+// Composite = FactorDB confirmed no known factors. 'attempted' means the same
+// thing plus local ECM history, so it belongs in the same sweep.
+function compositeTargets() {
+  return allEntries
+    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number);
+}
+
+function fdbUnknownTargets(cap) {
+  const out = allEntries
+    .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number);
+  return cap ? out.slice(0, cap) : out;
+}
+
+// Never checked, or checked longer ago than `days`. Queries the COFACTOR for a
+// partial entry — no point re-asking about factors we already hold.
+function staleTargets(days) {
+  const cutoff = Date.now() - Math.max(1, days) * 86400000;
+  return allEntries
+    .filter(e => {
+      if (e.status === 'full') return false;
+      if (!e.val || e.n <= 2) return false;
+      const info = getFdbCheckInfo(e);
+      return !info || info.timestamp < cutoff;
+    })
+    .map(e => {
+      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
+        ? e.cofactor : e.val;
+      return { n: e.n, number: queryNum };
+    })
     .filter(t => t.number);
 }
 
@@ -6034,17 +6074,15 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   polling = true;
 
   try {
-  // Disable both buttons; animate the one that was clicked
-  const mainBtn  = document.getElementById('pollBtn');
-  const unknownBtn   = document.getElementById('pollUnknownBtn');
-  const compositeBtn = document.getElementById('pollCompositeBtn');
-  const staleBtn     = document.getElementById('pollStaleBtn');
-  const fdbUnkBtn    = document.getElementById('pollFdbUnknownBtn');
-  const partialBtn   = document.getElementById('pollPartialBtn');
+  // Disable the check buttons; animate the one that was clicked. There are two of
+  // them now — Check and Check submitted — where there used to be seven.
+  const mainBtn      = document.getElementById('pollBtn');
   const submittedBtn = document.getElementById('pollSubmittedBtn');
+  // activeBtn is null for every starter reached through the Check prompt, since
+  // their individual buttons no longer exist; mainBtn is the one to animate.
   const btn = activeBtn || mainBtn;
-  [mainBtn, unknownBtn, compositeBtn, staleBtn, fdbUnkBtn, partialBtn, submittedBtn].forEach(b => { if (b) b.disabled = true; });
-  btn.classList.add('polling');
+  [mainBtn, submittedBtn].forEach(b => { if (b) b.disabled = true; });
+  if (btn) btn.classList.add('polling');
 
   const progress   = document.getElementById('pollProgress');
   const progressIn = document.getElementById('pollProgressInner');
@@ -6234,11 +6272,6 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
   btn.classList.remove('polling');
   if (mainBtn) mainBtn.disabled = false;
-  if (unknownBtn) unknownBtn.disabled = false;
-  if (compositeBtn) compositeBtn.disabled = false;
-  const _sb = document.getElementById('pollStaleBtn'); if (_sb) _sb.disabled = false;
-  const _fu = document.getElementById('pollFdbUnknownBtn'); if (_fu) _fu.disabled = false;
-  const _pp = document.getElementById('pollPartialBtn'); if (_pp) _pp.disabled = false;
   const _sub = document.getElementById('pollSubmittedBtn'); if (_sub) _sub.disabled = false;
   polling = false;
   cancelRequested = false;
@@ -6257,7 +6290,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     // itself fail due to a scoping issue.
     polling = false;
     cancelRequested = false;
-    ['pollBtn','pollUnknownBtn','pollCompositeBtn','pollStaleBtn','pollFdbUnknownBtn','pollPartialBtn']
+    ['pollBtn','pollSubmittedBtn']
       .forEach(id => { const b = document.getElementById(id); if (b) { b.disabled = false; b.classList.remove('polling'); } });
     const qi2 = document.getElementById('queueInfo'); if (qi2) qi2.style.display = 'none';
     const cb2 = document.getElementById('cancelBtn'); if (cb2) cb2.style.display = 'none';
@@ -6820,67 +6853,139 @@ function markAsFdbUnknown(n) {
   scheduleECMPush();
 }
 
-function startStalePoll() {
+// Remembered between runs — a standing preference about what counts as stale,
+// not a per-run decision. Was an input box in the toolbar before the six check
+// buttons became one.
+const STALE_DAYS_KEY = 'eulerFDB_staleDays_v1';
+function loadStaleDays() {
+  const v = parseInt(localStorage.getItem(STALE_DAYS_KEY) || '');
+  return (isFinite(v) && v > 0) ? v : 31;
+}
+
+// ONE Check button. It used to be six, plus a number input, which put the rarest
+// scopes at the same weight as the common one and made the toolbar hard to read.
+//
+// This asks and then delegates to the existing starters rather than reimplementing
+// them, deliberately: each carries rules the others do not — 'all' resets the
+// FactorDB breaker and respects the on-screen filter, 'all'/'none'/'unknown' honour
+// the manual cooldown while the others do not, and only some apply the request cap.
+// Those differences are real, and folding six functions into one body would have
+// meant re-deciding all of them at once, silently.
+//
+// Counts come from the same target functions the starters use, so what the prompt
+// says and what the run does cannot drift apart.
+function startCheck() {
+  if (polling) { alert('Wait for the current poll to finish.'); return; }
+  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const filterActive = Array.isArray(filtered) && filtered.length && filtered.length < allEntries.length;
+  const source = filterActive ? filtered : allEntries;
+  const staleDays = loadStaleDays();
+
+  const scopes = [
+    { key: 'all',     match: /^(all|a|1)$/i,
+      label: filterActive ? 'everything in the current view' : 'every unfinished entry',
+      count: allTargets(false, source).length,
+      run: () => startManualPoll() },
+    { key: 'partial', match: /^(partial|p|2)$/i,
+      label: 'partially factored — entries that already have factors',
+      count: partialTargets(0).length,
+      run: () => startPartialPoll() },
+    { key: 'none',    match: /^(none|no|n|composite|c|3)$/i,
+      label: 'no known factors',
+      count: compositeTargets().length,
+      run: () => startCompositePoll() },
+    { key: 'unknown', match: /^(unknown|u|4)$/i,
+      label: 'unknown — never queried on FactorDB',
+      count: getUnknownTargets().length,
+      run: () => startUnknownPoll() },
+    { key: 'fdb',     match: /^(fdb|f|fdb-unknown|5)$/i,
+      label: 'FDB unknown — FactorDB has no record of them',
+      count: fdbUnknownTargets(0).length,
+      run: () => startFdbUnknownPoll() },
+    { key: 'old',     match: /^(old|o|stale|s|6)$/i,
+      label: 'old records — not checked in ' + staleDays + ' days',
+      count: staleTargets(staleDays).length,
+      run: (days) => startStalePoll(days) },
+  ];
+
+  const pad = (s, w) => (s + ' '.repeat(w)).slice(0, w);
+  const body = scopes.map(s =>
+    '  ' + pad('"' + s.key + '"', 11) + pad(s.label, 46)
+      + (s.count ? s.count.toLocaleString() : '—')).join('\n');
+
+  const ans = prompt(
+    'Check which entries against FactorDB?\n\n' + body + '\n\n'
+    + (filterActive
+        ? 'A filter is active, so "all" means the ' + source.length.toLocaleString()
+          + ' entries on screen. The other scopes ignore it.\n\n'
+        : '')
+    + 'Request cap is ' + cap.toLocaleString() + ' — change it in the toolbar.',
+    'all');
+  if (ans === null) return;
+  const chosen = scopes.find(s => s.match.test(ans.trim()));
+  if (!chosen) { alert('Did not recognise "' + ans + '". Nothing has been checked.'); return; }
+  if (!chosen.count) {
+    alert('Nothing to check under "' + chosen.key + '" — ' + chosen.label + '.');
+    return;
+  }
+
+  if (chosen.key === 'old') {
+    const dRaw = prompt(
+      'Re-check entries not seen by FactorDB in how many days?\n\n'
+      + 'Currently ' + staleTargets(staleDays).length.toLocaleString()
+      + ' entries qualify at ' + staleDays + ' days.',
+      String(staleDays));
+    if (dRaw === null) return;
+    const days = Math.max(1, Math.floor(Number(dRaw)));
+    if (!isFinite(days)) { alert('That is not a number of days.'); return; }
+    localStorage.setItem(STALE_DAYS_KEY, String(days));
+    const n = staleTargets(days).length;
+    if (!n) { alert('Nothing has gone ' + days + ' days without a check.'); return; }
+    chosen.run(days);
+    return;
+  }
+  chosen.run();
+}
+
+function startStalePoll(daysArg) {
   if (polling) return;
-  const days    = Math.max(1, parseInt(document.getElementById('staleDaysInput')?.value) || 31);
-  const cutoff  = Date.now() - days * 86400000;
-  const targets = allEntries
-    .filter(e => {
-      if (e.status === 'full') return false; // skip fully factored
-      if (!e.val || e.n <= 2) return false;
-      const info = getFdbCheckInfo(e);
-      // Include if never checked OR checked before cutoff
-      return !info || info.timestamp < cutoff;
-    })
-    .map(e => {
-      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
-        ? e.cofactor : e.val;
-      return { n: e.n, number: queryNum };
-    })
-    .filter(t => t.number);
+  // The day count now comes from the Check prompt. The old inline input is gone,
+  // but reading it as a fallback costs nothing and keeps this callable either way.
+  const days = Math.max(1, daysArg
+    || parseInt(document.getElementById('staleDaysInput')?.value)
+    || loadStaleDays());
+  const targets = staleTargets(days);
 
   if (!targets.length) {
     setStatus(`No entries with FDB check older than ${days} days`, 'warn');
     return;
   }
   addLog(`Checking ${targets.length} stale entries (>${days}d old)`, '');
-  runPollQueue(targets, true, document.getElementById('pollStaleBtn'), true);
+  runPollQueue(targets, true, null, true);
 }
 
 function startPartialPoll() {
   if (polling) return;
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  // Target any non-full entry that HAS known factors — not just those whose status
-  // label is exactly 'partial'. An entry can hold factors while still labelled
-  // 'composite' or 'fdb-unknown' (e.g. stale status), and those must be re-checkable
-  // here too, otherwise the bulk sweep silently skips them (the modal recheck didn't).
-  const targets = allEntries
-    .filter(e => e.status !== 'full' && e.val && e.n > 2 && (e.factors || []).filter(f => f && f !== '1').length > 0)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number)
-    .slice(0, cap);
+  const targets = partialTargets(cap);
   if (!targets.length) {
     setStatus('No partially factored entries to check', 'warn');
     return;
   }
   addLog('Checking ' + targets.length + ' entries with known factors (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, document.getElementById('pollPartialBtn'), false, true);
+  runPollQueue(targets, true, null, false, true);
 }
 
 function startFdbUnknownPoll() {
   if (polling) return;
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const targets = allEntries
-    .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number)
-    .slice(0, cap);
+  const targets = fdbUnknownTargets(cap);
   if (!targets.length) {
     setStatus('No FDB-unknown entries to re-check', 'warn');
     return;
   }
   addLog('Re-checking ' + targets.length + ' FDB-unknown entries (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, document.getElementById('pollFdbUnknownBtn'), false, false);
+  runPollQueue(targets, true, null, false, false);
 }
 
 function startCompositePoll() {
@@ -6891,16 +6996,13 @@ function startCompositePoll() {
     setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
     return;
   }
-  // Composite = confirmed by FDB as no known factors (C status)
-  const targets = allEntries
-    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }));
+  const targets = compositeTargets();
   if (targets.length === 0) {
     setStatus('No "no known factors" entries to check', 'warn');
     return;
   }
   addLog(`Checking ${targets.length} no-known-factors entries`, '');
-  runPollQueue(targets, true, document.getElementById('pollCompositeBtn'), true);
+  runPollQueue(targets, true, null, true);
 }
 
 function startUnknownPoll() {
@@ -6920,7 +7022,7 @@ function startUnknownPoll() {
     return;
   }
   addLog(`Checking ${targets.length} unknown/unchecked entries`, '');
-  runPollQueue(targets, true, document.getElementById('pollUnknownBtn'), true);
+  runPollQueue(targets, true, null, true);
 }
 
 function startManualPoll() {
