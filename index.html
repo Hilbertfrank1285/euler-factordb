@@ -2389,7 +2389,21 @@ function replayFDBCache() {
         entry.factors  = sortFactorsAsc([...new Set([...cleanExisting, ...knownFactors])]);
         entry.cofactor = null;
         if (entry.status !== 'full') entry.status = 'partial';
-        entry._fdbVerified = true;
+        // NOT _fdbVerified — and emphatically not on this branch.
+        //
+        // CF means FactorDB has looked at the number and has NOT declared its
+        // listed factors prime. applyFdbResult sets the flag to false here for
+        // exactly that reason (see the comment on its CF branch). This copy set it
+        // to TRUE, and replay runs after every rebuild, so on each render it undid
+        // that fix for every CF entry in the dataset.
+        //
+        // The visible damage was worse than a wrong flag. A CF record is also what
+        // the sieve and recordEcmFactor write when they find a factor on an entry
+        // FactorDB knows nothing about — status CF, source 'sieve' or 'import'.
+        // Replay then stamped it verified, and the modal prints "all prime,
+        // verified by FactorDB" over factors FactorDB has never seen. The stored
+        // `source` was right the whole time; the screen said otherwise.
+        entry._fdbVerified = false;
         restored++;
       }
     }
@@ -5983,10 +5997,24 @@ function applyFdbResult(data, n, numberStr) {
     const { base, exp } = parseFactorPower(f);
     if (!fdbMaxExp.has(base) || exp > fdbMaxExp.get(base)) fdbMaxExp.set(base, exp);
   }
-  const source = merged.every(f => {
-    const { base, exp } = parseFactorPower(f);
-    return fdbMaxExp.has(base) && fdbMaxExp.get(base) >= exp;
-  }) ? 'fdb' : 'import';
+  // 'fdb' means "FactorDB already holds everything we do", and it is read as a
+  // positive claim: exportFDBSubmission SKIPS an entry whose source is 'fdb', and
+  // so does the check list's 'ours' set.
+  //
+  // With no factors at all, `merged.every(...)` is vacuously true and used to
+  // return 'fdb' — a claim about a factor list that does not exist. That is
+  // harmless while the list stays empty and poisonous the moment it does not: a
+  // number FactorDB knows nothing about (status 'U') got a record saying 'fdb',
+  // and when the sieve later found a small prime the stale claim was still sitting
+  // there, so the factor was silently withheld from submission forever. Exactly
+  // backwards — those are the factors most worth sending.
+  //
+  // Null, not 'fdb': with nothing in hand there is no claim to make.
+  const source = merged.length === 0 ? null
+    : merged.every(f => {
+        const { base, exp } = parseFactorPower(f);
+        return fdbMaxExp.has(base) && fdbMaxExp.get(base) >= exp;
+      }) ? 'fdb' : 'import';
 
   // --- Update the cache entry ---
   // FactorDB's API returns an `id` alongside status/factors, and this used to be
@@ -10159,7 +10187,20 @@ function applySieveFindings() {
     catch(err) { logSwallowed('sieveApply/product', err); }
     e.status = (prod === val) ? 'full' : 'partial';
     const rec = fdbCache[e.val];
-    if (rec) { rec.factors = e.factors; rec.status = e.status === 'full' ? 'FF' : 'CF'; }
+    if (rec) {
+      rec.factors = e.factors;
+      rec.status = e.status === 'full' ? 'FF' : 'CF';
+      // Update the source too. We just found these ourselves, so whatever the
+      // record claimed before, FactorDB is no longer the origin of everything in
+      // it — and leaving a stale 'fdb' here is what made a sieve hit on an entry
+      // FactorDB knew nothing about vanish from the submission export.
+      //
+      // Unconditional rather than conditional on the old value, because the cost
+      // is asymmetric: if FactorDB does turn out to have this factor, saying
+      // 'sieve' costs one redundant submission that FactorDB ignores. Saying
+      // 'fdb' when it does not costs a factor that is never offered at all.
+      rec.source = 'sieve';
+    }
     else fdbCache[e.val] = { status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors, timestamp: Date.now(), source: 'sieve', n: f.n };
   }
   saveFDBCache(fdbCache);
