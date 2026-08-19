@@ -5092,24 +5092,40 @@ function exportFDBCheckList() {
   const { threshold } = sets;
   const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
 
-  // Only offer sets that would produce a file. Asking a question whose answer
-  // yields nothing is worse than not asking.
+  // Every set is offered, including empty ones, with its count.
+  //
+  // These used to be filtered out on the reasoning that a question with one answer
+  // is not worth asking. That was wrong in a way that only shows up in use: with
+  // nothing above the threshold carrying factors, the prompt vanished entirely and
+  // the export just ran 'all' — which is indistinguishable from the options never
+  // having been built. "Nothing qualifies right now" is information, and hiding it
+  // costs more than the extra keypress saves.
   const options = [
     { key: 'all', list: sets.all, bytes: sets.allBytes,
-      match: /^(all|a|everything|1)$/i,
+      match: /^(all|a|1)$/i,
       line: '  "all"        every unfinished entry above ' + threshold.toLocaleString() + ' digits',
-      noun: (n) => n + ' unfinished entr' + (n === 1 ? 'y' : 'ies') },
+      noun: (n) => n + ' unfinished entr' + (n === 1 ? 'y' : 'ies'),
+      empty: 'Every unfinished entry is within ' + threshold.toLocaleString() + ' digits, so the\n'
+           + 'browser can check them all itself.' },
     { key: 'ours', list: sets.ours, bytes: sets.oursBytes,
       match: /^(ours|o|mine|m|2)$/i,
       line: '  "ours"       entries holding factors FactorDB does not have',
-      noun: (n) => n + ' entr' + (n === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have' },
+      noun: (n) => n + ' entr' + (n === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have',
+      empty: 'No entry above ' + threshold.toLocaleString() + ' digits has a factor recorded.\n\n'
+           + 'Factors reach an entry from "Sieve small primes", from importing ECM\n'
+           + 'results, or from importing FactorDB results. Until one of those has\n'
+           + 'turned something up on a number this large, there is nothing here to\n'
+           + 'ask FactorDB about.' },
     { key: 'submitted', list: sets.submitted, bytes: sets.submittedBytes,
       match: /^(submitted|sub|sent|s|pending|p|3)$/i,
       line: '  "submitted"  of those, only the ones already sent and still unconfirmed',
-      noun: (n) => n + ' submitted entr' + (n === 1 ? 'y' : 'ies') + ' still awaiting confirmation' },
-  ].filter(o => o.list.length);
+      noun: (n) => n + ' submitted entr' + (n === 1 ? 'y' : 'ies') + ' still awaiting confirmation',
+      empty: 'Nothing above ' + threshold.toLocaleString() + ' digits is awaiting confirmation.\n\n'
+           + 'Entries arrive here when "Export FDB submission" records them as sent,\n'
+           + 'and leave again once FactorDB confirms them.' },
+  ];
 
-  if (!options.length) {
+  if (!options.some(o => o.list.length)) {
     alert('Nothing to export — every unfinished entry is within '
       + threshold.toLocaleString() + ' digits.'
       + (lim.maxOk ? '\n\nLargest query confirmed working: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
@@ -5117,21 +5133,21 @@ function exportFDBCheckList() {
     return;
   }
 
-  let chosen = options[0];
-  if (options.length > 1) {
-    const body = options.map(o =>
-      o.line + '\n               ' + o.list.length.toLocaleString() + ' entries, ' + mb(o.bytes)).join('\n\n');
-    const ans = prompt(
-      'What should go in the check list?\n\n' + body + '\n\n'
-      + '"submitted" is the post-fdb_submit.py check and the smallest run — these are\n'
-      + 'precisely the pending entries "Check submitted" cannot reach from a browser.\n'
-      + '"ours" widens that to factors we hold but never sent. "all" also turns up\n'
-      + 'factorisations FactorDB already has that we do not.',
-      chosen.key);
-    if (ans === null) return;                       // cancelled
-    const hit = options.find(o => o.match.test(ans.trim()));
-    if (hit) chosen = hit;
-  }
+  const first = options.find(o => o.list.length);
+  const body = options.map(o =>
+    o.line + '\n               '
+      + (o.list.length ? o.list.length.toLocaleString() + ' entries, ' + mb(o.bytes) : 'none right now')).join('\n\n');
+  const ans = prompt(
+    'What should go in the check list?\n\n' + body + '\n\n'
+    + '"submitted" is the post-fdb_submit.py check and the smallest run — these are\n'
+    + 'precisely the pending entries "Check submitted" cannot reach from a browser.\n'
+    + '"ours" widens that to factors we hold but never sent. "all" also turns up\n'
+    + 'factorisations FactorDB already has that we do not.',
+    first.key);
+  if (ans === null) return;                       // cancelled
+  const chosen = options.find(o => o.match.test(ans.trim()));
+  if (!chosen) { alert('Did not recognise "' + ans + '". Nothing has been exported.'); return; }
+  if (!chosen.list.length) { alert('Nothing to export under "' + chosen.key + '".\n\n' + chosen.empty); return; }
   const picked = chosen.list;
 
   // Two matching files, same order. Labels are kept separate so the numbers file
