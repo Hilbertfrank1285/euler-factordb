@@ -5428,6 +5428,8 @@ async function processEcmLogText(text, sourceLabel) {
   if (!text) return;
 
   const lines = text.split(/\r?\n/);
+  // Numbers whose attempt list has already been de-duplicated during this import.
+  const normalizedKeys = new Set();
 
   // Parse the log into run-blocks. GMP-ECM verbose prints, per invocation:
   //   Input number is <N> (<D> digits)
@@ -5612,6 +5614,14 @@ async function processEcmLogText(text, sourceLabel) {
     if (blk.b1) {
       const key = String(owner.n);
       if (!ecmData[key]) ecmData[key] = [];
+      // Collapse anything an EARLIER import already duplicated, before looking for
+      // a match. normalizeEcmAttempts keys on method|B1 and unions sigmas, so a
+      // store carrying duplicate rows from before the fix repairs itself the next
+      // time a log touches that number, rather than needing a migration.
+      if (!normalizedKeys.has(key)) {
+        ecmData[key] = normalizeEcmAttempts(ecmData[key]);
+        normalizedKeys.add(key);
+      }
       const b1n = parseB1(blk.b1);
       const blkSigmas = Array.from(blk.sigmas || []);
       // INVARIANT: sigma is the ECM curve seed — P-1/P+1 never produce one. So any
@@ -5643,7 +5653,18 @@ async function processEcmLogText(text, sourceLabel) {
           }
         }
       }
-      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
+      // Match on method + B1 only. This used to also require `a.source === 'log'`,
+      // and `source: 'log'` is set by this function and nowhere else — so an
+      // attempt that arrived any other way (a results_ecm.json restore, an older
+      // export, a GitHub pull) was invisible to the check and got a SECOND row at
+      // the same method and B1. The yield report sums curves per attempt, so that
+      // is a straight double count of the same work. In a real restored store,
+      // 15,083 of 21,355 attempts carry no source, so it was the common case.
+      //
+      // normalizeEcmAttempts and mergeEcmData both key on method|B1 with no source
+      // filter. All three now agree, which is the point: whether two records
+      // describe the same work cannot depend on which door the work came in by.
+      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n);
       let seenGrew = false;
       if (existing) {
         const curvesBefore = parseInt(existing.curves) || 0;
