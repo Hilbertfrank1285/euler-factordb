@@ -5817,4 +5817,4 @@
   "19950": [{"method":"ECM","b1":"532","b2":"19446","curves":"6","sigmas":["djcaup","1fbp5m6","1qaeka2","tg5f4n","1riyv3a","1xifso0"],"ms":87079,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-20","lastRun":"2026-08-20"}],
   "19966": [{"method":"ECM","b1":"532","b2":"19446","curves":"9","sigmas":["1q9pxyi","1as4kw0","1l9giqx","1oscqc5","13a9rb7","zuhyp5","1j059zp","r3kz1k","qsx89t"],"ms":137067,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-20","lastRun":"2026-08-20"}]
  },
-"updatedAt": "2026-08-20T13:34:19.747Z"}
+"updatedAt": "2026-08-20T13:35:40.020Z"}
