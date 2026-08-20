@@ -606,7 +606,7 @@
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
     ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importEcmFromFiles(Array.from(event.dataTransfer.files));"
-    style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations.">
+    style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations. Also accepts a results_ecm.json backup, which is merged into the ECM store rather than replacing it.">
     ↑ Import ECM results
   </button>
 
@@ -2914,11 +2914,28 @@ function pm1ToDigits(b1, b2, method) {
   return 200;
 }
 
+// The lowest ECM level the app works with. The fitted table starts at 20d, but
+// ecmTableB1 extrapolates below it and the recommendation engine leans on that —
+// t10 is what it offers as the opening move on a fresh large number, because it is
+// the most efficient thing to run first.
+//
+// b1ToDigits used to start its search at ECM_TABLE[0].d, so it could never return
+// anything under 20. A t10 run at B1=532 was therefore reported as a level-20 run,
+// and the t10 and t15 rows of the yield report — which exist, because that report
+// builds its levels as [10, 15, ...table] — were structurally impossible to fill.
+// Run t10 all day and those rows stay at zero.
+//
+// Shared by both so they cannot drift apart again. computeYieldByLevel already
+// carried a comment noting that b1ToDigits "only spans the table (20-65)" and a
+// fallback for values outside it, but the clamp happened upstream, so the fallback
+// never fired.
+const ECM_MIN_LEVEL = 10;
+
 function b1ToDigits(b1str) {
   const b1val = parseB1(b1str);
   if (!b1val || b1val <= 1) return 0;
-  let bestD = ECM_TABLE[0].d, bestErr = Infinity;
-  for (let d = ECM_TABLE[0].d; d <= ECM_TABLE[ECM_TABLE.length-1].d; d++) {
+  let bestD = ECM_MIN_LEVEL, bestErr = Infinity;
+  for (let d = ECM_MIN_LEVEL; d <= ECM_TABLE[ECM_TABLE.length-1].d; d++) {
     const err = Math.abs(Math.log(ecmTableB1(d)) - Math.log(b1val));
     if (err < bestErr) { bestErr = err; bestD = d; }
   }
@@ -3460,6 +3477,19 @@ function mergeEcmData(remoteEcm) {
         if (ac > hc) hit.curves = String(ac);
       }
       if (a.b2 && !hit.b2) hit.b2 = a.b2;
+      // Timestamps and measured time, which the sigma/curve merge above ignored.
+      // They matter for the same reason the yield report has two halves: `date` is
+      // when an attempt was first made and `lastRun` when it was last extended, and
+      // losing them makes old work indistinguishable from work done today.
+      //
+      // EARLIEST date, LATEST lastRun — the widest true interval, and the same
+      // rule the discovery history uses for when a factor was found.
+      if (a.date && (!hit.date || a.date < hit.date)) hit.date = a.date;
+      if (a.lastRun && (!hit.lastRun || a.lastRun > hit.lastRun)) hit.lastRun = a.lastRun;
+      // Max rather than sum: a measured time describes one attempt, and summing
+      // would inflate it every time the same payload was merged again.
+      const am = Number(a.ms) || 0, hm = Number(hit.ms) || 0;
+      if (am > hm) hit.ms = am;
     }
   }
   return merged;
@@ -5269,7 +5299,7 @@ function importECMResults() {
   // multi-core/multi-machine export). Drag-and-drop onto the button works too.
   const inp = document.createElement('input');
   inp.type = 'file';
-  inp.accept = '.txt,.log,text/plain';
+  inp.accept = '.txt,.log,.json,text/plain,application/json';
   inp.multiple = true;
   inp.onchange = () => {
     const files = Array.from(inp.files || []);
@@ -5282,6 +5312,75 @@ function importECMResults() {
 // Read one or more dropped/picked files, concatenate them (each GMP-ECM run block
 // is self-contained, starting at "Input number is", so files can simply be joined),
 // and process once — giving a single combined summary instead of N separate alerts.
+// Restore an ECM store from a results_ecm.json — the file the sync pushes to
+// GitHub, and the only backup of this data that exists.
+//
+// Until now the sole way this file could get back into the app was a GitHub pull.
+// If the browser's copy was lost or reset and the repo was not ahead, the export
+// sitting on disk was unreadable: "Import ECM results" only parses GMP-ECM console
+// output, so feeding it this file matched no run blocks and imported nothing,
+// silently.
+//
+// MERGES, never replaces. It goes through the same mergeEcmData the pull uses, so
+// sigma sets union, curve counts take the larger, and anything the local store has
+// that the file does not is kept. Re-importing the same file changes nothing.
+function importEcmJson(text, label) {
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch (e) { alert('That file is not valid JSON.\n\n' + e.message); return; }
+
+  // Accept the wrapper the sync writes ({version, ecm, updatedAt}) or a bare
+  // n → attempts map, since people hand-edit these.
+  const remote = (parsed && typeof parsed === 'object' && parsed.ecm && typeof parsed.ecm === 'object')
+    ? parsed.ecm : parsed;
+  if (!remote || typeof remote !== 'object' || Array.isArray(remote)) {
+    alert('That JSON has no ECM data in it.\n\nExpected either a results_ecm.json '
+      + '(an object with an "ecm" key) or a bare map of E(n) → attempts.');
+    return;
+  }
+  const keys = Object.keys(remote).filter(k => /^\d+$/.test(k) && Array.isArray(remote[k]));
+  if (!keys.length) {
+    alert('That JSON has no ECM data in it — no numeric E(n) keys with attempt lists.');
+    return;
+  }
+
+  const before = loadECM();
+  const countAttempts = (d) => Object.values(d).reduce((s, v) => s + ((v || []).length), 0);
+  const countSigmas   = (d) => Object.values(d).reduce((s, v) =>
+    s + (v || []).reduce((t, a) => t + ((a && a.sigmas) || []).length, 0), 0);
+  const countCurves   = (d) => Object.values(d).reduce((s, v) =>
+    s + (v || []).reduce((t, a) => t + (parseInt(a && a.curves) || 0), 0), 0);
+  const beforeStats = { n: Object.keys(before).length, att: countAttempts(before),
+                        sig: countSigmas(before), cur: countCurves(before) };
+
+  let merged;
+  try { merged = mergeEcmData(remote); }
+  catch (e) { alert('Could not merge that file: ' + e.message); return; }
+  const afterStats = { n: Object.keys(merged).length, att: countAttempts(merged),
+                       sig: countSigmas(merged), cur: countCurves(merged) };
+
+  saveECM(merged);
+  try { allEntries = buildEntries(); replayFDBCache(); } catch (e) { logSwallowed('ecmJsonImport/rebuild', e); }
+  applyFilters(); renderStats(); scheduleECMPush();
+
+  const d = (f) => afterStats[f] - beforeStats[f];
+  addLog('Imported ECM store from ' + (label || 'file') + ': +' + d('att') + ' attempt(s), +'
+    + d('sig') + ' sigma(s)', 'ok');
+  alert('Merged ' + (label || 'the file') + ' into the ECM store.\n\n'
+    + '  numbers    ' + beforeStats.n.toLocaleString()   + '  →  ' + afterStats.n.toLocaleString()
+      + '   (+' + d('n').toLocaleString() + ')\n'
+    + '  attempts   ' + beforeStats.att.toLocaleString() + '  →  ' + afterStats.att.toLocaleString()
+      + '   (+' + d('att').toLocaleString() + ')\n'
+    + '  curves     ' + beforeStats.cur.toLocaleString() + '  →  ' + afterStats.cur.toLocaleString()
+      + '   (+' + d('cur').toLocaleString() + ')\n'
+    + '  sigmas     ' + beforeStats.sig.toLocaleString() + '  →  ' + afterStats.sig.toLocaleString()
+      + '   (+' + d('sig').toLocaleString() + ')\n\n'
+    + 'Nothing was replaced — attempts already here kept their curve counts, and\n'
+    + 'sigma sets were unioned, so importing this file again will change nothing.\n\n'
+    + 'Attempts carrying no date stay OUT of the "since tracking began" column,\n'
+    + 'which is what makes them read as historical work in the yield report.');
+}
+
 function importEcmFromFiles(files) {
   if (!files || !files.length) return;
   if (Object.keys(eulerValues).length === 0) { alert('Euler values still loading — please wait and try again.'); return; }
@@ -5300,10 +5399,21 @@ function importEcmFromFiles(files) {
     if (!ok.length) { alert('Could not read any of the selected files.'); return; }
     const nonEmpty = ok.filter(r => r.text.trim());
     if (!nonEmpty.length) { alert('The selected file(s) were empty — nothing to import.'); return; }
+
+    // A results_ecm.json is an ECM store, not console output. Routed by CONTENT
+    // rather than by extension, because the log parser fails silently on it: no
+    // "Input number is" lines means no run blocks, so it imports nothing and says
+    // so in a way that reads like the file was empty.
+    const looksJson = (t) => { const h = t.trim()[0]; return h === '{' || h === '['; };
+    const jsonFiles = nonEmpty.filter(r => looksJson(r.text));
+    const logFiles  = nonEmpty.filter(r => !looksJson(r.text));
+    for (const r of jsonFiles) importEcmJson(r.text, r.name);
+    if (!logFiles.length) return;
+
     // Join with a blank line between files so nothing from one file's tail can
     // merge into the next file's first line.
-    const combined = nonEmpty.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
-    await processEcmLogText(combined, nonEmpty.length > 1 ? nonEmpty.length + ' files' : nonEmpty[0].name);
+    const combined = logFiles.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
+    await processEcmLogText(combined, logFiles.length > 1 ? logFiles.length + ' files' : logFiles[0].name);
   });
 }
 
@@ -5536,6 +5646,7 @@ async function processEcmLogText(text, sourceLabel) {
       const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
       let seenGrew = false;
       if (existing) {
+        const curvesBefore = parseInt(existing.curves) || 0;
         if (blkSigmas.length) {
           // Accumulate unique sigmas; curve count = size of the accumulated set.
           const seen = new Set(existing.sigmas || []);
@@ -5549,14 +5660,29 @@ async function processEcmLogText(text, sourceLabel) {
           existing.curves = String(Math.max(seen.size, parseInt(existing.curves) || 0, before));
         } else {
           // No sigmas in this log: fall back to max of run-counts (can't safely sum).
-          existing.curves = String(Math.max(parseInt(existing.curves) || 0, blk.curves));
+          existing.curves = String(Math.max(curvesBefore, blk.curves));
         }
+        // Did this block actually add anything? With sigmas that is the set growing;
+        // without them, the only evidence available is the curve count rising.
+        //
+        // This used to be `!blkSigmas.length || seenGrew`, which reads as "count it
+        // if we cannot tell" and is true for EVERY sigma-less block — so
+        // re-importing the same sigma-less log added its time again and re-stamped
+        // it as worked-on-today, every time. The comment on the ms guard below
+        // describes preventing exactly that; the `!blkSigmas.length` term quietly
+        // re-opened it.
+        //
+        // The visible symptom is the yield report's two halves collapsing into each
+        // other: re-import an old log and all of its effort is dated today, so
+        // "all time" and "since tracking began" show identical numbers and the
+        // historical work stops being distinguishable as historical.
+        const addedWork = blkSigmas.length ? seenGrew : ((parseInt(existing.curves) || 0) > curvesBefore);
         if (blk.b2 && !existing.b2) existing.b2 = blk.b2;
         // Accumulate measured time in step with the curve count. Only add when
         // this block contributed genuinely NEW sigmas — otherwise re-importing
         // the same log would inflate the recorded time while curves (correctly,
         // being a set union) stayed flat.
-        if (blk.timeMs > 0 && (!blkSigmas.length || seenGrew)) {
+        if (blk.timeMs > 0 && addedWork) {
           existing.ms = (existing.ms || 0) + blk.timeMs;
         }
         // Record WHEN this attempt was last extended. `date` is only set when an
@@ -5566,7 +5692,7 @@ async function processEcmLogText(text, sourceLabel) {
         // it. That is why "since tracking began" showed finds but no runs, curves
         // or CPU: the finds come from the timestamped discovery history, while the
         // effort came from dates that never moved.
-        if (!blkSigmas.length || seenGrew) {
+        if (addedWork) {
           existing.lastRun = new Date().toISOString().slice(0, 10);
           if (!existing.date) existing.date = existing.lastRun;
         }
@@ -6387,8 +6513,37 @@ let _storageWarningShown = false;
 //  That's the conventional way ECM yield is accounted (a d-digit factor counts
 //  toward the level that targets d digits), but it will undercount factors on
 //  entries FactorDB touched afterwards.
+// The digit count ECM was actually working against, for COSTING a recorded run.
+//
+// Distinct from getCofactorDigits, which answers a display question — "what is
+// left to factor?" — and correctly returns null for a finished entry, because
+// there is no cofactor left. Costing asks something different and still has an
+// answer: the run happened, on a number of some size, and it took real time.
+//
+// Passing that null straight into the cost model priced every attempt on a
+// completed entry at ZERO. Identical work on two entries, one finished by it and
+// one not, contributed 1,185 CPU-seconds and 0. Backwards in the worst way: the
+// finished entries are the ones where the effort paid off, so their cost vanished
+// from the denominator while their finds stayed in the numerator, and every level
+// that had actually succeeded reported free factors.
+//
+// For a finished entry the original cofactor size is not recoverable — it shrank
+// with each factor found — so this returns the FULL value's digit count, an upper
+// bound. That overstates cost, which understates yield: the conservative
+// direction, and far closer than zero. Callers that care are told how many
+// attempts were priced this way.
+function workingDigitsFor(e) {
+  if (!e || !e.val) return null;
+  const cof = getCofactorDigits(e);
+  if (cof && cof > 1) return { digits: cof, exact: true };
+  return { digits: e.val.length, exact: false };
+}
+
 function computeYieldByLevel() {
-  const levels = [10, 15, ...ECM_TABLE.map(t => t.d)];
+  // Starts at ECM_MIN_LEVEL for the same reason b1ToDigits does: these are the
+  // levels the recommendation engine actually offers, and a row that cannot be
+  // filled is worse than no row.
+  const levels = [ECM_MIN_LEVEL, 15, ...ECM_TABLE.map(t => t.d)];
   // Two parallel tallies per level:
   //   runs/curves/cpuSec        — ALL recorded work, all time
   //   tRuns/tCurves/tCpuSec     — only work done since provenance tracking began
@@ -6416,19 +6571,29 @@ function computeYieldByLevel() {
     return !!(d && d >= startDate);
   };
 
-  const ecmD = loadECM();
+  const ecmD = loadECM() || {};
+
+  // n -> the ECM levels run on it, each with the date it was last extended. Built
+  // here so a find can be credited to the level that was actually RUNNING when it
+  // happened, rather than to the size of the factor it turned up. See the finds
+  // pass below for why that distinction is the whole report.
+  const ecmRunsByN = new Map();
+  // Attempts priced from the full value rather than a real cofactor (see
+  // workingDigitsFor). Reported, because it makes those rows upper bounds.
+  let approxPricedRuns = 0;
 
   // ── Effort ──
-  for (const [nStr, attempts] of Object.entries(ecmD || {})) {
+  for (const [nStr, attempts] of Object.entries(ecmD)) {
     const e = entryByN(parseInt(nStr));
-    const cofDig = e ? getCofactorDigits(e) : null;
+    const work = workingDigitsFor(e);
     for (const a of (attempts || [])) {
       if (!a || !a.b1) continue;
       const b1n = parseB1(a.b1);
       const cv  = parseInt(a.curves) || 1;
-      const sec = (cofDig && cofDig > 1)
-        ? attemptCpuSeconds(a, cofDig)
-        : 0;
+      // A measured ms is authoritative and needs no digit count at all;
+      // attemptCpuSeconds prefers it. Only the estimate needs a size.
+      const sec = work ? attemptCpuSeconds(a, work.digits) : 0;
+      if (work && !work.exact && !(a.ms > 0)) approxPricedRuns++;
       const tracked = isTracked(a);
       if (!(a && (a.lastRun || a.date))) undatedRuns++;
       if (a.method === 'P-1' || a.method === 'P+1') {
@@ -6444,6 +6609,8 @@ function computeYieldByLevel() {
       stats[bucket].runs++;
       stats[bucket].curves += cv;
       stats[bucket].cpuSec += sec;
+      if (!ecmRunsByN.has(parseInt(nStr))) ecmRunsByN.set(parseInt(nStr), []);
+      ecmRunsByN.get(parseInt(nStr)).push({ lvl: bucket, date: a.lastRun || a.date || null });
       if (tracked) {
         stats[bucket].tRuns++;
         stats[bucket].tCurves += cv;
@@ -6453,12 +6620,41 @@ function computeYieldByLevel() {
   }
 
   // ── Finds ──
-  // Bucket a found factor by its own digit count, rounded to the nearest level.
+  //
+  // A find is credited to the LEVEL OF EFFORT THAT PRODUCED IT, not to the size of
+  // the factor. That sounds like a detail and is the entire report.
+  //
+  // Effort can only be bucketed one way — by the B1 a run used. Finds used to be
+  // bucketed by the found factor's own digit count, so the two tallies sat on
+  // different axes and only lined up when a run happened to turn up a factor of
+  // exactly the size its B1 targets. That is not the normal case: running at t35
+  // clears smaller factors too, and usually that is what it finds.
+  //
+  // The result was a report where every row was unusable. Two runs at B1=1,000,000
+  // each finding a 25-digit factor produced: level 35 with 1,185 CPU-seconds and
+  // ZERO finds, level 25 with two finds and ZERO seconds. Cost per find came out
+  // null on the row that did the work and 0.0 on the row that did none — the level
+  // you spent everything on found nothing, the level you spent nothing on found
+  // two for free. Neither number was ever right, for any dataset.
+  //
+  // Which run found it is not recorded, so this attributes to the highest level
+  // run on that number on or before the find's date — the run that was going when
+  // it happened. Undated runs stay eligible rather than being discarded.
+  const findLevel = (hn, findDate) => {
+    const runs = ecmRunsByN.get(hn) || [];
+    if (!runs.length) return null;
+    const eligible = runs.filter(r => !r.date || r.date <= findDate);
+    const pool = eligible.length ? eligible : runs;
+    return pool.reduce((m, r) => Math.max(m, r.lvl), pool[0].lvl);
+  };
+  // Kept as information rather than as the bucketing axis: how big the factors we
+  // found actually were. Useful, just not the same question as cost per find.
   const bucketForDigits = (dig) => {
     let best = levels[0];
     for (const d of levels) if (Math.abs(d - dig) < Math.abs(best - dig)) best = d;
     return best;
   };
+  const findSizes = {};
 
   // Counted from the append-only discovery history, which records provenance PER
   // FACTOR at the moment of discovery. This is exact: it can't be confused by
@@ -6467,22 +6663,32 @@ function computeYieldByLevel() {
   // under-counted depending on write order).
   const hist = loadHistory();
   let totalFinds = 0, unattributed = 0, fdbFinds = 0;
+  // The small-prime sieve costs no ECM time, so its finds get their own tally.
+  // Counting them as ECM finds credited free factors to whichever ECM level
+  // happened to have been run on the same number, flattering exactly the levels
+  // that had done the least.
+  const sieveFinds = { finds: 0 };
   const ownByN = new Map(); // n -> count of own finds, for the P±1 split below
   for (const r of hist) {
     if (!Array.isArray(r) || r.length < 5) continue;
-    const [hn, , dig, src] = r;
+    const [hn, ts, dig, src] = r;
     if (src === 'f') { fdbFinds++; continue; }   // FactorDB's, not ours — not our yield
-    if (src !== 'e' && src !== 'm' && src !== 's') continue;   // 's' = small-prime sieve, also our own work
+    if (src !== 'e' && src !== 'm' && src !== 's') continue;
     totalFinds++;
     ownByN.set(hn, (ownByN.get(hn) || 0) + 1);
-    // Credit P±1 when this number only ever saw P±1 runs; otherwise bucket by the
-    // factor's own size, which is the conventional way ECM yield is accounted.
+    const sizeBucket = bucketForDigits(dig);
+    findSizes[sizeBucket] = (findSizes[sizeBucket] || 0) + 1;
+    if (src === 's') { sieveFinds.finds++; continue; }   // sieve, not ECM effort
     const att = (ecmD[String(hn)] || []);
     const hadEcm = att.some(a => a.method === 'ECM');
     const hadPm1 = att.some(a => a.method === 'P-1' || a.method === 'P+1');
+    // Credit P±1 when this number only ever saw P±1 runs.
     if (!hadEcm && hadPm1) { pm1.finds++; continue; }
     if (!hadEcm && !hadPm1) { unattributed++; continue; } // no run log explains it
-    stats[bucketForDigits(dig)].finds++;
+    const findDate = ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '9999-12-31';
+    const lvl = findLevel(hn, findDate);
+    if (lvl == null) { unattributed++; continue; }
+    stats[lvl].finds++;
   }
 
   // How many currently-known factors predate the history store? Those can't be
@@ -6501,14 +6707,19 @@ function computeYieldByLevel() {
   // finds come from — putting that decision in the view layer meant it couldn't
   // be tested, and a change to all-time effort would have gone unnoticed.
   const withRate = (L) => {
-    L.cpuPerFind = L.finds > 0 ? L.tCpuSec / L.finds : null;
+    // Both require tracked effort to exist. With finds but no recorded cost,
+    // `tCpuSec / finds` is 0 — which reads as "these factors were free" when it
+    // means "we do not know what they cost". null is the honest answer and the
+    // renderer already shows it as a dash.
+    L.cpuPerFind = (L.finds > 0 && L.tCpuSec > 0) ? L.tCpuSec / L.finds : null;
     L.findsPerHundredHours = L.tCpuSec > 0 ? (L.finds / (L.tCpuSec / 3600)) * 100 : 0;
     return L;
   };
   return { levels: levels.map(d => withRate(stats[d])), pm1: withRate(pm1),
-           totalFinds, unattributed,
+           totalFinds, unattributed, sieveFinds: sieveFinds.finds, findSizes,
            fdbFinds, preHistory, historyCount: hist.length,
-           startDate, trackingStarted: historyStartTs(), undatedRuns };
+           startDate, trackingStarted: historyStartTs(), undatedRuns,
+           approxPricedRuns };
 }
 // ── Storage headroom ────────────────────────────────────────────────
 // Browsers don't agree on how localStorage is metered, and the limit isn't
@@ -10469,6 +10680,8 @@ function showYieldReport() {
       something on it.
       ${y.fdbFinds ? `<br><br>${y.fdbFinds} known factor(s) came from FactorDB rather than your own runs, and are excluded from the yield above.` : ''}
       ${y.unattributed ? `<br><br><span style="color:var(--yellow)">${y.unattributed} of your find(s) are on numbers with no run log, so they can't be assigned to a level.</span>` : ''}
+      ${y.sieveFinds ? `<br><br>${y.sieveFinds} factor(s) came from the small-prime sieve, which costs no ECM time — counted as your own work but kept out of the levels above, so they don't flatter whichever level happened to share the number.` : ''}
+      ${y.approxPricedRuns ? `<br><br><span style="color:var(--text-muted)">${y.approxPricedRuns.toLocaleString()} run(s) are on entries that are now fully factored, so the cofactor they actually worked on is no longer recoverable. Those are priced against the full value — an upper bound, so those rows understate yield rather than overstating it. Runs with a measured runtime are unaffected.</span>` : ''}
       ${y.preHistory ? `<br><br><span style="color:var(--text-muted)">${y.preHistory} factor(s) predate the history store and have no provenance recorded, so they're excluded entirely. Only discoveries made from now on can be attributed — the old changelog was capped at 100 entries and can't be reconstructed.</span>` : ''}
     </div>`;
 
