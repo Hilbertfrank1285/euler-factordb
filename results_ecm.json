@@ -5717,4 +5717,4 @@
   "17990": [{"method":"ECM","b1":"532","b2":"19446","curves":"9","sigmas":["56qawd","geqb0d","1qgc4x9","15ldhwr","s0pkhm","1l50qwx","1ohdgua","132j724","9mpaqf"],"ms":115203,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-20","lastRun":"2026-08-20"}],
   "18302": [{"method":"ECM","b1":"532","b2":"19446","curves":"5","sigmas":["1vr4bfz","5iykbg","by0sot","1lgi6ts","1ah4i2p"],"ms":71407,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-20","lastRun":"2026-08-20"}]
  },
-"updatedAt": "2026-08-20T12:30:39.319Z"}
+"updatedAt": "2026-08-20T12:36:54.305Z"}
