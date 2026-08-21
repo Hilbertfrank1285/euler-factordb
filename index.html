@@ -4502,7 +4502,7 @@ function exportFDBSubmission() {
   const exportedNs = [];   // remembered so they can be re-checked in one go later
   let count = 0, skippedNoVal = 0, skippedTooBig = 0, skippedBadFactors = 0;
 
-  let skippedFdb = 0;
+  let skippedFdb = 0, skippedAllFdb = 0, withheldFactors = 0;
   for (const e of allEntries) {
     // Dedupe here too (not just at write time): factor lists can arrive via GitHub
     // pull from a device that hasn't run the one-time cleanup migration yet.
@@ -4537,9 +4537,26 @@ function exportFDBSubmission() {
     }
     if (bad) { skippedBadFactors++; continue; }
 
+    // Send only the factors FACTORDB DOES NOT ALREADY HAVE.
+    //
+    // Every factor FactorDB reports is recorded with provenance 'f' when it
+    // arrives, so the app already knows, per factor, who found it. Re-submitting
+    // FactorDB's own factors back to FactorDB teaches it nothing, and it is not
+    // free: fdb_submit.py posts each factor as a separate request 2s apart, so an
+    // entry where we found one new prime among four known ones cost four writes to
+    // someone else's server instead of one.
+    //
+    // Anything whose provenance is unknown IS still sent. Provenance only exists
+    // from the day tracking began, so a null means "we cannot tell", not "ours" —
+    // and sending a factor FactorDB already holds is a wasted request, while
+    // withholding one it lacks loses the factor. Those are not symmetric.
+    const ours = factors.filter(f => factorProvenance(e.n, f) !== 'f');
+    withheldFactors += factors.length - ours.length;
+    if (!ours.length) { skippedAllFdb++; continue; }
+
     // Expand expressions like 5^3 → 5*5*5
     const expanded = [];
-    for (const f of factors) {
+    for (const f of ours) {
       const m = /^(\d+)\^(\d+)$/.exec(f);
       if (m) {
         const reps = parseInt(m[2]);
@@ -4554,7 +4571,10 @@ function exportFDBSubmission() {
   }
 
   if (!count) {
-    alert('No entries with known factors to submit.');
+    alert(skippedAllFdb
+      ? 'Nothing to submit — every factor we hold on the ' + skippedAllFdb
+        + ' candidate entr' + (skippedAllFdb === 1 ? 'y' : 'ies') + ' came from FactorDB itself.'
+      : 'No entries with known factors to submit.');
     return;
   }
 
@@ -4573,11 +4593,21 @@ function exportFDBSubmission() {
   let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
   if (skippedBadFactors) msg += ' · ' + skippedBadFactors + ' SKIPPED (factors do not divide E(n) — run the data integrity check)';
   if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
+  if (skippedAllFdb) msg += ' · ' + skippedAllFdb + ' skipped (every factor came from FDB)';
+  if (withheldFactors) msg += ' · ' + withheldFactors + ' factor(s) withheld (FactorDB already has them)';
   if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>1000000 digits)';
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
-  alert(msg + '\n\nAfter pasting these into FactorDB, use "Check submitted (' + pending + ')" '
+  const totalFactors = lines.reduce((t, l) => t + l.split('=')[1].split('*').length, 0);
+  alert(msg + '\n\n'
+    + totalFactors.toLocaleString() + ' factor(s) to post'
+    + (withheldFactors ? ', with ' + withheldFactors.toLocaleString()
+        + ' left out because FactorDB reported them to us in the first place' : '')
+    + '.\n\nfdb_submit.py posts one factor every 2s, so that is about '
+    + Math.max(1, Math.round(totalFactors * 2 / 60)) + ' min'
+    + (withheldFactors ? ' instead of ' + Math.max(1, Math.round((totalFactors + withheldFactors) * 2 / 60)) : '')
+    + '.\n\nAfter pasting these into FactorDB, use "Check submitted (' + pending + ')" '
     + 'to re-verify them all in one pass instead of opening each number.');
 }
 
@@ -9844,8 +9874,53 @@ async function runDataIntegrityCheck(onProgress) {
 // Deliberately conservative: every change is verified against E(n) before it is
 // written, and anything that would require guessing is left for a FactorDB
 // re-check instead. Returns a summary of what it did and what it declined to do.
+// Clamp every exponent in a factor list to the multiplicity the base ACTUALLY has
+// in E(n). Exact — repeated division, not a heuristic.
+//
+// The fixer's collapse SUMS exponents, on the reading that a list recording "5"
+// twice means 5². That is right when the duplicate is a second occurrence, and
+// wrong when it is the same occurrence counted twice — and splitting a composite
+// produces exactly the second case. E(634) held [p, q, C] with C = p·q; the split
+// removed C and added p and q, which were already there, and the sum turned two
+// correct prime factors into p² and q². Both then displayed as PRIME FDB with a
+// square that is simply false about the number.
+//
+// The list alone cannot distinguish those two cases. E(n) can, so ask it. A base's
+// true multiplicity is the largest k with base^k dividing E(n), and the exponent
+// written is min(claimed, k):
+//
+//   * never above k, because that asserts something provably untrue — the error
+//     this exists to stop, and the one that would go on to be submitted to
+//     FactorDB as a false claim;
+//   * never above what was claimed, so it cannot invent a power nobody recorded.
+//
+// A base that does not divide at all is dropped: keeping a factor that provably
+// does not divide is the worse of the two errors, and step 1 removes those anyway.
+function clampExponentsToValue(list, valStr) {
+  let v;
+  try { v = BigInt(valStr); } catch (e) { return { factors: list || [], clamped: 0, dropped: 0 }; }
+  if (v <= 1n) return { factors: list || [], clamped: 0, dropped: 0 };
+  const out = []; let clamped = 0, dropped = 0;
+  for (const f of (list || [])) {
+    const s = String(f);
+    const m = /^(\d+)\^(\d+)$/.exec(s);
+    const base = m ? m[1] : s;
+    const claimed = m ? parseInt(m[2]) : 1;
+    let b;
+    try { b = BigInt(base); } catch (e) { out.push(s); continue; }
+    if (b <= 1n) { out.push(s); continue; }
+    // Stop as soon as the claim is matched — no need to know how far past it goes.
+    let k = 0, r = v;
+    while (k < claimed && r % b === 0n) { r /= b; k++; }
+    if (k === 0) { dropped++; continue; }
+    if (k < claimed) clamped++;
+    out.push(k === 1 ? base : base + '^' + k);
+  }
+  return { factors: out, clamped, dropped };
+}
+
 async function fixIntegrityIssues(scan) {
-  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0 };
+  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0, overclaimed: 0 };
   const needsRecheck = [];
   const deadline = Date.now() + 20000;
 
@@ -9988,7 +10063,13 @@ async function fixIntegrityIssues(scan) {
     const e = entryByN(it.n); if (!e) continue;
     const before = productOf(e.factors);
     const collapsed = collapseTo(e.factors);
-    if (productOf(collapsed) === before) { e.factors = sortFactorsAsc(collapsed); fixed.collapsed++; }
+    if (productOf(collapsed) !== before) continue;   // collapse must be value-neutral
+    // ...and then the same check against E(n), because "unchanged" only says the
+    // collapse was faithful to a list that may already have been over-claiming.
+    const clamp3 = clampExponentsToValue(collapsed, e.val);
+    e.factors = sortFactorsAsc(clamp3.factors);
+    fixed.overclaimed += clamp3.clamped + clamp3.dropped;
+    fixed.collapsed++;
   }
 
   // 4) Composite "primes" — try to split them. Only accepted when the pieces
@@ -10016,7 +10097,14 @@ async function fixIntegrityIssues(scan) {
     let prod = 1n; for (const p of parts) prod *= p;
     if (prod !== BigInt(it.factor)) { needsRecheck.push(it.n); continue; }
     const rest = (e.factors || []).filter(f => String(f).split('^')[0] !== it.factor);
-    e.factors = sortFactorsAsc(collapseTo([...rest, ...parts.map(String)]));
+    // Collapse expresses the claim; the clamp checks it against E(n). Needed here
+    // specifically because a split adds primes that may ALREADY be in `rest`, and
+    // the collapse sums them — which is how two correct prime factors became p²
+    // and q². Note the usual "product must not change" guard cannot catch it: the
+    // list was over-claiming before the fix too, which is why it was flagged.
+    const clamp4 = clampExponentsToValue(collapseTo([...rest, ...parts.map(String)]), e.val);
+    e.factors = sortFactorsAsc(clamp4.factors);
+    fixed.overclaimed += clamp4.clamped + clamp4.dropped;
     fixed.split++;
     await new Promise(r => setTimeout(r, 0));
   }
