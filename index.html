@@ -207,6 +207,8 @@
   .filter-btn.active.unknown   { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
   .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
   .filter-btn.active.attempted  { background: var(--teal-dim);   border-color: var(--teal);   color: var(--teal); }
+  .filter-btn.active.ahead-of-fdb { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .badge-ahead { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
   .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
   .stat-item strong { color: var(--text); }
 
@@ -689,6 +691,8 @@
     <button class="filter-btn fdb-unknown" data-filter="fdb-unknown" title="We asked — FactorDB has no factorisation for these">FDB UNDETERMINED</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
+    <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
+      title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
@@ -4555,18 +4559,11 @@ function exportFDBSubmission() {
     // from the day tracking began, so a null means "we cannot tell", not "ours" —
     // and sending a factor FactorDB already holds is a wasted request, while
     // withholding one it lacks loses the factor. Those are not symmetric.
-    // Two independent ways of knowing FactorDB already has a factor, and both are
-    // needed. `fdbHas` is what FactorDB last reported for this number — exact, and
-    // the only one that catches a factor WE found first and FactorDB later
-    // confirmed, because recordDiscovery keeps the original attribution and so
-    // leaves provenance at 's' or 'e' forever. Provenance covers entries not
-    // re-checked since fdbHas was introduced.
-    const fdbKnown = new Set(((cached && cached.fdbHas) || []).map(f => String(f).split('^')[0]));
-    const ours = factors.filter(f => {
-      const base = String(f).split('^')[0];
-      if (fdbKnown.has(base)) return false;
-      return factorProvenance(e.n, f) !== 'f';
-    });
+    // Same rule the "ahead of FDB" filter uses, so what that filter shows and what
+    // this sends cannot drift apart. Note it re-reads e.factors rather than the
+    // deduped `factors` above; dedupeCompositeFactors only ever removes redundant
+    // composites, so the set of genuine primes is the same either way.
+    const ours = factorsFdbLacks(e).filter(f => factors.includes(f));
     withheldFactors += factors.length - ours.length;
     if (!ours.length) { skippedAllFdb++; continue; }
 
@@ -7472,6 +7469,38 @@ function startManualPoll() {
 // ─────────────────────────────────────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
+// The factors we hold that FACTORDB DOES NOT HAVE.
+//
+// One rule, used by the submission export to decide what to send and by the
+// "ahead of FDB" filter to decide what to show — so what the filter lists and what
+// the export would submit are the same thing by construction, rather than by two
+// pieces of code happening to agree.
+//
+// Two independent sources of truth, and both are needed:
+//
+//   fdbHas      what FactorDB last reported for this number. Exact, and the only
+//               one that catches a factor WE found first and FactorDB later
+//               confirmed — recordDiscovery keeps the original attribution, so
+//               provenance stays 's' or 'e' forever in that case.
+//   provenance  covers entries not re-checked since fdbHas was introduced.
+//
+// A factor of unknown provenance counts as ours. Provenance only exists from the
+// day tracking began, so a null means "cannot tell" — and the two errors are not
+// symmetric: calling it ours costs a wasted request, calling it FactorDB's loses
+// the factor.
+function factorsFdbLacks(e) {
+  if (!e || !e.val) return [];
+  const factors = (e.factors || []).filter(f => f && f !== '1');
+  if (!factors.length) return [];
+  const cached = fdbCache[e.val];
+  const fdbKnown = new Set(((cached && cached.fdbHas) || []).map(f => String(f).split('^')[0]));
+  return factors.filter(f => {
+    const base = String(f).split('^')[0];
+    if (fdbKnown.has(base)) return false;
+    return factorProvenance(e.n, f) !== 'f';
+  });
+}
+
 function applyFilters() {
   // Build fast n→fdbCache lookup for filter checks
   window._fdbCacheByN = {};
@@ -7486,6 +7515,12 @@ function applyFilters() {
     } else if (activeFilter === 'attempted') {
       // Show entries with ECM logs — but never fully factored ones
       matchFilter = e.status !== 'full' && (ecmData[String(e.n)] || []).length > 0;
+    } else if (activeFilter === 'ahead-of-fdb') {
+      // Entries where we hold at least one factor FactorDB does not — exactly what
+      // "Export FDB submission" would send. Includes fully factored entries: having
+      // finished a number FactorDB knows nothing about is the strongest case of
+      // being ahead of it, not a reason to hide the entry.
+      matchFilter = factorsFdbLacks(e).length > 0;
     } else {
       matchFilter = e.status === activeFilter;
     }
@@ -7681,6 +7716,15 @@ function renderGrid() {
     const attemptBadge = (hasAttempt && e.status !== 'attempted')
       ? '<span class="card-badge badge-attempted" style="opacity:0.6">⟳</span>' : '';
 
+    // "ours / FactorDB's" at a glance — 3/2 means we hold three factors and
+    // FactorDB has two of them. Shown only when we are actually ahead, so it reads
+    // as a call to submit rather than as decoration on every card.
+    const aheadCount = factorsFdbLacks(e).length;
+    const heldCount  = (e.factors || []).filter(f => f && f !== '1').length;
+    const aheadBadge = aheadCount
+      ? `<span class="card-badge badge-ahead" title="We hold ${heldCount} factor(s); ${heldCount - aheadCount} of them are on FactorDB. ${aheadCount} would be submitted.">↑ ${heldCount}/${heldCount - aheadCount} FDB</span>`
+      : '';
+
     return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative" data-n="${e.n}">
       <button onclick="event.stopPropagation();quickCheckFDB(${e.n},this)"
         title="Query FactorDB"
@@ -7688,7 +7732,7 @@ function renderGrid() {
         ${polling?'disabled':''}>↻</button>
       <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
       <div class="card-label">E(${e.n})</div>
-      ${badge}${attemptBadge}
+      ${badge}${attemptBadge}${aheadBadge}
       <div class="card-lazy" style="min-height:28px"></div>
     </div>`;
   }).join('');
