@@ -1697,8 +1697,19 @@ function applyFdbUnknownSet() {
   const s = loadFdbUnknownSet();
   if (!s.size) return;
   for (const e of allEntries) {
-    if (s.has(e.n) && (e.status === 'unknown' || e.status === 'fdb-unknown')) {
-      e.status = 'fdb-unknown';
+    if (!s.has(e.n)) continue;
+    // The FLAG is orthogonal to the status and applies either way: it says
+    // FactorDB has no factorisation, which stays true whether or not we hold
+    // factors of our own. It drives the "our factors are new — worth submitting"
+    // badge and the ECM export's priority weight, and restoring only the status
+    // meant both quietly disappeared on every reload.
+    e._fdbUnknown = true;
+    // The STATUS only changes when we know nothing ourselves. An entry with
+    // factors is 'partial' — that describes OUR knowledge correctly, and is what
+    // applyFdbResult writes for the same case.
+    if (e.status === 'unknown' || e.status === 'fdb-unknown') {
+      const held = (e.factors || []).filter(f => f && f !== '1').length;
+      e.status = held ? 'partial' : 'fdb-unknown';
     }
   }
 }
@@ -2380,8 +2391,25 @@ function replayFDBCache() {
       entry.status = 'composite';
     }
 
-    // Partial resolution: FDB CF for full value or cofactor
-    if (status === 'CF' && factors && factors.length >= 1) {
+    // Restore the factors on the record, WHATEVER FactorDB's verdict was.
+    //
+    // This used to require status === 'CF', and the omission cost real data. The
+    // status describes what FACTORDB knows; the factors on the record are ours
+    // either way, and applyFdbResult deliberately keeps them on a 'U' or 'C'
+    // result. But replayFDBCache is the ONLY path that puts factors back on an
+    // entry after a rebuild — buildEntries always yields bare ones — so a record
+    // FactorDB had answered 'U' for came back empty on every reload.
+    //
+    // E(15880): FactorDB has no factorisation for a 56,702-digit number, so it
+    // answered U while we held ["5^2","41","5399","15881"]. The record was correct
+    // in storage and unreachable in the app; the entry rebuilt at 'unknown', and
+    // applyFdbUnknownSet then relabelled it 'fdb-unknown'. Importing a batch of
+    // fdb_check.py results did this to hundreds of entries at once, which is what
+    // took the unknown count from ~163 to 430.
+    //
+    // 'FF'/'P'/'PRP' are handled above and set 'full'; everything else that carries
+    // factors lands here.
+    if (!['FF','P','PRP'].includes(effectiveStatus) && factors && factors.length >= 1) {
       const allFDB = (factors || []).filter(f => f && f !== '1');
       const cofactorLen = cached.cofactorLen || null;
       // If we have cofactorLen, we know prime factors are all but the implied cofactor
