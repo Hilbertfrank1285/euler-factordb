@@ -2091,6 +2091,7 @@ function loadFDBCache() {
       const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
       full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
                     ...(v.fdbId ? { fdbId: v.fdbId } : {}),
+                    ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
       if (factors && factors.length) {
@@ -2131,6 +2132,10 @@ function saveFDBCache(c) {
     // dead weight — confirmed while investigating a persistent quota problem.
     slim[key] = { status: _encodeStatus(v.status), timestamp: v.timestamp,
                   source: v.source || null,
+                  // Kept because it is the only record of what FactorDB itself
+                  // holds; without it the submission export cannot tell its own
+                  // factors from ours after a reload.
+                  ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
                   // FactorDB's id for this number — lets later checks use a tiny
                   // ?id= URL instead of sending the whole number.
                   ...(v.fdbId ? { fdbId: v.fdbId } : {}),
@@ -4550,7 +4555,18 @@ function exportFDBSubmission() {
     // from the day tracking began, so a null means "we cannot tell", not "ours" —
     // and sending a factor FactorDB already holds is a wasted request, while
     // withholding one it lacks loses the factor. Those are not symmetric.
-    const ours = factors.filter(f => factorProvenance(e.n, f) !== 'f');
+    // Two independent ways of knowing FactorDB already has a factor, and both are
+    // needed. `fdbHas` is what FactorDB last reported for this number — exact, and
+    // the only one that catches a factor WE found first and FactorDB later
+    // confirmed, because recordDiscovery keeps the original attribution and so
+    // leaves provenance at 's' or 'e' forever. Provenance covers entries not
+    // re-checked since fdbHas was introduced.
+    const fdbKnown = new Set(((cached && cached.fdbHas) || []).map(f => String(f).split('^')[0]));
+    const ours = factors.filter(f => {
+      const base = String(f).split('^')[0];
+      if (fdbKnown.has(base)) return false;
+      return factorProvenance(e.n, f) !== 'f';
+    });
     withheldFactors += factors.length - ours.length;
     if (!ours.length) { skippedAllFdb++; continue; }
 
@@ -4565,6 +4581,9 @@ function exportFDBSubmission() {
         expanded.push(f);
       }
     }
+    // Sorted: dedupeCompositeFactors does not preserve the stored order, and a
+    // submission log that jumps 2029 → 13 → 4057 is hard to read against the entry.
+    expanded.sort((a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0));
     lines.push(e.val + '=' + expanded.join('*'));
     count++;
     exportedNs.push(e.n);
@@ -6225,7 +6244,21 @@ function applyFdbResult(data, n, numberStr) {
   // Cache the VERIFIED status. An unproven FF is recorded as CF, so every path that
   // later reads the cache reaches the same conclusion the entry did.
   const verifiedStatus = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF' : status;
+  // What FACTORDB HOLDS, as distinct from who found each factor first.
+  //
+  // Provenance answers "who found it", and recordDiscovery deliberately keeps the
+  // ORIGINAL attribution — right for the yield report, wrong for deciding what to
+  // submit. Sieve a small prime, then check the number on FactorDB: FactorDB
+  // reports the same prime, recordDiscovery declines to overwrite 's' with 'f',
+  // and the submission export goes on offering FactorDB a factor it has just told
+  // us it has. That is where the 5s, 13s and 47s in a submission run come from.
+  //
+  // This is the direct answer to the question the export actually asks, and it
+  // needs no heuristic about how small a factor has to be before FactorDB "must"
+  // know it — which would be wrong anyway for a number FactorDB has no record of,
+  // where even a single-digit factor is genuinely new to it.
   const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
+                       ...(fdbPrimes.length ? { fdbHas: fdbPrimes.slice() } : {}),
                        ...(fdbId ? { fdbId } : {}) };
   if (numberStr) {
     fdbCache[numberStr] = cacheEntry;
