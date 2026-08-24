@@ -9999,4 +9999,4 @@
   "19998": [{"method":"ECM","b1":"532","b2":"19446","curves":"9","sigmas":["61dx76","1yzz2yw","jj9xut","147u93y","daqzfe","1xf0kuo","frqmov","uoc6ce","qi20ig"],"ms":139313,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-22","lastRun":"2026-08-22"}],
   "20000": [{"method":"ECM","b1":"532","b2":"19446","curves":"9","sigmas":["1odxud2","1cih81p","1piwd12","1owmqbs","ftlp0s","ydvpn3","1xu3qn3","kxgkct","14o9qdp"],"ms":139436,"poly":"","I":"","tool":"GMP-ECM","source":"log","note":"imported from log","date":"2026-08-22","lastRun":"2026-08-22"}]
  },
-"updatedAt": "2026-08-24T09:11:23.862Z"}
+"updatedAt": "2026-08-24T09:44:39.547Z"}
