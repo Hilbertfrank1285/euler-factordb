@@ -925,6 +925,41 @@ function isProbablePrime(n, rounds = 20) {
 // 10-20 factors, so 300 digits is a few hundred milliseconds in the worst case and
 // usually far less. Above it the label stays "LARGE" rather than risk a stall.
 const LABEL_PRIMALITY_MAX_DIGITS = 300;
+// What to call ONE factor in the UI: 'prime' | 'prp' | 'composite' | 'large'.
+//
+// Extracted from the modal so the tag rule exists once. The parity test used to
+// carry its own copy of it, which meant the real rule could change freely without
+// failing anything.
+//
+// The FactorDB-says-FF branch is where this went wrong. fdbCache is keyed by
+// NUMBER STRING, and small Euler values are themselves small primes — E(4) = 5,
+// E(6) = -61. So fdbCache['61'] is the record for the ENTRY E(6), not a statement
+// about 61 as somebody else's factor. Our own code writes 'FF' for any entry we
+// consider complete (recordEcmFactor and applySieveFindings both do), and E(6) is
+// complete because 61 is prime — so every larger entry with 61 in its factor list
+// read that record, saw FF, and displayed "61 COMPOSITE?".
+//
+// The arithmetic is right there and answers the question directly, so ask it.
+// FactorDB's verdict is only consulted for factors too large to settle locally,
+// which is the only case where it adds anything.
+function factorPrimalityLabel(f, allVerifiedPrime, cache) {
+  // An FF entry means FactorDB proved the whole factorisation, so everything it
+  // listed is prime by definition.
+  if (allVerifiedPrime) return 'prime';
+  const rec = (cache || {})[f];
+  // P/PRP is a statement about the NUMBER f, and stays correct under the key
+  // collision above: whichever entry the record belongs to, it says f is prime.
+  if (rec && ['P','PRP'].includes(rec.status)) return rec.status === 'PRP' ? 'prp' : 'prime';
+  const local = labelFactor(f);
+  if (rec && rec.status === 'FF') {
+    // Trust local arithmetic whenever it can decide. Only fall back to reading FF
+    // as "composite" for factors past the primality ceiling, where there is
+    // nothing else to go on.
+    return local === 'large' ? 'composite' : local;
+  }
+  return local;
+}
+
 function labelFactor(f) {
   try {
     const s = String(f).split('^')[0];
@@ -8078,20 +8113,7 @@ function openModal(n) {
     });
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
-      let lbl;
-      if (allVerifiedPrime) {
-        lbl = 'prime';
-      } else {
-        // Also check if this specific factor was individually queried as prime by FDB
-        const factorFDB = fdbCache[f];
-        if (factorFDB && ['P','PRP'].includes(factorFDB.status)) {
-          lbl = factorFDB.status === 'PRP' ? 'prp' : 'prime'; // P/PRP = confirmed prime
-        } else if (factorFDB && factorFDB.status === 'FF') {
-          lbl = 'composite'; // FF = fully factored composite, not itself prime
-        } else {
-          lbl = labelFactor(f);
-        }
-      }
+      const lbl = factorPrimalityLabel(f, allVerifiedPrime, fdbCache);
       // Has FACTORDB confirmed this factor is prime?
       //
       // Deliberately independent of HOW the result arrived. A small number checked
