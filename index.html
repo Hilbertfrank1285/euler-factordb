@@ -3795,6 +3795,21 @@ function buildSyncPayload() {
     const primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
     if (primeFactors.length) entry.factors = sortFactorsAsc(primeFactors);
     if (v.source)            entry.source  = v.source;
+    // Carry what FACTORDB itself reported, and its id for this number.
+    //
+    // Both were persisted locally and neither was in the payload, so a push
+    // dropped them and "clear all local data" then destroyed the only copies.
+    // Neither loss announces itself:
+    //
+    //   fdbHas  is how the submission export knows which factors FactorDB already
+    //           holds. Without it the export falls back to provenance alone, which
+    //           cannot see a factor the sieve found FIRST and FactorDB confirmed
+    //           later — so runs quietly fill up with 5s and 61s again.
+    //   fdbId   is how a 65,000-digit number gets re-checked by ?id= instead of by
+    //           its digits. Lose it and those entries become unaskable, which is
+    //           exactly the set that needs asking about most.
+    if (v.fdbHas && v.fdbHas.length) entry.fdbHas = v.fdbHas;
+    if (v.fdbId)                     entry.fdbId  = v.fdbId;
     full[nStr] = entry;
   }
   return {
@@ -4478,7 +4493,44 @@ function csvEsc(v) {
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
+// What clearing right now would destroy for good, or [] if nothing.
+//
+// The clear dialog says "Pull from GitHub afterwards to restore your data", and
+// that is only true for data that reached GitHub. It checked nothing: local
+// changes not yet pushed, an ECM log edit still inside its 8-second debounce, or
+// no repo configured at all would each make that sentence a lie, and the button
+// would delete the only copy.
+//
+// The ECM log matters most here because it is a SEPARATE file (results_ecm.json)
+// on its own debounce — pushing factors does not push it, so "I pushed" is not
+// evidence that it is safe.
+function unpushedWork() {
+  const bits = [];
+  const s = loadGHSettings();
+  if (!s || !s.token || !s.user || !s.repo) {
+    bits.push('no GitHub repo is configured, so nothing has ever been pushed');
+    return bits;
+  }
+  if (_dirty) bits.push('factor and cache changes that have not been pushed');
+  if (_ecmPushTimer) bits.push('an ECM log change still waiting on its 8-second push delay');
+  return bits;
+}
+
 function clearAllLocalData() {
+  // Refuse while anything is unpushed. This is the one button that can destroy
+  // data with no undo, and the dialog's promise only holds if GitHub already has
+  // everything.
+  const risk = unpushedWork();
+  if (risk.length) {
+    alert('Not clearing — there is work here that GitHub does not have:\n\n'
+      + risk.map(r => '  • ' + r).join('\n')
+      + '\n\nClearing now would delete the only copy. Push first (↑ Push), wait for\n'
+      + 'the dirty indicator to clear, then try again.\n\n'
+      + 'Note the ECM log is a separate file (results_ecm.json) with its own delay,\n'
+      + 'so pushing factors does not necessarily mean it has gone too.');
+    return;
+  }
+
   // Custom in-page confirm (native confirm() can be permanently blocked by Chrome)
   const existing = document.getElementById('clearConfirmOverlay');
   if (existing) existing.remove();
