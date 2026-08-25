@@ -3850,7 +3850,9 @@ function buildSyncPayload() {
 // a path that had a good reason for what it was doing.
 //
 // A timestamp must never be able to remove a factor. That is the whole rule.
-function mergeFactorRecords(local, remote) {
+// `valStr` is the number these factors divide — for a cache record that is always
+// its own key, whether the key is an E(n) value or a cofactor.
+function mergeFactorRecords(local, remote, valStr) {
   const lTs = Number(local && local.timestamp) || 0;
   const rTs = Number(remote && remote.timestamp) || 0;
   const remoteNewer = rTs > lTs;
@@ -3862,7 +3864,35 @@ function mergeFactorRecords(local, remote) {
   // holds "5^2". Those are the same prime at different precision, and keeping both
   // makes the product overshoot E(n) — which reads downstream as a corrupt entry
   // and, worse, exports to FactorDB as N=5*5*5, a claim that is simply false.
-  const union = sortFactorsAsc(collapseFactorPowers([...clean(local), ...clean(remote)]));
+  let union = sortFactorsAsc(collapseFactorPowers([...clean(local), ...clean(remote)]));
+
+  // ── a correction must survive the union ─────────────────────────────────
+  // "A timestamp may never remove a factor" is right for DISCOVERY and wrong for
+  // CORRECTION, and the union alone cannot tell the two apart. Run the data
+  // integrity fixer on one machine, and the other still holds the bad factor:
+  // it pushes, this merges, and the union puts the corruption straight back. The
+  // same issues reappear days later on a machine that already repaired them, and
+  // nothing in the log explains why.
+  //
+  // Tombstones would be one answer. Arithmetic is a better one, because it needs
+  // no bookkeeping and heals whichever side is wrong: a factor that does not
+  // divide is provably not a factor, so the merge simply refuses it, and a
+  // composite equal to the product of its neighbours is provably redundant. Both
+  // are exactly what the fixer removed, so a stale peer can no longer reinstate
+  // them — and a machine that never ran the fixer gets repaired by pulling.
+  //
+  // Only when the union actually GREW: if the sides agree there is nothing to
+  // re-check, which keeps the primality tests off the common path.
+  const grew = union.length > collapseFactorPowers(clean(local)).length;
+  if (grew && valStr && /^\d+$/.test(String(valStr))) {
+    const before = union.length;
+    const kept = clampExponentsToValue(union, valStr);
+    union = sortFactorsAsc(dedupeCompositeFactors(kept.factors));
+    if (union.length < before) {
+      addLog('Merge refused ' + (before - union.length) + ' factor(s) that do not belong to '
+        + String(valStr).slice(0, 12) + '… — a peer had stale data', 'warn');
+    }
+  }
 
   // A "fully factored" verdict is a claim about ONE SPECIFIC factor list — the one
   // that multiplied back to E(n) when it was checked (applyFdbResult only caches
@@ -3947,7 +3977,9 @@ function mergeSyncPayload(remote) {
     const before = (merged[k].factors || []).length;
     const localTs  = Number(merged[k].timestamp) || 0;
     const remoteTs = Number(v.timestamp) || 0;
-    merged[k] = mergeFactorRecords(merged[k], v);
+    // The cache key IS the number these factors divide, so the merge can check
+    // them arithmetically without a lookup.
+    merged[k] = mergeFactorRecords(merged[k], v, k);
     if ((merged[k].factors || []).length > before) mergeStats.factorsGained++;
     if (remoteTs > localTs) mergeStats.remoteWins++; else mergeStats.localWins++;
   }
@@ -7217,9 +7249,26 @@ function dedupeCompositeFactors(list) {
     // Only composites can be redundant; primality check is cheap at ≤19 digits and
     // conservative above (assume prime → keep) since ECM-found large factors are
     // near-always prime and false removal would lose real data.
-    let composite = false;
-    if (v.toString().length <= 19) { try { composite = !isProbablePrime(v); } catch { composite = false; } }
-    if (!composite) continue;
+    // Primality is only a SHORTCUT here, never the evidence.
+    //
+    // A value that divides out exactly against the other listed factors is a
+    // product of them, and therefore composite by construction — the primality
+    // test adds nothing to that conclusion. It used to gate the whole check at 19
+    // digits, "assume prime above", which meant the redundant composites this
+    // exists to remove were unreachable whenever they were large. E(634)'s was 36
+    // digits: flagged by the integrity scan, and invisible to every automatic
+    // cleanup that runs on a merge or a migration.
+    //
+    // So: skip only what is DEFINITELY prime and therefore cannot be a product.
+    // Everything else is offered to the reconstruction test below, which is exact
+    // and cannot remove a genuine prime — a prime has no decomposition into other
+    // listed factors unless one of them equals it, which is the duplicate case and
+    // is correct to collapse.
+    if (v.toString().length <= 19) {
+      let definitelyPrime = false;
+      try { definitelyPrime = isProbablePrime(v); } catch { definitelyPrime = false; }
+      if (definitelyPrime) continue;
+    }
     let rem = v;
     for (let j = 0; j < values.length && rem > 1n; j++) {
       if (j === i || drop.has(j)) continue;
