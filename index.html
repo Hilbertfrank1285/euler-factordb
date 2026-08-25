@@ -6410,7 +6410,48 @@ function applyFdbResult(data, n, numberStr) {
   }
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
-  const merged = sortFactorsAsc(dedupeCompositeFactors(collapseFactorPowers([...priorOwn, ...fdbPrimes])));
+  let merged = sortFactorsAsc(dedupeCompositeFactors(collapseFactorPowers([...priorOwn, ...fdbPrimes])));
+
+  // ── a cofactor that arrived earlier is still a cofactor ──────────────────
+  // The stripping above only cleans what FACTORDB just sent. `priorOwn` is what
+  // the entry already held, and it is merged in untouched — so a cofactor that got
+  // recorded before that stripping existed (or through some other path) survives
+  // every subsequent check forever, and the entry keeps claiming a 58,000-digit
+  // composite as a prime factor. 90 records in a real store were in this state,
+  // every one of them CF and from the offline import path.
+  //
+  // Neither existing cleanup can see it: the cofactor genuinely DIVIDES E(n), so
+  // clampExponentsToValue keeps it, and it is not the product of its neighbours, so
+  // dedupeCompositeFactors keeps it too. Primality would settle it and is not
+  // available at this size.
+  //
+  // But CF is FactorDB saying "composite, NOT fully factored". So if the factors we
+  // hold multiply back to the whole number, the largest of them cannot be prime —
+  // it is the unfactored remainder. That is exact, needs no primality test, and
+  // costs one multiplication.
+  if (status === 'CF' && numberStr && merged.length > 1) {
+    try {
+      const target = BigInt(numberStr);
+      let prod = 1n;
+      for (const f of merged) {
+        const { base, exp } = parseFactorPower(f);
+        prod *= BigInt(base) ** BigInt(exp);
+      }
+      if (prod === target) {
+        const largest = merged.reduce((a, b) =>
+          parseFactorExpr(a).value > parseFactorExpr(b).value ? a : b);
+        // Unless it is PROVABLY prime, in which case the product matching means the
+        // entry really is complete and FactorDB's CF is simply behind. Arithmetic
+        // evidence beats a stale verdict; absence of evidence does not.
+        const provable = labelFactor(largest) === 'prime';
+        if (!provable) {
+          merged = merged.filter(f => f !== largest);
+          addLog('E(' + n + '): dropped a ' + String(largest).length
+            + '-digit unfactored cofactor that had been stored as a prime factor', 'warn');
+        }
+      }
+    } catch (e) { logSwallowed('applyFdbResult/cofactorInPrior', e); }
+  }
 
   // Per-factor provenance. Only factors FDB actually contributed are attributed
   // to it — recordDiscovery() keeps the FIRST attribution for a given (n, factor),
@@ -8265,6 +8306,8 @@ function openModal(n) {
         return av < bv ? -1 : av > bv ? 1 : 0;
       } catch { return String(a).length - String(b).length; } // fallback if unparsable
     });
+    // Computed once for the whole entry: which of our factors FactorDB is missing.
+    const fdbLacks = factorsFdbLacks(e);
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
       const lbl = factorPrimalityLabel(f, allVerifiedPrime, fdbCache);
@@ -8280,6 +8323,11 @@ function openModal(n) {
       // Two ways FactorDB can establish it:
       //   * the entry came back FF — every factor it listed is prime by definition
       //   * this specific factor was queried and returned P or PRP
+      // PRIMALITY, not possession. "PRIME · FDB" means FactorDB has declared this
+      // factor prime — a stronger and different claim from "FactorDB holds it",
+      // which is what the provenance tag below answers. Merging the two would make
+      // this tooltip a lie on every CF result, where FactorDB has the factor and
+      // has said nothing about its primality.
       const fdbConfirmed = allVerifiedPrime || !!(fdbCache[f] && ['P','PRP'].includes(fdbCache[f].status));
       const tag = lbl === 'prime'  ? (fdbConfirmed
                     ? '<span class="prime-tag" style="color:var(--green)" title="FactorDB confirms this factor is prime">PRIME · FDB</span>'
@@ -8299,15 +8347,31 @@ function openModal(n) {
       // already says FDB, which was rendering "PRIME · FDB  FDB" on every
       // FactorDB-supplied factor. YOURS is still worth showing alongside it: a factor
       // you found by ECM that FactorDB has since confirmed is genuinely both.
-      const provTag = prov === 'e' ? '<span class="prime-tag" style="color:var(--green)" title="Found by your own ECM/P±1 run">YOURS</span>'
-                    : (prov === 'f' && !fdbConfirmed) ? '<span class="prime-tag" style="color:var(--text-muted)" title="Supplied by FactorDB">FDB</span>'
-                    : prov === 'm' ? '<span class="prime-tag" style="color:var(--text-muted)" title="Entered manually">MANUAL</span>'
-                    : '';
+      // The tag answers "is FactorDB holding this one?", NOT "who found it first".
+      //
+      // Those are different questions and this used to answer the second. A factor
+      // the sieve found, that was then submitted and accepted, keeps provenance 's'
+      // forever — recordDiscovery deliberately preserves the original attribution —
+      // so it showed no FDB tag even though FactorDB now has it. That makes the
+      // list unusable for the thing it is actually wanted for: scanning for what
+      // still needs posting.
+      //
+      // Same rule as factorsFdbLacks, so the chips are a preview of exactly what
+      // "Export FDB submission" would send. Who found it is still available, in the
+      // tooltip, where it is interesting rather than load-bearing.
+      const onFdb = !fdbLacks.includes(f);
+      const foundBy = prov === 'e' ? 'your ECM' : prov === 'm' ? 'your P±1'
+                    : prov === 's' ? 'your small-prime sieve' : prov === 'f' ? 'FactorDB' : 'before tracking began';
+      const provTag = onFdb
+        ? `<span class="prime-tag" style="color:var(--text-muted)" title="FactorDB has this factor. Found by ${foundBy}.">FDB</span>`
+        : `<span class="prime-tag" style="color:var(--green)" title="FactorDB does NOT have this factor — it is in the submission export. Found by ${foundBy}.">YOURS</span>`;
       return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}<span class="fdb-arrow">↗</span></a>`;
     }).join('');
-    const sourceNote = allVerifiedPrime
-      ? '— all prime, verified by FactorDB'
-      : '— click to open on FactorDB';
+    const sourceNote = fdbLacks.length
+      ? `— ${fdbLacks.length} of ${primeFactors.length} not on FactorDB yet (green), in the next submission export`
+      : allVerifiedPrime
+        ? '— all prime, verified by FactorDB'
+        : '— FactorDB has every factor we hold';
     if (primeFactors.length) {
       factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">${sourceNote}</span></div><div class="factors-list">${chips}</div></div>`;
     }
@@ -10220,6 +10284,21 @@ function clampExponentsToValue(list, valStr) {
   try { v = BigInt(valStr); } catch (e) { return { factors: list || [], clamped: 0, dropped: 0 }; }
   if (v <= 1n) return { factors: list || [], clamped: 0, dropped: 0 };
   const out = []; let clamped = 0, dropped = 0;
+  // A factor equal to the WHOLE NUMBER, when other factors are present.
+  //
+  // It divides perfectly, so the exponent clamp below keeps it and the redundant-
+  // composite dedupe cannot reconstruct it — it falls between every existing
+  // check. It also slips past the integrity scan twice over: not a LONE factor, so
+  // the "claims E(n) is prime" rule does not apply, and far too large to
+  // primality-test, so the "stored factor is composite" rule never sees it.
+  //
+  // 90 records in a real dataset were carrying one: a 57,000-digit value alongside
+  // the genuine small primes, and divisible by every one of them — which is what
+  // gives it away, since a real cofactor shares no factors with them. The product
+  // of such a list is E(n) times the small primes, so the entry claims far more
+  // than the number contains.
+  const others = (list || []).filter(f => String(f).split('^')[0] !== String(valStr));
+  const selfWithSiblings = others.length < (list || []).length && others.length > 0;
   for (const f of (list || [])) {
     const s = String(f);
     const m = /^(\d+)\^(\d+)$/.exec(s);
@@ -10228,6 +10307,7 @@ function clampExponentsToValue(list, valStr) {
     let b;
     try { b = BigInt(base); } catch (e) { out.push(s); continue; }
     if (b <= 1n) { out.push(s); continue; }
+    if (selfWithSiblings && base === String(valStr)) { dropped++; continue; }
     // Stop as soon as the claim is matched — no need to know how far past it goes.
     let k = 0, r = v;
     while (k < claimed && r % b === 0n) { r /= b; k++; }
