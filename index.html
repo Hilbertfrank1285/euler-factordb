@@ -3817,6 +3817,14 @@ function buildSyncPayload() {
     // to verify locally. Shared so the acknowledgement does not have to be repeated
     // on every machine.
     verifiedComplete: loadVerifiedComplete(),
+    // Facts learned ABOUT THE WORLD, not preferences. Left out of the payload they
+    // drifted per machine — two browsers on the same account showed 113 and 108
+    // FDB-undetermined entries, because each had only asked FactorDB about the
+    // numbers it happened to poll. All three merge monotonically (union, widest
+    // bound, earliest), so machines converge regardless of who learned what first.
+    fdbUnknown: Array.from(loadFdbUnknownSet()),
+    queryLimits: loadQueryLimits(),
+    historyStart: historyStartTs(),
     // ECM run logs now live in their own file (results_ecm.json), pushed separately.
     // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
@@ -3998,6 +4006,51 @@ function mergeSyncPayload(remote) {
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
     try { mergeVerifiedComplete(remote.verifiedComplete); } catch(e) { logSwallowed('merge/verifiedComplete', e); }
+  }
+
+  // ── the three shared facts ──────────────────────────────────────────────
+  // FDB-undetermined is a UNION. Membership means "FactorDB told us it has no
+  // factorisation for this number", which does not stop being true because the
+  // other machine has not asked yet. Nothing ever removes an n, so the union is
+  // convergent — and an entry that later gains factors displays as 'partial'
+  // whatever the set says, so a stale marker cannot mislabel anything.
+  if (Array.isArray(remote.fdbUnknown) && remote.fdbUnknown.length) {
+    try {
+      const set = loadFdbUnknownSet();
+      let added = 0;
+      for (const n of remote.fdbUnknown) {
+        const num = parseInt(n);
+        if (isFinite(num) && !set.has(num)) { set.add(num); added++; }
+      }
+      if (added) { saveFdbUnknownSet(set); addLog('Pulled ' + added + ' FDB-undetermined marker(s)', ''); }
+    } catch(e) { logSwallowed('merge/fdbUnknown', e); }
+  }
+
+  // Query limits take the WIDEST evidence from either side: the largest size seen
+  // to work and the smallest seen to be refused. Both measure the same server, so
+  // whichever machine hit the boundary first is telling the truth for all of them.
+  // confirmedQueryDigits already prefers the rejection when the two disagree.
+  if (remote.queryLimits && typeof remote.queryLimits === 'object') {
+    try {
+      const mine = loadQueryLimits();
+      const maxOk = Math.max(mine.maxOk || 0, remote.queryLimits.maxOk || 0);
+      const fails = [mine.minFail, remote.queryLimits.minFail].filter(x => x > 0);
+      const minFail = fails.length ? Math.min.apply(null, fails) : 0;
+      if (maxOk !== mine.maxOk || minFail !== mine.minFail) saveQueryLimits({ maxOk, minFail });
+    } catch(e) { logSwallowed('merge/queryLimits', e); }
+  }
+
+  // Tracking start is the EARLIEST, matching how the discovery history merges. A
+  // later start silently shrinks the yield report's attributable window, so the
+  // same data reads differently on each machine.
+  if (remote.historyStart) {
+    try {
+      const mineTs = historyStartTs();
+      const theirs = parseInt(remote.historyStart);
+      if (isFinite(theirs) && theirs > 0 && (!mineTs || theirs < mineTs)) {
+        localStorage.setItem(HISTORY_START_KEY, String(theirs));
+      }
+    } catch(e) { logSwallowed('merge/historyStart', e); }
   }
 }
 
