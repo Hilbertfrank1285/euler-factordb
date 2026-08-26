@@ -3041,6 +3041,22 @@ function pm1ToDigits(b1, b2, method) {
 // never fired.
 const ECM_MIN_LEVEL = 10;
 
+// The ECM levels the app works in, low to high.
+//
+// The fitted table starts at 20d, but ecmTableB1 extrapolates below it and the
+// recommendation engine leans on that — t10 is what it offers as the opening move
+// on a fresh large number. So the LADDER and the TABLE are not the same list, and
+// code that iterates the table is quietly working from 20 upwards.
+//
+// This existed three times over, in three different forms: the recommendation
+// engine spelled it [10, 15, ...table], the yield report used ECM_MIN_LEVEL, and
+// the cost-to-finish table iterated the raw table — so it silently began at t20
+// and never showed what the cheapest two levels would cost, which is exactly the
+// part worth knowing on a number nothing has touched.
+function ecmLevels() {
+  return [ECM_MIN_LEVEL, 15, ...ECM_TABLE.map(t => t.d)];
+}
+
 function b1ToDigits(b1str) {
   const b1val = parseB1(b1str);
   if (!b1val || b1val <= 1) return 0;
@@ -6903,7 +6919,7 @@ function computeYieldByLevel() {
   // Starts at ECM_MIN_LEVEL for the same reason b1ToDigits does: these are the
   // levels the recommendation engine actually offers, and a row that cannot be
   // filled is worse than no row.
-  const levels = [ECM_MIN_LEVEL, 15, ...ECM_TABLE.map(t => t.d)];
+  const levels = ecmLevels();
   // Two parallel tallies per level:
   //   runs/curves/cpuSec        — ALL recorded work, all time
   //   tRuns/tCurves/tCpuSec     — only work done since provenance tracking began
@@ -8795,7 +8811,7 @@ function recommendNextRun(digits, attempts) {
   // Including it is self-limiting: once any t15+ run exists it already covers
   // 10-digit factors to ~95%, so t10's marginal gain collapses and the efficiency
   // ranking stops choosing it without needing a special case.
-  const levels = [10, 15, ...ECM_TABLE.map(t => t.d)].filter(d => d <= maxUseful);
+  const levels = ecmLevels().filter(d => d <= maxUseful);
 
   // How "complete" is each ECM level? Use the efficiency-aware probability of the
   // user's actual runs at that digit size (ecmProbForDigit accounts for B1 — a
@@ -10942,7 +10958,7 @@ function computeCostToFinish(entry, digits, attempts) {
   const ecmAtt = (attempts || []).filter(a => a.method === 'ECM' && a.b1);
   const rows = [];
   let cum90 = 0;
-  for (const d of ECM_TABLE.map(t => t.d)) {
+  for (const d of ecmLevels()) {
     if (d > Math.floor(digits / 2)) break;   // a factor larger than half the digits cannot be the smallest
     let have = 0;
     try { have = ecmProbForDigit(d, ecmAtt); } catch(e) { logSwallowed('costToFinish/have', e); }
