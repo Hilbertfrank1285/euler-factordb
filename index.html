@@ -5382,9 +5382,19 @@ async function exportNextRuns() {
   sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
   sum.push('Generated ' + dateStr + ' · ranked by value (odds gained per unit time)');
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
-  sum.push('─'.repeat(86));
-  sum.push('  #   E(n)      digits  method  B1         curves   ~time        +odds     value');
-  sum.push('─'.repeat(86));
+  // The ranking multiplies value by the priority weight, so with a weight in play
+  // the rows are NOT in "value" order and the file gives no way to see why. RANKED
+  // is the score the sort actually used; ★ marks the rows that earned the boost.
+  if (FDB_WEIGHT !== 1) {
+    sum.push('★ = nothing known about it (no factors of ours, or FactorDB has none)'
+      + ' · weighted ×' + FDB_WEIGHT);
+    sum.push('RANKED = value × weight — the number the ordering below is by');
+  }
+  const RULE = FDB_WEIGHT !== 1 ? 110 : 97;
+  sum.push('─'.repeat(RULE));
+  sum.push('  #   E(n)      digits  method  B1         curves   ~time      t/curve      +odds     value'
+    + (FDB_WEIGHT !== 1 ? '    ★     ranked' : ''));
+  sum.push('─'.repeat(RULE));
   top.forEach((r, i) => {
     const idx = String(i+1).padStart(3);
     const en  = ('E(' + r.n + ')').padEnd(9);
@@ -5392,13 +5402,30 @@ async function exportNextRuns() {
     const m   = r.method.padEnd(6);
     const b1  = String(r.b1).padEnd(9);
     const cv  = (r.method === 'ECM' ? String(r.curves) : '—').padStart(7);
-    const tm  = fmtCpuTime(r.cpuTime).padStart(11);
+    const tm  = fmtCpuTime(r.cpuTime).padStart(9);
+    // Cost of a single curve — the size-independent part of the estimate, and the
+    // one number that says whether a run is slow because it is big or because
+    // there is a lot of it. Only meaningful per curve for ECM: P-1 and P+1 are one
+    // pass each, so their curve column is a dash and so is this.
+    // Same fallback the command builder uses: rawCurves is not always populated,
+    // and reading the count off the display string is what the rest of the export
+    // already does rather than blanking the field.
+    const nCurves = r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g, '')) || 0;
+    const perCurve = (r.method === 'ECM' && nCurves > 0 && r.cpuTime)
+      ? fmtCpuTime(r.cpuTime / nCurves) : '—';
+    const pc  = perCurve.padStart(9);
     const gn  = ('+' + r.gain.toFixed(2) + '%').padStart(8);
     const effHr = r.cpuTime ? (r.gain / (r.cpuTime / 3600)) : 0;
-    const val = (effHr >= 0.01 ? effHr.toFixed(2) + '%/hr' : (effHr * 24).toFixed(2) + '%/d').padStart(9);
-    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${gn}  ${val}`);
+    const fmtRate = (x) => x >= 0.01 ? x.toFixed(2) + '%/hr' : (x * 24).toFixed(2) + '%/d';
+    const val = fmtRate(effHr).padStart(9);
+    // Same expression the sort used, so the column and the order cannot disagree.
+    const adj = r.fdbUnknown ? effHr * FDB_WEIGHT : effHr;
+    const extra = FDB_WEIGHT !== 1
+      ? '  ' + (r.fdbUnknown ? '★' : ' ').padStart(3) + '  ' + fmtRate(adj).padStart(9)
+      : '';
+    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${pc}  ${gn}  ${val}${extra}`);
   });
-  sum.push('─'.repeat(86));
+  sum.push('─'.repeat(RULE));
   sum.push('');
   if (isSh) {
     sum.push('HOW TO RUN (Linux):');
