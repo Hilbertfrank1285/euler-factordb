@@ -3024,6 +3024,55 @@ function pm1ToDigits(b1, b2, method) {
   return 200;
 }
 
+// Did we ASK FactorDB and get nothing back?
+//
+// Not the same as "we have no record", which is what the ECM export used to test —
+// and the difference systematically corrupted the ranking. An entry nobody has
+// queried has no record either, and for a 52,926-digit number that is permanent:
+// it is far past the browser's query limit, so it can never acquire one from here.
+// The export was therefore handing its "FactorDB has nothing" bonus to every huge
+// number purely for being too big to ask about, and the numbers that had actually
+// been asked — the ones the bonus is meant to describe — were the only ones
+// excluded from it.
+//
+// Concretely: E(510) at 1,062 digits offering 1.25%/hr lost to E(14934) at 52,926
+// digits offering 0.28%/hr, because the second had never been queried and picked
+// up a x20 multiplier for it. Same odds, four and a half times the CPU.
+//
+// "We asked and it had nothing" is recorded in two places and either is proof:
+// the persistent fdb-unknown set, and a cached status of 'U'. Never having asked
+// is not evidence of anything — the right move there is to CHECK the number, not
+// to pour ECM into it.
+function isFdbUndetermined(entry, rec) {
+  if (entry && entry._fdbUnknown === true) return true;
+  if (rec && rec.status === 'U') return true;
+  try { return loadFdbUnknownSet().has(entry && entry.n); } catch (e) { return false; }
+}
+
+// Does this entry qualify for the ECM export's priority weight?
+//
+// Two independent reasons, either of which is enough:
+//
+//   NO KNOWN FACTORS   nothing has been found on it at all, so a first factor is
+//                      both the most likely find and the most useful one.
+//   FDB UNDETERMINED   we asked and FactorDB had nothing, so our ECM is the only
+//                      thing that will move it and any factor is genuinely new.
+//
+// They overlap but neither implies the other: an entry can hold factors we found
+// while FactorDB still has nothing, and an entry FactorDB has fully described can
+// still be one we hold nothing for locally.
+//
+// Note what is NOT here: "we have no cache record". That was the old test, and it
+// is not evidence of anything — an entry nobody has queried has no record either,
+// and past the browser's query limit that is permanent, so it rewarded numbers for
+// being unaskable. "No known factors" is a fact about the number; "no record" is a
+// fact about our history with it.
+function qualifiesForEcmPriority(entry, rec) {
+  const held = ((entry && entry.factors) || []).filter(f => f && f !== '1').length;
+  if (held === 0) return true;
+  return isFdbUndetermined(entry, rec);
+}
+
 // The lowest ECM level the app works with. The fitted table starts at 20d, but
 // ecmTableB1 extrapolates below it and the recommendation engine leans on that —
 // t10 is what it offers as the opening move on a fresh large number, because it is
@@ -4979,10 +5028,12 @@ async function exportNextRuns() {
   // leaves the ranking exactly as it was.
   const lastW = parseFloat(localStorage.getItem(FDBW_KEY)) || 1;
   const wInput = prompt(
-    'Prioritise entries FactorDB has no factorisation for?\n\n'
-    + 'We asked and FactorDB came back with nothing — not even whether the number\n'
-    + 'is composite. So your ECM is the only thing that will move them, nothing\n'
-    + 'else is working on them, and any factor found is genuinely new.\n\n'
+    'Prioritise entries nothing is known about?\n\n'
+    + 'Two kinds qualify, and either is enough:\n\n'
+    + '  • NO KNOWN FACTORS — nothing has been found on it at all, so a first\n'
+    + '    factor is both the likeliest find and the most useful one.\n'
+    + '  • FDB UNDETERMINED — we asked and FactorDB came back with nothing, so\n'
+    + '    your ECM is the only thing that will move it.\n\n'
     + '  1    no preference — rank purely by odds per CPU-second\n'
     + '  2    count them as twice as valuable\n'
     + '  5    strong preference\n'
@@ -5026,10 +5077,10 @@ async function exportNextRuns() {
       try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
       catch(_) { continue; }
       if (!recs || !recs.length) continue;
-      // FactorDB has no record of this number if it has never been processed —
-      // either explicitly flagged unknown, or simply never queried.
+      // Only entries we ASKED about and got nothing for. Never having asked is not
+      // the same fact and must not earn the bonus — see isFdbUndetermined.
       const _rec = fdbCache[e.val];
-      const fdbUnknown = !_rec || !['FF','CF','C','P','PRP'].includes(_rec.status);
+      const fdbUnknown = qualifiesForEcmPriority(e, _rec);
       for (const r of recs) {
         runs.push({
           n: e.n, entry: e, digits: runDigits, fdbUnknown,   // keep entry ref; resolve value lazily
@@ -5386,8 +5437,8 @@ async function exportNextRuns() {
     + (FDB_WEIGHT === 0
         ? ' · FactorDB-unknown entries excluded'
         : FDB_WEIGHT !== 1
-          ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has nothing for (weighted ×' + FDB_WEIGHT + ')'
-          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries FactorDB has nothing for' : ''));
+          ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about (weighted ×' + FDB_WEIGHT + ')'
+          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about' : ''));
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
