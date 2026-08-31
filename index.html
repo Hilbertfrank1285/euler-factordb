@@ -207,8 +207,6 @@
   .filter-btn.active.unknown   { background: var(--red-dim);    border-color: var(--red);    color: var(--red); }
   .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
   .filter-btn.active.attempted  { background: var(--teal-dim);   border-color: var(--teal);   color: var(--teal); }
-  .filter-btn.active.ahead-of-fdb { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-  .badge-ahead { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
   .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
   .stat-item strong { color: var(--text); }
 
@@ -585,13 +583,28 @@
       style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
   </div>
 
-  <!-- One Check button, not six. It keeps id="pollBtn" because runPollQueue falls
-       back to that element for its spinner when a starter's own button is absent —
-       which, now that the other five are gone, is every time. -->
-  <button class="poll-btn" id="pollBtn" onclick="startCheck()"
-    title="Check entries against FactorDB — asks which: all, partially factored, no known factors, nothing known, never checked, FDB undetermined, or old records">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check…
+  <button class="poll-btn" id="pollBtn" onclick="startManualPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check all
   </button>
+  <button class="poll-btn" id="pollPartialBtn" onclick="startPartialPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check partially factored
+  </button>
+  <button class="poll-btn" id="pollCompositeBtn" onclick="startCompositePoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check no known factors
+  </button>
+  <button class="poll-btn" id="pollUnknownBtn" onclick="startUnknownPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check unknown
+  </button>
+  <button class="poll-btn" id="pollFdbUnknownBtn" onclick="startFdbUnknownPoll()">
+    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check FDB unknown
+  </button>
+  <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted)">
+    <button class="poll-btn" id="pollStaleBtn" onclick="startStalePoll()">
+      <span class="poll-icon">↻</span><span class="spinner">◌</span> Check old records (&gt;
+    </button><input type="number" id="staleDaysInput" value="31" min="1" max="365"
+      style="width:36px;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-size:11px;padding:1px 3px;text-align:center">
+    days)
+  </span>
   <button class="poll-btn" id="pollSubmittedBtn" onclick="startSubmittedPoll()" style="display:none;background:var(--surface2)"
     title="Re-check every entry from your last FactorDB submission in one pass. Entries clear themselves once FactorDB confirms them.">
     <span class="poll-icon">↻</span><span class="spinner">◌</span> Check submitted (<span class="submitted-count">0</span>)
@@ -608,7 +621,7 @@
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
     ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importEcmFromFiles(Array.from(event.dataTransfer.files));"
-    style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations. Also accepts a results_ecm.json backup, which is merged into the ECM store rather than replacing it.">
+    style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations.">
     ↑ Import ECM results
   </button>
 
@@ -688,11 +701,9 @@
     <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
     <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
-    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown" title="We asked — FactorDB has no factorisation for these">FDB UNDETERMINED</button>
+    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown">FDB UNKNOWN</button>
     <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
-    <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
-      title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
@@ -925,41 +936,6 @@ function isProbablePrime(n, rounds = 20) {
 // 10-20 factors, so 300 digits is a few hundred milliseconds in the worst case and
 // usually far less. Above it the label stays "LARGE" rather than risk a stall.
 const LABEL_PRIMALITY_MAX_DIGITS = 300;
-// What to call ONE factor in the UI: 'prime' | 'prp' | 'composite' | 'large'.
-//
-// Extracted from the modal so the tag rule exists once. The parity test used to
-// carry its own copy of it, which meant the real rule could change freely without
-// failing anything.
-//
-// The FactorDB-says-FF branch is where this went wrong. fdbCache is keyed by
-// NUMBER STRING, and small Euler values are themselves small primes — E(4) = 5,
-// E(6) = -61. So fdbCache['61'] is the record for the ENTRY E(6), not a statement
-// about 61 as somebody else's factor. Our own code writes 'FF' for any entry we
-// consider complete (recordEcmFactor and applySieveFindings both do), and E(6) is
-// complete because 61 is prime — so every larger entry with 61 in its factor list
-// read that record, saw FF, and displayed "61 COMPOSITE?".
-//
-// The arithmetic is right there and answers the question directly, so ask it.
-// FactorDB's verdict is only consulted for factors too large to settle locally,
-// which is the only case where it adds anything.
-function factorPrimalityLabel(f, allVerifiedPrime, cache) {
-  // An FF entry means FactorDB proved the whole factorisation, so everything it
-  // listed is prime by definition.
-  if (allVerifiedPrime) return 'prime';
-  const rec = (cache || {})[f];
-  // P/PRP is a statement about the NUMBER f, and stays correct under the key
-  // collision above: whichever entry the record belongs to, it says f is prime.
-  if (rec && ['P','PRP'].includes(rec.status)) return rec.status === 'PRP' ? 'prp' : 'prime';
-  const local = labelFactor(f);
-  if (rec && rec.status === 'FF') {
-    // Trust local arithmetic whenever it can decide. Only fall back to reading FF
-    // as "composite" for factors past the primality ceiling, where there is
-    // nothing else to go on.
-    return local === 'large' ? 'composite' : local;
-  }
-  return local;
-}
-
 function labelFactor(f) {
   try {
     const s = String(f).split('^')[0];
@@ -1109,22 +1085,13 @@ function sieveSmallFactors(n) {
 // The first pass deliberately covers EVERYTHING anyway: at 0.13s per number that is
 // minutes, and it doubles as a correctness check. A 5-digit factor turning up in an
 // entry FactorDB calls fully factored would be a data bug worth knowing about.
-// `statuses` restricts the sieve to given entry statuses — null/omitted means no
-// restriction, which is the historical behaviour and stays the default.
-//
-// The useful case is ['unknown', 'fdb-unknown']: entries where nothing is known at
-// all. The sieve tests the COFACTOR, so a 'partial' entry is already smaller than
-// what it started as and its easy factors have usually gone; the never-touched
-// ones are where a first small factor is most likely and worth most. Restricting
-// also turns an overnight run over everything into a targeted one.
-function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
+function sieveCandidates(onlyUnsearched, nFrom, nTo) {
   const out = [];
   for (const e of allEntries) {
     if (!e || !e.val || e.val === '1') continue;
     if (e.status === 'full') continue;          // nothing left to find
     if (nFrom != null && e.n < nFrom) continue;
     if (nTo   != null && e.n > nTo)   continue;
-    if (statuses && !statuses.includes(e.status)) continue;
     if (onlyUnsearched) {
       const rec = fdbCache[e.val];
       const fdbSeen = rec && ['FF','CF','C','P','PRP'].includes(rec.status);
@@ -1137,8 +1104,8 @@ function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
 }
 
 // Scan without writing anything. Chunked so the tab stays responsive.
-async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses) {
-  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo, statuses);
+async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo) {
+  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo);
   ensurePrimeTree();
   const findings = [];
   let scanned = 0, skipped = 0;
@@ -1732,19 +1699,8 @@ function applyFdbUnknownSet() {
   const s = loadFdbUnknownSet();
   if (!s.size) return;
   for (const e of allEntries) {
-    if (!s.has(e.n)) continue;
-    // The FLAG is orthogonal to the status and applies either way: it says
-    // FactorDB has no factorisation, which stays true whether or not we hold
-    // factors of our own. It drives the "our factors are new — worth submitting"
-    // badge and the ECM export's priority weight, and restoring only the status
-    // meant both quietly disappeared on every reload.
-    e._fdbUnknown = true;
-    // The STATUS only changes when we know nothing ourselves. An entry with
-    // factors is 'partial' — that describes OUR knowledge correctly, and is what
-    // applyFdbResult writes for the same case.
-    if (e.status === 'unknown' || e.status === 'fdb-unknown') {
-      const held = (e.factors || []).filter(f => f && f !== '1').length;
-      e.status = held ? 'partial' : 'fdb-unknown';
+    if (s.has(e.n) && (e.status === 'unknown' || e.status === 'fdb-unknown')) {
+      e.status = 'fdb-unknown';
     }
   }
 }
@@ -2042,38 +1998,6 @@ function currentQueryCap() {
 // reflects what has actually been measured rather than this fixed floor.
 const QUERY_MAX_DIGITS = QUERY_FLOOR_DIGITS;
 
-// Largest size CONFIRMED to work from the browser. The other half of the pair
-// above, and the two must not be confused — conflating them has already produced
-// one real failure.
-//
-//   currentQueryCap()      what is still worth ATTEMPTING. Sits at the 500,000
-//                          sanity ceiling until a rejection has actually been
-//                          recorded, so it is optimistic on purpose: a number
-//                          should get a genuine try before being written off.
-//
-//   confirmedQueryDigits() what is KNOWN to work. Never optimistic. Everything
-//                          above it is unproven, and unproven is precisely the
-//                          territory fdb_check.py exists to cover.
-//
-// Use the cap to decide whether to try one query. Use this to decide whether a
-// whole batch belongs in the browser at all — because there the cost of being
-// wrong is a run of failures rather than one, and each failure is a wasted
-// 64 KiB request that a person is sitting and watching.
-//
-// Was inline in exportFDBCheckList, where the same expression also had a copy in
-// the test harness — so the rule existed three times and no test touched the real
-// one.
-function confirmedQueryDigits() {
-  const l = loadQueryLimits();
-  // A recorded rejection is the tighter and more direct bound: it was measured,
-  // not inferred from the last success.
-  if (l.minFail) return l.minFail - 1;
-  if (l.maxOk)   return l.maxOk;
-  // Nothing measured either way — no evidence anything is out of reach, so fall
-  // back to what we would be willing to attempt.
-  return currentQueryCap();
-}
-
 // Parse a B1/B2 bound that may be written as "3e6", "3000000", or "3,000,000".
 // Returns a Number (0 if blank/invalid). Used everywhere ECM/P±1 bounds are read.
 function parseB1(v) {
@@ -2131,65 +2055,26 @@ function loadFDBCache() {
     // Rebuild full cache: slim uses n as key, we need to map back to number string
     // For each entry, look up the number string via eulerValues
     const full = {};
-    let missingValue = 0;
     for (const [nStr, v] of Object.entries(slim)) {
       const n   = parseInt(nStr);
       const num = eulerValues[n] || '';
-      // Cannot rebuild the key without the value. The record stays on disk and is
-      // fine; what must not happen is saving over it — see saveFDBCache.
-      if (!num) { missingValue++; continue; }
+      if (!num) continue;
       // Restore factors: prefer in-memory fdbFactors, fall back to slim-persisted factors
       const memFactors  = fdbFactors[num]?.factors;
       const slimFactors = v.factors ? v.factors.map(_decodeFactor) : v.factors;
       const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
       full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
                     ...(v.fdbId ? { fdbId: v.fdbId } : {}),
-                    ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
       if (factors && factors.length) {
         fdbFactors[num] = { factors };
       }
     }
-    // Record whether this load was complete, so saveFDBCache knows not to write
-    // back over records it never managed to read.
-    _fdbCacheLoadIncomplete = missingValue;
-    if (missingValue) {
-      console.warn('loadFDBCache: ' + missingValue + ' record(s) skipped — no Euler value for their n. '
-        + 'Saving is paused until a load succeeds; the records on disk are intact.');
-    }
     return full;
   } catch { return {}; }
 }
-// True once a load has been skipped because eulerValues had no entry for it. A
-// record dropped that way is still on disk and still correct — the ONLY thing that
-// can destroy it is writing the truncated in-memory cache back over the top.
-let _fdbCacheLoadIncomplete = 0;
-
 function saveFDBCache(c) {
-  // Refuse to persist a cache that was loaded incompletely.
-  //
-  // loadFDBCache maps its n-keyed records back to number strings through
-  // eulerValues, and SKIPS any record whose value is missing. fetchEulerValues is
-  // wrapped in a swallow at init, so a failed or partial chunk load leaves the
-  // cache short by exactly those entries — factors and all. That alone is
-  // recoverable: the records are still on disk, and the next load with the values
-  // present brings them back.
-  //
-  // What is not recoverable is saving on top of it. Any check, merge or repair
-  // calls saveFDBCache with the in-memory cache, which would write the truncated
-  // set over the complete one and turn a transient network failure into permanent
-  // data loss. The symptom before that point is entries quietly reverting — a
-  // factored number reading as FDB-undetermined again after a reload, and counts
-  // that drift upward between sessions for no reason anyone can point at.
-  if (_fdbCacheLoadIncomplete > 0) {
-    console.warn('saveFDBCache refused: ' + _fdbCacheLoadIncomplete
-      + ' cached record(s) could not be loaded because their Euler value was missing. '
-      + 'Refusing to overwrite storage with an incomplete cache. Reload once the values load.');
-    try { showStorageWarning('Euler values did not finish loading, so saving is paused to '
-      + 'protect the factor cache. Reload the page.'); } catch (e) { logSwallowed('saveFDBCache/warn', e); }
-    return;
-  }
   // Use n (small integer) as key in localStorage — NOT the number string (up to 2498 digits)
   // This alone reduces storage from MB to KB
   const slim = {};
@@ -2220,10 +2105,6 @@ function saveFDBCache(c) {
     // dead weight — confirmed while investigating a persistent quota problem.
     slim[key] = { status: _encodeStatus(v.status), timestamp: v.timestamp,
                   source: v.source || null,
-                  // Kept because it is the only record of what FactorDB itself
-                  // holds; without it the submission export cannot tell its own
-                  // factors from ours after a reload.
-                  ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
                   // FactorDB's id for this number — lets later checks use a tiny
                   // ?id= URL instead of sending the whole number.
                   ...(v.fdbId ? { fdbId: v.fdbId } : {}),
@@ -2266,60 +2147,6 @@ function buildEntries() {
   }
   entries.sort((a,b) => a.n - b.n);
   return entries;
-}
-
-// ── the n → entry index ──────────────────────────────────────────────────────
-// One shared lookup, replacing 22 separate `entryByN(n)`
-// scans and four hand-rolled local maps. Five of the scans sat inside loops over
-// the whole dataset, which is O(entries x records): the FDB import alone was
-// ~6,850 records x 10,001 entries.
-//
-// A STALE INDEX IS WORSE THAN A SLOW SCAN. It hands back an entry object that is
-// no longer the one in allEntries, so mutations land on an orphan and vanish at
-// the next render — silent, and exactly the failure mode this project keeps
-// having. So the index is never trusted on faith: every lookup first checks it
-// against the live array — identity, length, and the first and last elements —
-// and rebuilds if any of them moved. Four O(1) comparisons instead of a scan.
-//
-// That check IS the mechanism, not a backstop. buildEntries() was also rebuilding
-// the index eagerly for the array it returns, which reads like the obvious place
-// for it; a mutation removing that line left the whole suite green, because the
-// guard rebuilds on the next lookup regardless. It was duplication, so it is gone
-// and buildEntries knows nothing about the index.
-//
-// The alternative was an explicit invalidate() at every mutation site. That is
-// more discipline of the kind the buildEntries/replayFDBCache pair already
-// demands, and forgetting it would be silent rather than loud.
-let _entryIndex      = new Map();
-let _entryIndexFrom  = null;   // the array the index was built from
-let _entryIndexLen   = -1;
-let _entryIndexFirst = null;
-let _entryIndexLast  = null;
-
-function rebuildEntryIndex(list) {
-  const arr = list || allEntries || [];
-  const m = new Map();
-  // First occurrence wins, exactly like Array.prototype.find, so this is a drop-in
-  // replacement even if a duplicate n ever appears.
-  for (const e of arr) if (e && !m.has(e.n)) m.set(e.n, e);
-  _entryIndex      = m;
-  _entryIndexFrom  = arr;
-  _entryIndexLen   = arr.length;
-  _entryIndexFirst = arr.length ? arr[0] : null;
-  _entryIndexLast  = arr.length ? arr[arr.length - 1] : null;
-  return m;
-}
-
-// Returns undefined when there is no entry for n — same as the .find() it replaces.
-function entryByN(n) {
-  const arr = allEntries || [];
-  if (_entryIndexFrom !== arr
-      || _entryIndexLen !== arr.length
-      || _entryIndexFirst !== (arr.length ? arr[0] : null)
-      || _entryIndexLast !== (arr.length ? arr[arr.length - 1] : null)) {
-    rebuildEntryIndex(arr);
-  }
-  return _entryIndex.get(n);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2420,14 +2247,14 @@ function replayFDBCache() {
   if (migrated) { saveFDBCache(fdbCache); console.log('Migrated: stripped ^1 from cached factors'); }
 
   let restored = 0;
-  // entryByN is the shared index. This used to build its own local copy — the
-  // comment here read "index entries by n once, so we don't do allEntries.find()
-  // inside the cache loop", and three other functions had independently reached
-  // the same conclusion and written the same four lines.
+  // Index entries by n once, so we don't do allEntries.find() inside the cache loop
+  // (that was O(cache × entries) — slow when both are large).
+  const byN = new Map();
+  for (const e of allEntries) byN.set(e.n, e);
   for (const [number, cached] of Object.entries(fdbCache)) {
     const { status, factors, n } = cached;
     if (n == null) continue;
-    const entry = entryByN(n);
+    const entry = byN.get(n);
     if (!entry) continue;
 
     // If this was a cofactor lookup and it resolved
@@ -2464,25 +2291,8 @@ function replayFDBCache() {
       entry.status = 'composite';
     }
 
-    // Restore the factors on the record, WHATEVER FactorDB's verdict was.
-    //
-    // This used to require status === 'CF', and the omission cost real data. The
-    // status describes what FACTORDB knows; the factors on the record are ours
-    // either way, and applyFdbResult deliberately keeps them on a 'U' or 'C'
-    // result. But replayFDBCache is the ONLY path that puts factors back on an
-    // entry after a rebuild — buildEntries always yields bare ones — so a record
-    // FactorDB had answered 'U' for came back empty on every reload.
-    //
-    // E(15880): FactorDB has no factorisation for a 56,702-digit number, so it
-    // answered U while we held ["5^2","41","5399","15881"]. The record was correct
-    // in storage and unreachable in the app; the entry rebuilt at 'unknown', and
-    // applyFdbUnknownSet then relabelled it 'fdb-unknown'. Importing a batch of
-    // fdb_check.py results did this to hundreds of entries at once, which is what
-    // took the unknown count from ~163 to 430.
-    //
-    // 'FF'/'P'/'PRP' are handled above and set 'full'; everything else that carries
-    // factors lands here.
-    if (!['FF','P','PRP'].includes(effectiveStatus) && factors && factors.length >= 1) {
+    // Partial resolution: FDB CF for full value or cofactor
+    if (status === 'CF' && factors && factors.length >= 1) {
       const allFDB = (factors || []).filter(f => f && f !== '1');
       const cofactorLen = cached.cofactorLen || null;
       // If we have cofactorLen, we know prime factors are all but the implied cofactor
@@ -2499,21 +2309,7 @@ function replayFDBCache() {
         entry.factors  = sortFactorsAsc([...new Set([...cleanExisting, ...knownFactors])]);
         entry.cofactor = null;
         if (entry.status !== 'full') entry.status = 'partial';
-        // NOT _fdbVerified — and emphatically not on this branch.
-        //
-        // CF means FactorDB has looked at the number and has NOT declared its
-        // listed factors prime. applyFdbResult sets the flag to false here for
-        // exactly that reason (see the comment on its CF branch). This copy set it
-        // to TRUE, and replay runs after every rebuild, so on each render it undid
-        // that fix for every CF entry in the dataset.
-        //
-        // The visible damage was worse than a wrong flag. A CF record is also what
-        // the sieve and recordEcmFactor write when they find a factor on an entry
-        // FactorDB knows nothing about — status CF, source 'sieve' or 'import'.
-        // Replay then stamped it verified, and the modal prints "all prime,
-        // verified by FactorDB" over factors FactorDB has never seen. The stored
-        // `source` was right the whole time; the screen said otherwise.
-        entry._fdbVerified = false;
+        entry._fdbVerified = true;
         restored++;
       }
     }
@@ -2543,82 +2339,6 @@ function allTargets(includeFull, source) {
   return (source || allEntries)
     .filter(e => (includeFull || e.status !== 'full') && e.val && e.n > 2)
     .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-}
-
-// The remaining check scopes, extracted from the six poll starters that used to
-// have a button each. They live here rather than inline so the single Check prompt
-// can COUNT each scope with the same rule that will then run it — a count computed
-// from a copy of the filter is a number that can quietly disagree with what the
-// button actually does.
-
-// Non-full entries that HAVE known factors — not just those labelled 'partial'.
-// An entry can hold factors while still labelled 'composite' or 'fdb-unknown' (a
-// stale status), and those must be re-checkable here too, otherwise the bulk sweep
-// silently skips them while the modal recheck handles them fine.
-function partialTargets(cap) {
-  const out = allEntries
-    .filter(e => e.status !== 'full' && e.val && e.n > 2
-                 && (e.factors || []).filter(f => f && f !== '1').length > 0)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-  return cap ? out.slice(0, cap) : out;
-}
-
-// Composite = FactorDB confirmed no known factors. 'attempted' means the same
-// thing plus local ECM history, so it belongs in the same sweep.
-function compositeTargets() {
-  return allEntries
-    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-}
-
-function fdbUnknownTargets(cap) {
-  const out = allEntries
-    .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-  return cap ? out.slice(0, cap) : out;
-}
-
-// Both of the above at once: entries we know nothing about, whether because we
-// have never asked FactorDB or because we asked and it had nothing.
-//
-// This is the scope you almost always want. The two statuses are genuinely
-// different — one is an absence of data on our side, the other a positive answer
-// from FactorDB, and the ECM export's priority weight and the "our factors are
-// new" badge both key on that difference — but for the purpose of "go and find
-// out something about the numbers we know nothing about", they are one thing, and
-// asking someone to run two sweeps to cover them was busywork.
-//
-// Filtered from allEntries rather than concatenating the two lists, so the result
-// stays in n order instead of running every never-checked entry before the first
-// undetermined one.
-function nothingKnownTargets(cap) {
-  const out = allEntries
-    .filter(e => (e.status === 'unknown' || e.status === 'fdb-unknown') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-  return cap ? out.slice(0, cap) : out;
-}
-
-// Never checked, or checked longer ago than `days`. Queries the COFACTOR for a
-// partial entry — no point re-asking about factors we already hold.
-function staleTargets(days) {
-  const cutoff = Date.now() - Math.max(1, days) * 86400000;
-  return allEntries
-    .filter(e => {
-      if (e.status === 'full') return false;
-      if (!e.val || e.n <= 2) return false;
-      const info = getFdbCheckInfo(e);
-      return !info || info.timestamp < cutoff;
-    })
-    .map(e => {
-      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
-        ? e.cofactor : e.val;
-      return { n: e.n, number: queryNum };
-    })
     .filter(t => t.number);
 }
 
@@ -3024,93 +2744,11 @@ function pm1ToDigits(b1, b2, method) {
   return 200;
 }
 
-// Did we ASK FactorDB and get nothing back?
-//
-// Not the same as "we have no record", which is what the ECM export used to test —
-// and the difference systematically corrupted the ranking. An entry nobody has
-// queried has no record either, and for a 52,926-digit number that is permanent:
-// it is far past the browser's query limit, so it can never acquire one from here.
-// The export was therefore handing its "FactorDB has nothing" bonus to every huge
-// number purely for being too big to ask about, and the numbers that had actually
-// been asked — the ones the bonus is meant to describe — were the only ones
-// excluded from it.
-//
-// Concretely: E(510) at 1,062 digits offering 1.25%/hr lost to E(14934) at 52,926
-// digits offering 0.28%/hr, because the second had never been queried and picked
-// up a x20 multiplier for it. Same odds, four and a half times the CPU.
-//
-// "We asked and it had nothing" is recorded in two places and either is proof:
-// the persistent fdb-unknown set, and a cached status of 'U'. Never having asked
-// is not evidence of anything — the right move there is to CHECK the number, not
-// to pour ECM into it.
-function isFdbUndetermined(entry, rec) {
-  if (entry && entry._fdbUnknown === true) return true;
-  if (rec && rec.status === 'U') return true;
-  try { return loadFdbUnknownSet().has(entry && entry.n); } catch (e) { return false; }
-}
-
-// Does this entry qualify for the ECM export's priority weight?
-//
-// Two independent reasons, either of which is enough:
-//
-//   NO KNOWN FACTORS   nothing has been found on it at all, so a first factor is
-//                      both the most likely find and the most useful one.
-//   FDB UNDETERMINED   we asked and FactorDB had nothing, so our ECM is the only
-//                      thing that will move it and any factor is genuinely new.
-//
-// They overlap but neither implies the other: an entry can hold factors we found
-// while FactorDB still has nothing, and an entry FactorDB has fully described can
-// still be one we hold nothing for locally.
-//
-// Note what is NOT here: "we have no cache record". That was the old test, and it
-// is not evidence of anything — an entry nobody has queried has no record either,
-// and past the browser's query limit that is permanent, so it rewarded numbers for
-// being unaskable. "No known factors" is a fact about the number; "no record" is a
-// fact about our history with it.
-function qualifiesForEcmPriority(entry, rec) {
-  const held = ((entry && entry.factors) || []).filter(f => f && f !== '1').length;
-  if (held === 0) return true;
-  return isFdbUndetermined(entry, rec);
-}
-
-// The lowest ECM level the app works with. The fitted table starts at 20d, but
-// ecmTableB1 extrapolates below it and the recommendation engine leans on that —
-// t10 is what it offers as the opening move on a fresh large number, because it is
-// the most efficient thing to run first.
-//
-// b1ToDigits used to start its search at ECM_TABLE[0].d, so it could never return
-// anything under 20. A t10 run at B1=532 was therefore reported as a level-20 run,
-// and the t10 and t15 rows of the yield report — which exist, because that report
-// builds its levels as [10, 15, ...table] — were structurally impossible to fill.
-// Run t10 all day and those rows stay at zero.
-//
-// Shared by both so they cannot drift apart again. computeYieldByLevel already
-// carried a comment noting that b1ToDigits "only spans the table (20-65)" and a
-// fallback for values outside it, but the clamp happened upstream, so the fallback
-// never fired.
-const ECM_MIN_LEVEL = 10;
-
-// The ECM levels the app works in, low to high.
-//
-// The fitted table starts at 20d, but ecmTableB1 extrapolates below it and the
-// recommendation engine leans on that — t10 is what it offers as the opening move
-// on a fresh large number. So the LADDER and the TABLE are not the same list, and
-// code that iterates the table is quietly working from 20 upwards.
-//
-// This existed three times over, in three different forms: the recommendation
-// engine spelled it [10, 15, ...table], the yield report used ECM_MIN_LEVEL, and
-// the cost-to-finish table iterated the raw table — so it silently began at t20
-// and never showed what the cheapest two levels would cost, which is exactly the
-// part worth knowing on a number nothing has touched.
-function ecmLevels() {
-  return [ECM_MIN_LEVEL, 15, ...ECM_TABLE.map(t => t.d)];
-}
-
 function b1ToDigits(b1str) {
   const b1val = parseB1(b1str);
   if (!b1val || b1val <= 1) return 0;
-  let bestD = ECM_MIN_LEVEL, bestErr = Infinity;
-  for (let d = ECM_MIN_LEVEL; d <= ECM_TABLE[ECM_TABLE.length-1].d; d++) {
+  let bestD = ECM_TABLE[0].d, bestErr = Infinity;
+  for (let d = ECM_TABLE[0].d; d <= ECM_TABLE[ECM_TABLE.length-1].d; d++) {
     const err = Math.abs(Math.log(ecmTableB1(d)) - Math.log(b1val));
     if (err < bestErr) { bestErr = err; bestD = d; }
   }
@@ -3652,19 +3290,6 @@ function mergeEcmData(remoteEcm) {
         if (ac > hc) hit.curves = String(ac);
       }
       if (a.b2 && !hit.b2) hit.b2 = a.b2;
-      // Timestamps and measured time, which the sigma/curve merge above ignored.
-      // They matter for the same reason the yield report has two halves: `date` is
-      // when an attempt was first made and `lastRun` when it was last extended, and
-      // losing them makes old work indistinguishable from work done today.
-      //
-      // EARLIEST date, LATEST lastRun — the widest true interval, and the same
-      // rule the discovery history uses for when a factor was found.
-      if (a.date && (!hit.date || a.date < hit.date)) hit.date = a.date;
-      if (a.lastRun && (!hit.lastRun || a.lastRun > hit.lastRun)) hit.lastRun = a.lastRun;
-      // Max rather than sum: a measured time describes one attempt, and summing
-      // would inflate it every time the same payload was merged again.
-      const am = Number(a.ms) || 0, hm = Number(hit.ms) || 0;
-      if (am > hm) hit.ms = am;
     }
   }
   return merged;
@@ -3860,21 +3485,6 @@ function buildSyncPayload() {
     const primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
     if (primeFactors.length) entry.factors = sortFactorsAsc(primeFactors);
     if (v.source)            entry.source  = v.source;
-    // Carry what FACTORDB itself reported, and its id for this number.
-    //
-    // Both were persisted locally and neither was in the payload, so a push
-    // dropped them and "clear all local data" then destroyed the only copies.
-    // Neither loss announces itself:
-    //
-    //   fdbHas  is how the submission export knows which factors FactorDB already
-    //           holds. Without it the export falls back to provenance alone, which
-    //           cannot see a factor the sieve found FIRST and FactorDB confirmed
-    //           later — so runs quietly fill up with 5s and 61s again.
-    //   fdbId   is how a 65,000-digit number gets re-checked by ?id= instead of by
-    //           its digits. Lose it and those entries become unaskable, which is
-    //           exactly the set that needs asking about most.
-    if (v.fdbHas && v.fdbHas.length) entry.fdbHas = v.fdbHas;
-    if (v.fdbId)                     entry.fdbId  = v.fdbId;
     full[nStr] = entry;
   }
   return {
@@ -3897,126 +3507,9 @@ function buildSyncPayload() {
     // to verify locally. Shared so the acknowledgement does not have to be repeated
     // on every machine.
     verifiedComplete: loadVerifiedComplete(),
-    // Facts learned ABOUT THE WORLD, not preferences. Left out of the payload they
-    // drifted per machine — two browsers on the same account showed 113 and 108
-    // FDB-undetermined entries, because each had only asked FactorDB about the
-    // numbers it happened to poll. All three merge monotonically (union, widest
-    // bound, earliest), so machines converge regardless of who learned what first.
-    fdbUnknown: Array.from(loadFdbUnknownSet()),
-    queryLimits: loadQueryLimits(),
-    historyStart: historyStartTs(),
     // ECM run logs now live in their own file (results_ecm.json), pushed separately.
     // Omitted here to keep results.json small and avoid two copies drifting.
     updatedAt: new Date().toISOString(),
-  };
-}
-
-// Combine two cached FactorDB records for the SAME number, held by two devices.
-//
-// Factors are monotone knowledge: a prime that divides E(n) divides it forever, so
-// a factor list is never wrong for being old — only for being incomplete. Both
-// sides' factors are therefore ALWAYS kept, whichever side is newer. Only the
-// metadata that can genuinely go stale — status, source, fdbId, timestamp — is
-// decided by which record is more recent.
-//
-// This used to be asymmetric, and that was a silent data-loss bug. The local-wins
-// branch took the union (with a comment about repairing truncated data); the
-// remote-wins branch replaced the record wholesale. Two machines doing ordinary
-// work hit it constantly: A finds a factor by ECM, B re-checks the same entry on
-// FactorDB afterwards and pushes, A pulls — and A's factor is gone, with A's next
-// push propagating the loss to everyone. Nothing announced it; the entry simply
-// read as less-factored than it was, and the app would go on to re-spend the CPU
-// that found it. Same shape as the saveFDBCache truncation: real work destroyed by
-// a path that had a good reason for what it was doing.
-//
-// A timestamp must never be able to remove a factor. That is the whole rule.
-// `valStr` is the number these factors divide — for a cache record that is always
-// its own key, whether the key is an E(n) value or a cofactor.
-function mergeFactorRecords(local, remote, valStr) {
-  const lTs = Number(local && local.timestamp) || 0;
-  const rTs = Number(remote && remote.timestamp) || 0;
-  const remoteNewer = rTs > lTs;
-  const newer = remoteNewer ? remote : local;
-  const older = remoteNewer ? local : remote;
-
-  const clean = (rec) => ((rec && rec.factors) || []).filter(f => f && f !== '1');
-  // collapseFactorPowers, not a bare Set: one side may hold "5" where the other
-  // holds "5^2". Those are the same prime at different precision, and keeping both
-  // makes the product overshoot E(n) — which reads downstream as a corrupt entry
-  // and, worse, exports to FactorDB as N=5*5*5, a claim that is simply false.
-  let union = sortFactorsAsc(collapseFactorPowers([...clean(local), ...clean(remote)]));
-
-  // ── a correction must survive the union ─────────────────────────────────
-  // "A timestamp may never remove a factor" is right for DISCOVERY and wrong for
-  // CORRECTION, and the union alone cannot tell the two apart. Run the data
-  // integrity fixer on one machine, and the other still holds the bad factor:
-  // it pushes, this merges, and the union puts the corruption straight back. The
-  // same issues reappear days later on a machine that already repaired them, and
-  // nothing in the log explains why.
-  //
-  // Tombstones would be one answer. Arithmetic is a better one, because it needs
-  // no bookkeeping and heals whichever side is wrong: a factor that does not
-  // divide is provably not a factor, so the merge simply refuses it, and a
-  // composite equal to the product of its neighbours is provably redundant. Both
-  // are exactly what the fixer removed, so a stale peer can no longer reinstate
-  // them — and a machine that never ran the fixer gets repaired by pulling.
-  //
-  // Only when the union actually GREW: if the sides agree there is nothing to
-  // re-check, which keeps the primality tests off the common path.
-  const grew = union.length > collapseFactorPowers(clean(local)).length;
-  if (grew && valStr && /^\d+$/.test(String(valStr))) {
-    const before = union.length;
-    const kept = clampExponentsToValue(union, valStr);
-    union = sortFactorsAsc(dedupeCompositeFactors(kept.factors));
-    if (union.length < before) {
-      addLog('Merge refused ' + (before - union.length) + ' factor(s) that do not belong to '
-        + String(valStr).slice(0, 12) + '… — a peer had stale data', 'warn');
-    }
-  }
-
-  // A "fully factored" verdict is a claim about ONE SPECIFIC factor list — the one
-  // that multiplied back to E(n) when it was checked (applyFdbResult only caches
-  // FF/P/PRP after proving that product). If the union is larger than what a side
-  // held, that side was not looking at the whole number, so its verdict cannot be
-  // carried across. Asserting a completeness claim the current list does not
-  // support is exactly the state the integrity scan exists to clean up, and
-  // replayFDBCache promotes a cached FF straight to 'full' without re-checking the
-  // arithmetic — so a wrong one here becomes a wrong entry on every device.
-  const RESOLVED = ['FF', 'P', 'PRP'];
-  const stillProves = (rec) => RESOLVED.includes(rec && rec.status)
-    && collapseFactorPowers(clean(rec)).length === union.length;
-
-  let status;
-  if (stillProves(newer))      status = newer.status;      // its proof survives the union
-  else if (stillProves(older)) status = older.status;      // arithmetic does not expire
-  else if (RESOLVED.includes(newer && newer.status) || RESOLVED.includes(older && older.status))
-    status = 'CF';                                         // the union outgrew a completeness claim
-  else status = (newer && newer.status) || (older && older.status) || null;
-
-  // 'fdb' means FactorDB already holds everything we do — it is what makes the
-  // submission export SKIP an entry. If the union added anything to the side that
-  // claimed it, that is no longer true, and leaving it would quietly suppress
-  // submitting factors FactorDB does not have.
-  const claimant = (newer && newer.source) ? newer : older;
-  const source = (claimant && claimant.source === 'fdb'
-                  && collapseFactorPowers(clean(claimant)).length !== union.length)
-    ? 'import'
-    : ((newer && newer.source) || (older && older.source) || null);
-
-  return {
-    ...older,
-    ...newer,
-    // The two spreads above are what preserve an fdbId held by only one side: a
-    // spread adds keys, it never deletes them, so the older record's id survives a
-    // newer record that lacks one. (An explicit fdbId line here was pure
-    // duplication — a mutation that deleted it left every assertion green.)
-    ...(union.length ? { factors: union } : {}),
-    status,
-    source,
-    // "When did we last learn something about this entry" — so a re-pull of the
-    // same remote is a no-op rather than flip-flopping the winner.
-    timestamp: Math.max(lTs, rTs) || (newer && newer.timestamp) || (older && older.timestamp),
-    n: (newer && newer.n != null) ? newer.n : (older && older.n),
   };
 }
 
@@ -4044,24 +3537,31 @@ function mergeSyncPayload(remote) {
     else remoteCache[k] = entry; // fallback
   }
   const merged = { ...localCache };
-  let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0, factorsGained: 0 };
+  let mergeStats = { remoteAdded: 0, remoteWins: 0, localWins: 0 };
   for (const [k, v] of Object.entries(remoteCache)) {
+    const localTs  = Number(merged[k]?.timestamp) || 0;
+    const remoteTs = Number(v.timestamp) || 0;
     if (!merged[k]) {
       merged[k] = v;
       mergeStats.remoteAdded++;
-      continue;
+    } else if (remoteTs > localTs) {
+      merged[k] = v;
+      mergeStats.remoteWins++;
+    } else {
+      // Local wins on timestamp — but reconcile factors with remote
+      // Take the UNION of both factor lists (more complete wins, fixes truncated local data)
+      const localF  = merged[k].factors || [];
+      const remoteF = v.factors || [];
+      if (remoteF.length) {
+        const union = [...new Set([...localF, ...remoteF].map(String))];
+        merged[k] = { ...merged[k], factors: union };
+        // If remote is FF/CF and has more factors, prefer remote status too
+        if (remoteF.length > localF.length && ['FF','CF','P','PRP'].includes(v.status)) {
+          merged[k].status = v.status;
+        }
+      }
+      mergeStats.localWins++;
     }
-    // Both sides know this number. mergeFactorRecords keeps every factor either
-    // side holds regardless of which is newer — the timestamp decides only the
-    // metadata. Whichever "wins" is a reporting detail now, not a data decision.
-    const before = (merged[k].factors || []).length;
-    const localTs  = Number(merged[k].timestamp) || 0;
-    const remoteTs = Number(v.timestamp) || 0;
-    // The cache key IS the number these factors divide, so the merge can check
-    // them arithmetically without a lookup.
-    merged[k] = mergeFactorRecords(merged[k], v, k);
-    if ((merged[k].factors || []).length > before) mergeStats.factorsGained++;
-    if (remoteTs > localTs) mergeStats.remoteWins++; else mergeStats.localWins++;
   }
   console.log('FDB merge:', mergeStats);
   // Populate fdbFactors and record per-factor FDB provenance from pulled data
@@ -4118,51 +3618,6 @@ function mergeSyncPayload(remote) {
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
     try { mergeVerifiedComplete(remote.verifiedComplete); } catch(e) { logSwallowed('merge/verifiedComplete', e); }
-  }
-
-  // ── the three shared facts ──────────────────────────────────────────────
-  // FDB-undetermined is a UNION. Membership means "FactorDB told us it has no
-  // factorisation for this number", which does not stop being true because the
-  // other machine has not asked yet. Nothing ever removes an n, so the union is
-  // convergent — and an entry that later gains factors displays as 'partial'
-  // whatever the set says, so a stale marker cannot mislabel anything.
-  if (Array.isArray(remote.fdbUnknown) && remote.fdbUnknown.length) {
-    try {
-      const set = loadFdbUnknownSet();
-      let added = 0;
-      for (const n of remote.fdbUnknown) {
-        const num = parseInt(n);
-        if (isFinite(num) && !set.has(num)) { set.add(num); added++; }
-      }
-      if (added) { saveFdbUnknownSet(set); addLog('Pulled ' + added + ' FDB-undetermined marker(s)', ''); }
-    } catch(e) { logSwallowed('merge/fdbUnknown', e); }
-  }
-
-  // Query limits take the WIDEST evidence from either side: the largest size seen
-  // to work and the smallest seen to be refused. Both measure the same server, so
-  // whichever machine hit the boundary first is telling the truth for all of them.
-  // confirmedQueryDigits already prefers the rejection when the two disagree.
-  if (remote.queryLimits && typeof remote.queryLimits === 'object') {
-    try {
-      const mine = loadQueryLimits();
-      const maxOk = Math.max(mine.maxOk || 0, remote.queryLimits.maxOk || 0);
-      const fails = [mine.minFail, remote.queryLimits.minFail].filter(x => x > 0);
-      const minFail = fails.length ? Math.min.apply(null, fails) : 0;
-      if (maxOk !== mine.maxOk || minFail !== mine.minFail) saveQueryLimits({ maxOk, minFail });
-    } catch(e) { logSwallowed('merge/queryLimits', e); }
-  }
-
-  // Tracking start is the EARLIEST, matching how the discovery history merges. A
-  // later start silently shrinks the yield report's attributable window, so the
-  // same data reads differently on each machine.
-  if (remote.historyStart) {
-    try {
-      const mineTs = historyStartTs();
-      const theirs = parseInt(remote.historyStart);
-      if (isFinite(theirs) && theirs > 0 && (!mineTs || theirs < mineTs)) {
-        localStorage.setItem(HISTORY_START_KEY, String(theirs));
-      }
-    } catch(e) { logSwallowed('merge/historyStart', e); }
   }
 }
 
@@ -4454,7 +3909,7 @@ function jumpToN(n) {
   if (isNaN(n) || n < 0) return;
   // Round to nearest even (Euler numbers are E(0), E(2), E(4)...)
   if (n % 2 !== 0) n = n % 2 === 1 ? n - 1 : n;
-  const entry = entryByN(n);
+  const entry = allEntries.find(e => e.n === n);
   if (!entry) {
     // Find closest entry
     const closest = allEntries.reduce((best, e) => Math.abs(e.n - n) < Math.abs(best.n - n) ? e : best, allEntries[0]);
@@ -4558,44 +4013,7 @@ function csvEsc(v) {
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
-// What clearing right now would destroy for good, or [] if nothing.
-//
-// The clear dialog says "Pull from GitHub afterwards to restore your data", and
-// that is only true for data that reached GitHub. It checked nothing: local
-// changes not yet pushed, an ECM log edit still inside its 8-second debounce, or
-// no repo configured at all would each make that sentence a lie, and the button
-// would delete the only copy.
-//
-// The ECM log matters most here because it is a SEPARATE file (results_ecm.json)
-// on its own debounce — pushing factors does not push it, so "I pushed" is not
-// evidence that it is safe.
-function unpushedWork() {
-  const bits = [];
-  const s = loadGHSettings();
-  if (!s || !s.token || !s.user || !s.repo) {
-    bits.push('no GitHub repo is configured, so nothing has ever been pushed');
-    return bits;
-  }
-  if (_dirty) bits.push('factor and cache changes that have not been pushed');
-  if (_ecmPushTimer) bits.push('an ECM log change still waiting on its 8-second push delay');
-  return bits;
-}
-
 function clearAllLocalData() {
-  // Refuse while anything is unpushed. This is the one button that can destroy
-  // data with no undo, and the dialog's promise only holds if GitHub already has
-  // everything.
-  const risk = unpushedWork();
-  if (risk.length) {
-    alert('Not clearing — there is work here that GitHub does not have:\n\n'
-      + risk.map(r => '  • ' + r).join('\n')
-      + '\n\nClearing now would delete the only copy. Push first (↑ Push), wait for\n'
-      + 'the dirty indicator to clear, then try again.\n\n'
-      + 'Note the ECM log is a separate file (results_ecm.json) with its own delay,\n'
-      + 'so pushing factors does not necessarily mean it has gone too.');
-    return;
-  }
-
   // Custom in-page confirm (native confirm() can be permanently blocked by Chrome)
   const existing = document.getElementById('clearConfirmOverlay');
   if (existing) existing.remove();
@@ -4710,7 +4128,7 @@ function reconcileSubmitted() {
   const s = loadSubmitted();
   let cleared = 0;
   for (const nStr of Object.keys(s)) {
-    const e = entryByN(parseInt(nStr));
+    const e = allEntries.find(x => x.n === parseInt(nStr));
     if (!e) { delete s[nStr]; cleared++; continue; }
     const rec = fdbCache[e.val];
     if (rec && rec.source === 'fdb') { delete s[nStr]; cleared++; }
@@ -4718,88 +4136,43 @@ function reconcileSubmitted() {
   if (cleared) saveSubmitted(s);
   return { cleared, remaining: Object.keys(s).length };
 }
-// Pending submissions the BROWSER can re-check. Anything larger is not a failure
-// waiting to happen, it is a certainty: the number travels in the URL and the
-// request line is capped at 64 KiB, so a 75,000-digit entry cannot be asked about
-// from here at all. Queueing it produced a run of errors, moved the poll's failure
-// counters, and left the entry pending anyway.
-//
-// Those entries are not stranded — they are exactly what "Export FDB check list"
-// and fdb_check.py handle, and importing those results sets source 'fdb', which
-// clears them from the pending list through reconcileSubmitted() like any other
-// confirmation. So the two routes partition the pending list rather than overlap:
-// this button takes everything provably reachable, the script takes the rest.
-//
-// Gated on confirmedQueryDigits() rather than currentQueryCap() deliberately. The
-// cap is optimistic by design — it sits at the sanity ceiling until something has
-// actually been rejected — which is right when deciding to try ONE query and wrong
-// here, where being wrong means a batch of failures a person is sitting watching.
 function submittedTargets() {
   const s = loadSubmitted();
-  const limit = confirmedQueryDigits();
   const out = [];
-  let oversized = 0;
   for (const nStr of Object.keys(s)) {
-    const e = entryByN(parseInt(nStr));
-    if (!e || !e.val) continue;
-    if (e.val.length <= confirmedQueryDigits()) out.push({ n: e.n, number: e.val });
-    else oversized++;
+    const e = allEntries.find(x => x.n === parseInt(nStr));
+    if (e && e.val) out.push({ n: e.n, number: e.val });
   }
-  return { targets: out, oversized, limit };
+  return out;
 }
 async function startSubmittedPoll() {
   if (polling) return;
   const before = reconcileSubmitted();   // clear anything already confirmed
-  const { targets, oversized, limit } = submittedTargets();
-
-  // Saying "nothing to check" while entries are still pending would be a lie, and
-  // the useful half of the answer is where they DO get checked.
-  const offlineNote = '\n\n' + oversized + ' pending entr' + (oversized === 1 ? 'y is' : 'ies are')
-    + ' above ' + limit.toLocaleString() + ' digits, which the browser cannot query — '
-    + 'the number travels in the URL and the request line is capped at 64 KiB.\n\n'
-    + 'Use "Export FDB check list", run fdb_check.py, then "Import FDB results". '
-    + 'That confirms them and clears them from this list too.';
-
+  const targets = submittedTargets();
   if (!targets.length) {
-    alert(oversized
-      ? 'Nothing here for the browser to check.' + offlineNote
-      : before.cleared
-        ? before.cleared + ' submitted entr(y/ies) already confirmed by FactorDB — nothing left to check.'
-        : 'No pending submissions. Export a submission file first, paste it into FactorDB, then come back here.');
+    alert(before.cleared
+      ? before.cleared + ' submitted entr(y/ies) already confirmed by FactorDB — nothing left to check.'
+      : 'No pending submissions. Export a submission file first, paste it into FactorDB, then come back here.');
     updateSubmittedBtn();
     return;
   }
-  addLog('Checking ' + targets.length + ' submitted entries against FactorDB'
-    + (oversized ? ' (' + oversized + ' too large for the browser — see fdb_check.py)' : ''), '');
+  addLog('Checking ' + targets.length + ' submitted entries against FactorDB', '');
   await runPollQueue(targets, true, document.getElementById('pollSubmittedBtn'), true, true);
   const after = reconcileSubmitted();
   updateSubmittedBtn();
-  // after.remaining counts everything still pending, including the oversized ones
-  // this pass never touched — so landed has to be measured against what was queued.
-  const stillPendingHere = submittedTargets().targets.length;
-  const landed = targets.length - stillPendingHere;
+  const landed = targets.length - after.remaining;
   alert('Checked ' + targets.length + ' submitted entr' + (targets.length === 1 ? 'y' : 'ies') + '.\n\n'
     + landed + ' now confirmed on FactorDB and cleared from the pending list.\n'
-    + stillPendingHere + ' still pending — FactorDB can take a while to process a submission, '
-    + 'so re-checking later usually resolves the rest.'
-    + (oversized ? offlineNote : ''));
+    + after.remaining + ' still pending — FactorDB can take a while to process a submission, '
+    + 'so re-checking later usually resolves the rest.');
 }
 function updateSubmittedBtn() {
   const btn = document.getElementById('pollSubmittedBtn');
   if (!btn) return;
-  const pending = Object.keys(loadSubmitted()).length;
-  const { targets, oversized, limit } = submittedTargets();
-  // Visible while anything is pending, so oversized entries are not forgotten —
-  // but the count is what this button will actually do. A count that includes
-  // entries it cannot check never goes down, and invites clicking it again.
-  btn.style.display = pending ? '' : 'none';
+  const n = Object.keys(loadSubmitted()).length;
+  btn.style.display = n ? '' : 'none';
   const label = btn.querySelector('.submitted-count');
-  if (label) label.textContent = oversized ? targets.length + '/' + pending : String(targets.length);
-  btn.title = oversized
-    ? targets.length + ' of ' + pending + ' pending submissions are within the '
-      + limit.toLocaleString() + '-digit browser limit. The other ' + oversized
-      + ' need fdb_check.py — see "Export FDB check list".'
-    : 'Re-check the ' + targets.length + ' pending submission(s) against FactorDB';
+  if (label) label.textContent = n;
 }
 
 function exportFDBSubmission() {
@@ -4814,7 +4187,7 @@ function exportFDBSubmission() {
   const exportedNs = [];   // remembered so they can be re-checked in one go later
   let count = 0, skippedNoVal = 0, skippedTooBig = 0, skippedBadFactors = 0;
 
-  let skippedFdb = 0, skippedAllFdb = 0, withheldFactors = 0;
+  let skippedFdb = 0;
   for (const e of allEntries) {
     // Dedupe here too (not just at write time): factor lists can arrive via GitHub
     // pull from a device that hasn't run the one-time cleanup migration yet.
@@ -4849,30 +4222,9 @@ function exportFDBSubmission() {
     }
     if (bad) { skippedBadFactors++; continue; }
 
-    // Send only the factors FACTORDB DOES NOT ALREADY HAVE.
-    //
-    // Every factor FactorDB reports is recorded with provenance 'f' when it
-    // arrives, so the app already knows, per factor, who found it. Re-submitting
-    // FactorDB's own factors back to FactorDB teaches it nothing, and it is not
-    // free: fdb_submit.py posts each factor as a separate request 2s apart, so an
-    // entry where we found one new prime among four known ones cost four writes to
-    // someone else's server instead of one.
-    //
-    // Anything whose provenance is unknown IS still sent. Provenance only exists
-    // from the day tracking began, so a null means "we cannot tell", not "ours" —
-    // and sending a factor FactorDB already holds is a wasted request, while
-    // withholding one it lacks loses the factor. Those are not symmetric.
-    // Same rule the "ahead of FDB" filter uses, so what that filter shows and what
-    // this sends cannot drift apart. Note it re-reads e.factors rather than the
-    // deduped `factors` above; dedupeCompositeFactors only ever removes redundant
-    // composites, so the set of genuine primes is the same either way.
-    const ours = factorsFdbLacks(e).filter(f => factors.includes(f));
-    withheldFactors += factors.length - ours.length;
-    if (!ours.length) { skippedAllFdb++; continue; }
-
     // Expand expressions like 5^3 → 5*5*5
     const expanded = [];
-    for (const f of ours) {
+    for (const f of factors) {
       const m = /^(\d+)\^(\d+)$/.exec(f);
       if (m) {
         const reps = parseInt(m[2]);
@@ -4881,19 +4233,13 @@ function exportFDBSubmission() {
         expanded.push(f);
       }
     }
-    // Sorted: dedupeCompositeFactors does not preserve the stored order, and a
-    // submission log that jumps 2029 → 13 → 4057 is hard to read against the entry.
-    expanded.sort((a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0));
     lines.push(e.val + '=' + expanded.join('*'));
     count++;
     exportedNs.push(e.n);
   }
 
   if (!count) {
-    alert(skippedAllFdb
-      ? 'Nothing to submit — every factor we hold on the ' + skippedAllFdb
-        + ' candidate entr' + (skippedAllFdb === 1 ? 'y' : 'ies') + ' came from FactorDB itself.'
-      : 'No entries with known factors to submit.');
+    alert('No entries with known factors to submit.');
     return;
   }
 
@@ -4912,21 +4258,11 @@ function exportFDBSubmission() {
   let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
   if (skippedBadFactors) msg += ' · ' + skippedBadFactors + ' SKIPPED (factors do not divide E(n) — run the data integrity check)';
   if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
-  if (skippedAllFdb) msg += ' · ' + skippedAllFdb + ' skipped (every factor came from FDB)';
-  if (withheldFactors) msg += ' · ' + withheldFactors + ' factor(s) withheld (FactorDB already has them)';
   if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>1000000 digits)';
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
-  const totalFactors = lines.reduce((t, l) => t + l.split('=')[1].split('*').length, 0);
-  alert(msg + '\n\n'
-    + totalFactors.toLocaleString() + ' factor(s) to post'
-    + (withheldFactors ? ', with ' + withheldFactors.toLocaleString()
-        + ' left out because FactorDB reported them to us in the first place' : '')
-    + '.\n\nfdb_submit.py posts one factor every 2s, so that is about '
-    + Math.max(1, Math.round(totalFactors * 2 / 60)) + ' min'
-    + (withheldFactors ? ' instead of ' + Math.max(1, Math.round((totalFactors + withheldFactors) * 2 / 60)) : '')
-    + '.\n\nAfter pasting these into FactorDB, use "Check submitted (' + pending + ')" '
+  alert(msg + '\n\nAfter pasting these into FactorDB, use "Check submitted (' + pending + ')" '
     + 'to re-verify them all in one pass instead of opening each number.');
 }
 
@@ -5016,7 +4352,7 @@ async function exportNextRuns() {
     if (rangeMin > rangeMax) [rangeMin, rangeMax] = [rangeMax, rangeMin];
   }
 
-  // ── Priority for entries FactorDB has no factorisation for ────────────────
+  // ── Priority for entries FactorDB has no record of ────────────────────────
   // A factor found on one of these is worth more than the raw odds suggest: nobody
   // else is looking at them, FactorDB has nothing to contribute, and your own ECM is
   // the only thing that will ever move them. Entries FactorDB already knows may well
@@ -5028,12 +4364,11 @@ async function exportNextRuns() {
   // leaves the ranking exactly as it was.
   const lastW = parseFloat(localStorage.getItem(FDBW_KEY)) || 1;
   const wInput = prompt(
-    'Prioritise entries nothing is known about?\n\n'
-    + 'Two kinds qualify, and either is enough:\n\n'
-    + '  • NO KNOWN FACTORS — nothing has been found on it at all, so a first\n'
-    + '    factor is both the likeliest find and the most useful one.\n'
-    + '  • FDB UNDETERMINED — we asked and FactorDB came back with nothing, so\n'
-    + '    your ECM is the only thing that will move it.\n\n'
+    'Prioritise untouched entries?\n\n'
+    + 'Applies to entries FactorDB has no record of, and to any entry with no known\n'
+    + 'factors at all — numbers where your own work is the only thing that will move\n'
+    + 'them, and any factor found is genuinely new.\n\n'
+    + 'Entries that already have factors and a normal FactorDB status get no bonus.\n\n'
     + '  1    no preference — rank purely by odds per CPU-second\n'
     + '  2    count them as twice as valuable\n'
     + '  5    strong preference\n'
@@ -5077,10 +4412,25 @@ async function exportNextRuns() {
       try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || []); }
       catch(_) { continue; }
       if (!recs || !recs.length) continue;
-      // Only entries we ASKED about and got nothing for. Never having asked is not
-      // the same fact and must not earn the bonus — see isFdbUndetermined.
-      const _rec = fdbCache[e.val];
-      const fdbUnknown = qualifiesForEcmPriority(e, _rec);
+      // Which entries the weight applies to.
+      //
+      // This was `!fdbCache[e.val] || status not in (FF,CF,C,P,PRP)` — a cache
+      // lookup keyed on the FULL value. That misclassified entries badly: when an
+      // entry has known factors the app usually queries its COFACTOR, so nothing is
+      // ever cached under e.val and a perfectly well-known number looked unqueried.
+      // E(19680) has factors and was still being weighted as if FactorDB had never
+      // seen it.
+      //
+      // The rule now matches what the weight is actually for — numbers where your
+      // own work is the only thing that will move them:
+      //   * 'fdb-unknown' — FactorDB was asked and had no record. This is the
+      //     canonical marker the FDB UNKNOWN filter and poll button both use, set
+      //     by applyFdbResult itself rather than inferred from cache contents.
+      //   * no known factors at all — nothing has cracked it yet, from any source.
+      // An entry with factors and a normal FactorDB status is ordinary work and
+      // gets no bonus.
+      const fdbUnknown = e.status === 'fdb-unknown'
+                      || !(e.factors && e.factors.length);
       for (const r of recs) {
         runs.push({
           n: e.n, entry: e, digits: runDigits, fdbUnknown,   // keep entry ref; resolve value lazily
@@ -5382,19 +4732,9 @@ async function exportNextRuns() {
   sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
   sum.push('Generated ' + dateStr + ' · ranked by value (odds gained per unit time)');
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
-  // The ranking multiplies value by the priority weight, so with a weight in play
-  // the rows are NOT in "value" order and the file gives no way to see why. RANKED
-  // is the score the sort actually used; ★ marks the rows that earned the boost.
-  if (FDB_WEIGHT !== 1) {
-    sum.push('★ = nothing known about it (no factors of ours, or FactorDB has none)'
-      + ' · weighted ×' + FDB_WEIGHT);
-    sum.push('RANKED = value × weight — the number the ordering below is by');
-  }
-  const RULE = FDB_WEIGHT !== 1 ? 110 : 97;
-  sum.push('─'.repeat(RULE));
-  sum.push('  #   E(n)      digits  method  B1         curves   ~time      t/curve      +odds     value'
-    + (FDB_WEIGHT !== 1 ? '    ★     ranked' : ''));
-  sum.push('─'.repeat(RULE));
+  sum.push('─'.repeat(86));
+  sum.push('  #   E(n)      digits  method  B1         curves   ~time        +odds     value');
+  sum.push('─'.repeat(86));
   top.forEach((r, i) => {
     const idx = String(i+1).padStart(3);
     const en  = ('E(' + r.n + ')').padEnd(9);
@@ -5402,30 +4742,13 @@ async function exportNextRuns() {
     const m   = r.method.padEnd(6);
     const b1  = String(r.b1).padEnd(9);
     const cv  = (r.method === 'ECM' ? String(r.curves) : '—').padStart(7);
-    const tm  = fmtCpuTime(r.cpuTime).padStart(9);
-    // Cost of a single curve — the size-independent part of the estimate, and the
-    // one number that says whether a run is slow because it is big or because
-    // there is a lot of it. Only meaningful per curve for ECM: P-1 and P+1 are one
-    // pass each, so their curve column is a dash and so is this.
-    // Same fallback the command builder uses: rawCurves is not always populated,
-    // and reading the count off the display string is what the rest of the export
-    // already does rather than blanking the field.
-    const nCurves = r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g, '')) || 0;
-    const perCurve = (r.method === 'ECM' && nCurves > 0 && r.cpuTime)
-      ? fmtCpuTime(r.cpuTime / nCurves) : '—';
-    const pc  = perCurve.padStart(9);
+    const tm  = fmtCpuTime(r.cpuTime).padStart(11);
     const gn  = ('+' + r.gain.toFixed(2) + '%').padStart(8);
     const effHr = r.cpuTime ? (r.gain / (r.cpuTime / 3600)) : 0;
-    const fmtRate = (x) => x >= 0.01 ? x.toFixed(2) + '%/hr' : (x * 24).toFixed(2) + '%/d';
-    const val = fmtRate(effHr).padStart(9);
-    // Same expression the sort used, so the column and the order cannot disagree.
-    const adj = r.fdbUnknown ? effHr * FDB_WEIGHT : effHr;
-    const extra = FDB_WEIGHT !== 1
-      ? '  ' + (r.fdbUnknown ? '★' : ' ').padStart(3) + '  ' + fmtRate(adj).padStart(9)
-      : '';
-    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${pc}  ${gn}  ${val}${extra}`);
+    const val = (effHr >= 0.01 ? effHr.toFixed(2) + '%/hr' : (effHr * 24).toFixed(2) + '%/d').padStart(9);
+    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${gn}  ${val}`);
   });
-  sum.push('─'.repeat(RULE));
+  sum.push('─'.repeat(86));
   sum.push('');
   if (isSh) {
     sum.push('HOW TO RUN (Linux):');
@@ -5462,66 +4785,16 @@ async function exportNextRuns() {
     // Report what the weighting actually did, so its effect is visible rather than
     // silently folded into the ordering.
     + (FDB_WEIGHT === 0
-        ? ' · FactorDB-unknown entries excluded'
+        ? ' · untouched entries excluded'
         : FDB_WEIGHT !== 1
-          ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about (weighted ×' + FDB_WEIGHT + ')'
-          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about' : ''));
+          ? ' · ' + unknownCount + '/' + top.length + ' on untouched entries (weighted ×' + FDB_WEIGHT + ')'
+          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on untouched entries' : ''));
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
  } catch (err) {
   console.error('exportNextRuns failed:', err);
   alert('Export failed: ' + err.message);
  }
-}
-
-// The three things you can want from an offline check, kept separate from the
-// prompting and downloading so the selection rules can actually be tested.
-//
-//   all       — every UNFINISHED entry above the threshold. Asks "what does
-//               FactorDB know that we do not?". Finished entries are excluded
-//               because there is nothing left to learn about them.
-//
-//   ours      — every entry above the threshold where WE hold factors FactorDB
-//               does not. Asks "does FactorDB have what we have?".
-//
-//   submitted — of those, only the ones actually sent to FactorDB and still
-//               unconfirmed. Asks "did the factors I submitted land?", which is
-//               the narrowest and by far the most common follow-up, and it is
-//               exactly the set "Check submitted" skips for being too large to
-//               query from a browser. The two buttons therefore cover the whole
-//               pending list between them with nothing falling down the middle.
-//
-// 'ours' deliberately does NOT exclude finished entries, and that is the one place
-// these sets are not simply nested. A number we have factored completely on our
-// own machines is `full` locally while FactorDB may still know nothing about it —
-// which makes it the clearest case of "we hold factors FactorDB lacks", exactly
-// what this mode is for. Excluding it (as 'all' rightly does) would hide the very
-// entries most worth confirming.
-//
-// Absence of a cache record counts as "FactorDB does not have it": for a number
-// too big to query from the browser there may never have been a record to begin
-// with, and that is the situation being resolved, not a reason to skip it.
-//
-// 'submitted' re-applies the FactorDB test rather than trusting the pending list
-// alone. reconcileSubmitted() clears confirmed entries, but only when it runs, so
-// the list can be briefly stale — and re-checking something FactorDB has already
-// confirmed is exactly the wasted work this export exists to avoid.
-function fdbCheckListSets() {
-  const threshold = confirmedQueryDigits();
-  const over = allEntries.filter(e => e.val && e.val.length > threshold);
-  const sentList = loadSubmitted();
-  const ownFactorsFdbLacks = (e) => {
-    if (!(e.factors || []).filter(f => f && f !== '1').length) return false;
-    const cached = fdbCache[e.val];
-    return !(cached && cached.source === 'fdb');
-  };
-  const bytes = (list) => list.reduce((s, e) => s + e.val.length, 0);
-  const byN = (a, b) => a.n - b.n;
-  const all       = over.filter(e => e.status !== 'full').sort(byN);
-  const ours      = over.filter(ownFactorsFdbLacks).sort(byN);
-  const submitted = ours.filter(e => sentList[String(e.n)]).sort(byN);
-  return { threshold, all, ours, submitted,
-           allBytes: bytes(all), oursBytes: bytes(ours), submittedBytes: bytes(submitted) };
 }
 
 // Export the entries the browser cannot ask FactorDB about, for fdb_check.py.
@@ -5532,87 +4805,45 @@ function fdbCheckListSets() {
 // are checkable there and nowhere else.
 function exportFDBCheckList() {
   const lim = loadQueryLimits();
-  const sets = fdbCheckListSets();
-  const { threshold } = sets;
-  const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
-
-  // Every set is offered, including empty ones, with its count.
+  // Which entries are actually out of reach?
   //
-  // These used to be filtered out on the reasoning that a question with one answer
-  // is not worth asking. That was wrong in a way that only shows up in use: with
-  // nothing above the threshold carrying factors, the prompt vanished entirely and
-  // the export just ran 'all' — which is indistinguishable from the options never
-  // having been built. "Nothing qualifies right now" is information, and hiding it
-  // costs more than the extra keypress saves.
-  const options = [
-    { key: 'all', list: sets.all, bytes: sets.allBytes,
-      match: /^(all|a|1)$/i,
-      line: '  "all"        every unfinished entry above ' + threshold.toLocaleString() + ' digits',
-      noun: (n) => n + ' unfinished entr' + (n === 1 ? 'y' : 'ies'),
-      empty: 'Every unfinished entry is within ' + threshold.toLocaleString() + ' digits, so the\n'
-           + 'browser can check them all itself.' },
-    { key: 'ours', list: sets.ours, bytes: sets.oursBytes,
-      match: /^(ours|o|mine|m|2)$/i,
-      line: '  "ours"       entries holding factors FactorDB does not have',
-      noun: (n) => n + ' entr' + (n === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have',
-      empty: 'No entry above ' + threshold.toLocaleString() + ' digits has a factor recorded.\n\n'
-           + 'Factors reach an entry from "Sieve small primes", from importing ECM\n'
-           + 'results, or from importing FactorDB results. Until one of those has\n'
-           + 'turned something up on a number this large, there is nothing here to\n'
-           + 'ask FactorDB about.' },
-    { key: 'submitted', list: sets.submitted, bytes: sets.submittedBytes,
-      match: /^(submitted|sub|sent|s|pending|p|3)$/i,
-      line: '  "submitted"  of those, only the ones already sent and still unconfirmed',
-      noun: (n) => n + ' submitted entr' + (n === 1 ? 'y' : 'ies') + ' still awaiting confirmation',
-      empty: 'Nothing above ' + threshold.toLocaleString() + ' digits is awaiting confirmation.\n\n'
-           + 'Entries arrive here when "Export FDB submission" records them as sent,\n'
-           + 'and leave again once FactorDB confirms them.' },
-  ];
-
-  if (!options.some(o => o.list.length)) {
+  // currentQueryCap() is the size the app is still willing to ATTEMPT, which sits at
+  // the 500,000 sanity ceiling until a rejection has been recorded. That is the right
+  // rule for deciding whether to try a query, and the wrong one here — an entry can
+  // be unreachable long before any failure has been logged against it. Using the cap
+  // alone reported "nothing to export" to someone holding numbers that had visibly
+  // failed moments earlier.
+  //
+  // The honest threshold is the largest size CONFIRMED to work. Anything above that
+  // is unproven, and unproven is exactly what this script is for. Entries between
+  // maxOk and the true limit may well succeed — no harm, the script checks them too
+  // and they are quick.
+  const cap = currentQueryCap();
+  const threshold = lim.minFail ? lim.minFail - 1
+                  : lim.maxOk   ? lim.maxOk
+                  : cap;
+  const tooBig = allEntries.filter(e => e.status !== 'full' && e.val && e.val.length > threshold);
+  if (!tooBig.length) {
     alert('Nothing to export — every unfinished entry is within '
       + threshold.toLocaleString() + ' digits.'
       + (lim.maxOk ? '\n\nLargest query confirmed working: ' + lim.maxOk.toLocaleString() + ' digits.' : '')
       + (lim.minFail ? '\nSmallest size rejected: ' + lim.minFail.toLocaleString() + ' digits.' : ''));
     return;
   }
-
-  const first = options.find(o => o.list.length);
-  const body = options.map(o =>
-    o.line + '\n               '
-      + (o.list.length ? o.list.length.toLocaleString() + ' entries, ' + mb(o.bytes) : 'none right now')).join('\n\n');
-  const ans = prompt(
-    'What should go in the check list?\n\n' + body + '\n\n'
-    + '"submitted" is the post-fdb_submit.py check and the smallest run — these are\n'
-    + 'precisely the pending entries "Check submitted" cannot reach from a browser.\n'
-    + '"ours" widens that to factors we hold but never sent. "all" also turns up\n'
-    + 'factorisations FactorDB already has that we do not.',
-    first.key);
-  if (ans === null) return;                       // cancelled
-  const chosen = options.find(o => o.match.test(ans.trim()));
-  if (!chosen) { alert('Did not recognise "' + ans + '". Nothing has been exported.'); return; }
-  if (!chosen.list.length) { alert('Nothing to export under "' + chosen.key + '".\n\n' + chosen.empty); return; }
-  const picked = chosen.list;
-
+  tooBig.sort((a, b) => a.n - b.n);
   // Two matching files, same order. Labels are kept separate so the numbers file
   // stays machine-clean, exactly like the ECM export's numbers file.
-  downloadText('fdb_numbers.txt', picked.map(e => e.val).join('\n') + '\n');
-  downloadText('fdb_labels.txt',  picked.map(e => 'E' + e.n).join('\n') + '\n');
-  const what = chosen.noun(picked.length);
-  addLog('Exported ' + what + ' for fdb_check.py', 'ok');
-  alert('Exported ' + what + ', above '
-    + threshold.toLocaleString() + ' digits (' + mb(chosen.bytes) + ').\n\n'
-    + (chosen.key === 'submitted'
-        ? 'Importing the results clears these from the pending list, the same way an\n'
-          + 'in-browser check would.\n\n'
-        : chosen.key === 'ours'
-          ? 'This includes entries already complete on our side, since those are the\n'
-            + 'ones FactorDB is most likely to be missing.\n\n'
-          : (lim.minFail
-              ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
-              : lim.maxOk
-                ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
-                : ''))
+  downloadText('fdb_numbers.txt', tooBig.map(e => e.val).join('\n') + '\n');
+  downloadText('fdb_labels.txt',  tooBig.map(e => 'E' + e.n).join('\n') + '\n');
+  const mb = tooBig.reduce((s, e) => s + e.val.length, 0) / 1024 / 1024;
+  addLog('Exported ' + tooBig.length + ' oversized entries for fdb_check.py', 'ok');
+  alert('Exported ' + tooBig.length + ' entr' + (tooBig.length === 1 ? 'y' : 'ies') + ' above '
+    + threshold.toLocaleString() + ' digits (' + mb.toFixed(1) + 'MB).\n\n'
+    + (lim.minFail
+        ? 'That is just under the ' + lim.minFail.toLocaleString() + '-digit size FactorDB rejected.\n\n'
+        : lim.maxOk
+          ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
+          : '')
     + 'Run on any machine with Python 3 — no server needed:\n\n'
     + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt \\\n'
     + '      -o fdb_results.json --limit 5\n\n'
@@ -5634,7 +4865,7 @@ async function importFDBResults(file) {
     const m = String(label).match(/^E?(\d+)$/);
     if (!m) { skipped++; continue; }
     const n = parseInt(m[1]);
-    const entry = entryByN(n);
+    const entry = allEntries.find(e => e.n === n);
     if (!entry || !entry.val) { notFound++; continue; }
     if (!rec || !rec.status) { skipped++; continue; }
     try {
@@ -5677,7 +4908,7 @@ function importECMResults() {
   // multi-core/multi-machine export). Drag-and-drop onto the button works too.
   const inp = document.createElement('input');
   inp.type = 'file';
-  inp.accept = '.txt,.log,.json,text/plain,application/json';
+  inp.accept = '.txt,.log,text/plain';
   inp.multiple = true;
   inp.onchange = () => {
     const files = Array.from(inp.files || []);
@@ -5690,75 +4921,6 @@ function importECMResults() {
 // Read one or more dropped/picked files, concatenate them (each GMP-ECM run block
 // is self-contained, starting at "Input number is", so files can simply be joined),
 // and process once — giving a single combined summary instead of N separate alerts.
-// Restore an ECM store from a results_ecm.json — the file the sync pushes to
-// GitHub, and the only backup of this data that exists.
-//
-// Until now the sole way this file could get back into the app was a GitHub pull.
-// If the browser's copy was lost or reset and the repo was not ahead, the export
-// sitting on disk was unreadable: "Import ECM results" only parses GMP-ECM console
-// output, so feeding it this file matched no run blocks and imported nothing,
-// silently.
-//
-// MERGES, never replaces. It goes through the same mergeEcmData the pull uses, so
-// sigma sets union, curve counts take the larger, and anything the local store has
-// that the file does not is kept. Re-importing the same file changes nothing.
-function importEcmJson(text, label) {
-  let parsed;
-  try { parsed = JSON.parse(text); }
-  catch (e) { alert('That file is not valid JSON.\n\n' + e.message); return; }
-
-  // Accept the wrapper the sync writes ({version, ecm, updatedAt}) or a bare
-  // n → attempts map, since people hand-edit these.
-  const remote = (parsed && typeof parsed === 'object' && parsed.ecm && typeof parsed.ecm === 'object')
-    ? parsed.ecm : parsed;
-  if (!remote || typeof remote !== 'object' || Array.isArray(remote)) {
-    alert('That JSON has no ECM data in it.\n\nExpected either a results_ecm.json '
-      + '(an object with an "ecm" key) or a bare map of E(n) → attempts.');
-    return;
-  }
-  const keys = Object.keys(remote).filter(k => /^\d+$/.test(k) && Array.isArray(remote[k]));
-  if (!keys.length) {
-    alert('That JSON has no ECM data in it — no numeric E(n) keys with attempt lists.');
-    return;
-  }
-
-  const before = loadECM();
-  const countAttempts = (d) => Object.values(d).reduce((s, v) => s + ((v || []).length), 0);
-  const countSigmas   = (d) => Object.values(d).reduce((s, v) =>
-    s + (v || []).reduce((t, a) => t + ((a && a.sigmas) || []).length, 0), 0);
-  const countCurves   = (d) => Object.values(d).reduce((s, v) =>
-    s + (v || []).reduce((t, a) => t + (parseInt(a && a.curves) || 0), 0), 0);
-  const beforeStats = { n: Object.keys(before).length, att: countAttempts(before),
-                        sig: countSigmas(before), cur: countCurves(before) };
-
-  let merged;
-  try { merged = mergeEcmData(remote); }
-  catch (e) { alert('Could not merge that file: ' + e.message); return; }
-  const afterStats = { n: Object.keys(merged).length, att: countAttempts(merged),
-                       sig: countSigmas(merged), cur: countCurves(merged) };
-
-  saveECM(merged);
-  try { allEntries = buildEntries(); replayFDBCache(); } catch (e) { logSwallowed('ecmJsonImport/rebuild', e); }
-  applyFilters(); renderStats(); scheduleECMPush();
-
-  const d = (f) => afterStats[f] - beforeStats[f];
-  addLog('Imported ECM store from ' + (label || 'file') + ': +' + d('att') + ' attempt(s), +'
-    + d('sig') + ' sigma(s)', 'ok');
-  alert('Merged ' + (label || 'the file') + ' into the ECM store.\n\n'
-    + '  numbers    ' + beforeStats.n.toLocaleString()   + '  →  ' + afterStats.n.toLocaleString()
-      + '   (+' + d('n').toLocaleString() + ')\n'
-    + '  attempts   ' + beforeStats.att.toLocaleString() + '  →  ' + afterStats.att.toLocaleString()
-      + '   (+' + d('att').toLocaleString() + ')\n'
-    + '  curves     ' + beforeStats.cur.toLocaleString() + '  →  ' + afterStats.cur.toLocaleString()
-      + '   (+' + d('cur').toLocaleString() + ')\n'
-    + '  sigmas     ' + beforeStats.sig.toLocaleString() + '  →  ' + afterStats.sig.toLocaleString()
-      + '   (+' + d('sig').toLocaleString() + ')\n\n'
-    + 'Nothing was replaced — attempts already here kept their curve counts, and\n'
-    + 'sigma sets were unioned, so importing this file again will change nothing.\n\n'
-    + 'Attempts carrying no date stay OUT of the "since tracking began" column,\n'
-    + 'which is what makes them read as historical work in the yield report.');
-}
-
 function importEcmFromFiles(files) {
   if (!files || !files.length) return;
   if (Object.keys(eulerValues).length === 0) { alert('Euler values still loading — please wait and try again.'); return; }
@@ -5777,21 +4939,10 @@ function importEcmFromFiles(files) {
     if (!ok.length) { alert('Could not read any of the selected files.'); return; }
     const nonEmpty = ok.filter(r => r.text.trim());
     if (!nonEmpty.length) { alert('The selected file(s) were empty — nothing to import.'); return; }
-
-    // A results_ecm.json is an ECM store, not console output. Routed by CONTENT
-    // rather than by extension, because the log parser fails silently on it: no
-    // "Input number is" lines means no run blocks, so it imports nothing and says
-    // so in a way that reads like the file was empty.
-    const looksJson = (t) => { const h = t.trim()[0]; return h === '{' || h === '['; };
-    const jsonFiles = nonEmpty.filter(r => looksJson(r.text));
-    const logFiles  = nonEmpty.filter(r => !looksJson(r.text));
-    for (const r of jsonFiles) importEcmJson(r.text, r.name);
-    if (!logFiles.length) return;
-
     // Join with a blank line between files so nothing from one file's tail can
     // merge into the next file's first line.
-    const combined = logFiles.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
-    await processEcmLogText(combined, logFiles.length > 1 ? logFiles.length + ' files' : logFiles[0].name);
+    const combined = nonEmpty.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
+    await processEcmLogText(combined, nonEmpty.length > 1 ? nonEmpty.length + ' files' : nonEmpty[0].name);
   });
 }
 
@@ -5806,8 +4957,6 @@ async function processEcmLogText(text, sourceLabel) {
   if (!text) return;
 
   const lines = text.split(/\r?\n/);
-  // Numbers whose attempt list has already been de-duplicated during this import.
-  const normalizedKeys = new Set();
 
   // Parse the log into run-blocks. GMP-ECM verbose prints, per invocation:
   //   Input number is <N> (<D> digits)
@@ -5940,7 +5089,7 @@ async function processEcmLogText(text, sourceLabel) {
 
   // helper to get/make a live entry for an n (may be outside current range)
   const entryForN = (n) => {
-    let e = entryByN(n);
+    let e = allEntries.find(x => x.n === n);
     if (!e) e = { n, val: eulerValues[n] || null, status: factoData[n]?.status || 'unknown', factors: (factoData[n]?.factors || []).slice() };
     return e;
   };
@@ -5992,14 +5141,6 @@ async function processEcmLogText(text, sourceLabel) {
     if (blk.b1) {
       const key = String(owner.n);
       if (!ecmData[key]) ecmData[key] = [];
-      // Collapse anything an EARLIER import already duplicated, before looking for
-      // a match. normalizeEcmAttempts keys on method|B1 and unions sigmas, so a
-      // store carrying duplicate rows from before the fix repairs itself the next
-      // time a log touches that number, rather than needing a migration.
-      if (!normalizedKeys.has(key)) {
-        ecmData[key] = normalizeEcmAttempts(ecmData[key]);
-        normalizedKeys.add(key);
-      }
       const b1n = parseB1(blk.b1);
       const blkSigmas = Array.from(blk.sigmas || []);
       // INVARIANT: sigma is the ECM curve seed — P-1/P+1 never produce one. So any
@@ -6031,21 +5172,9 @@ async function processEcmLogText(text, sourceLabel) {
           }
         }
       }
-      // Match on method + B1 only. This used to also require `a.source === 'log'`,
-      // and `source: 'log'` is set by this function and nowhere else — so an
-      // attempt that arrived any other way (a results_ecm.json restore, an older
-      // export, a GitHub pull) was invisible to the check and got a SECOND row at
-      // the same method and B1. The yield report sums curves per attempt, so that
-      // is a straight double count of the same work. In a real restored store,
-      // 15,083 of 21,355 attempts carry no source, so it was the common case.
-      //
-      // normalizeEcmAttempts and mergeEcmData both key on method|B1 with no source
-      // filter. All three now agree, which is the point: whether two records
-      // describe the same work cannot depend on which door the work came in by.
-      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n);
+      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && a.source === 'log');
       let seenGrew = false;
       if (existing) {
-        const curvesBefore = parseInt(existing.curves) || 0;
         if (blkSigmas.length) {
           // Accumulate unique sigmas; curve count = size of the accumulated set.
           const seen = new Set(existing.sigmas || []);
@@ -6059,29 +5188,14 @@ async function processEcmLogText(text, sourceLabel) {
           existing.curves = String(Math.max(seen.size, parseInt(existing.curves) || 0, before));
         } else {
           // No sigmas in this log: fall back to max of run-counts (can't safely sum).
-          existing.curves = String(Math.max(curvesBefore, blk.curves));
+          existing.curves = String(Math.max(parseInt(existing.curves) || 0, blk.curves));
         }
-        // Did this block actually add anything? With sigmas that is the set growing;
-        // without them, the only evidence available is the curve count rising.
-        //
-        // This used to be `!blkSigmas.length || seenGrew`, which reads as "count it
-        // if we cannot tell" and is true for EVERY sigma-less block — so
-        // re-importing the same sigma-less log added its time again and re-stamped
-        // it as worked-on-today, every time. The comment on the ms guard below
-        // describes preventing exactly that; the `!blkSigmas.length` term quietly
-        // re-opened it.
-        //
-        // The visible symptom is the yield report's two halves collapsing into each
-        // other: re-import an old log and all of its effort is dated today, so
-        // "all time" and "since tracking began" show identical numbers and the
-        // historical work stops being distinguishable as historical.
-        const addedWork = blkSigmas.length ? seenGrew : ((parseInt(existing.curves) || 0) > curvesBefore);
         if (blk.b2 && !existing.b2) existing.b2 = blk.b2;
         // Accumulate measured time in step with the curve count. Only add when
         // this block contributed genuinely NEW sigmas — otherwise re-importing
         // the same log would inflate the recorded time while curves (correctly,
         // being a set union) stayed flat.
-        if (blk.timeMs > 0 && addedWork) {
+        if (blk.timeMs > 0 && (!blkSigmas.length || seenGrew)) {
           existing.ms = (existing.ms || 0) + blk.timeMs;
         }
         // Record WHEN this attempt was last extended. `date` is only set when an
@@ -6091,7 +5205,7 @@ async function processEcmLogText(text, sourceLabel) {
         // it. That is why "since tracking began" showed finds but no runs, curves
         // or CPU: the finds come from the timestamped discovery history, while the
         // effort came from dates that never moved.
-        if (addedWork) {
+        if (!blkSigmas.length || seenGrew) {
           existing.lastRun = new Date().toISOString().slice(0, 10);
           if (!existing.date) existing.date = existing.lastRun;
         }
@@ -6477,17 +5591,30 @@ function applyFdbResult(data, n, numberStr) {
     fdbPrimes = fdbPrimes.filter(f => String(f).split('^')[0] !== String(numberStr));
   }
 
-  const entry = entryByN(n);
+  const entry = allEntries.find(x => x.n === n);
   const priorEntryStatus = entry ? entry.status : null;
   const priorOwn = (entry?.factors || []).filter(f => f && f !== '1');
   const priorCount = priorOwn.length;
 
-  // parseFactorPower / collapseFactorPowers are top-level (see there). They used to
-  // be defined here, which meant every other site that needed the same rule wrote
-  // its own — including the sync merge, which had none and so could combine "5" and
-  // "5^2" into both. "5" and "5^2" are the same prime; the higher-power form wins
-  // (more informative, and avoids a false "we have a factor FDB lacks" that would
-  // pin source to 'import').
+  // Parse a factor string into { base, exp }. "5" → {5,1}; "5^2" → {5,2}.
+  const parsePow = (f) => {
+    const s = String(f);
+    const m = /^(\d+)\^(\d+)$/.exec(s);
+    if (m) return { base: m[1], exp: parseInt(m[2]) };
+    return { base: s, exp: 1 };
+  };
+  // Collapse a factor list so each prime base appears once at its HIGHEST power.
+  // e.g. ["5","5^2","53"] → ["5^2","53"]. "5" and "5^2" are the same prime;
+  // FactorDB's higher-power form wins (more informative, and avoids a false
+  // "we have a factor FDB lacks" that would pin source to 'import').
+  const collapsePowers = (list) => {
+    const maxExp = new Map();
+    for (const f of list) {
+      const { base, exp } = parsePow(f);
+      if (!maxExp.has(base) || exp > maxExp.get(base)) maxExp.set(base, exp);
+    }
+    return [...maxExp.entries()].map(([base, exp]) => exp === 1 ? base : `${base}^${exp}`);
+  };
 
   // Reject anything that doesn't divide the entry's value. FactorDB answers about
   // whichever number was queried — and for a partial entry that is the COFACTOR,
@@ -6504,48 +5631,7 @@ function applyFdbResult(data, n, numberStr) {
   }
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
-  let merged = sortFactorsAsc(dedupeCompositeFactors(collapseFactorPowers([...priorOwn, ...fdbPrimes])));
-
-  // ── a cofactor that arrived earlier is still a cofactor ──────────────────
-  // The stripping above only cleans what FACTORDB just sent. `priorOwn` is what
-  // the entry already held, and it is merged in untouched — so a cofactor that got
-  // recorded before that stripping existed (or through some other path) survives
-  // every subsequent check forever, and the entry keeps claiming a 58,000-digit
-  // composite as a prime factor. 90 records in a real store were in this state,
-  // every one of them CF and from the offline import path.
-  //
-  // Neither existing cleanup can see it: the cofactor genuinely DIVIDES E(n), so
-  // clampExponentsToValue keeps it, and it is not the product of its neighbours, so
-  // dedupeCompositeFactors keeps it too. Primality would settle it and is not
-  // available at this size.
-  //
-  // But CF is FactorDB saying "composite, NOT fully factored". So if the factors we
-  // hold multiply back to the whole number, the largest of them cannot be prime —
-  // it is the unfactored remainder. That is exact, needs no primality test, and
-  // costs one multiplication.
-  if (status === 'CF' && numberStr && merged.length > 1) {
-    try {
-      const target = BigInt(numberStr);
-      let prod = 1n;
-      for (const f of merged) {
-        const { base, exp } = parseFactorPower(f);
-        prod *= BigInt(base) ** BigInt(exp);
-      }
-      if (prod === target) {
-        const largest = merged.reduce((a, b) =>
-          parseFactorExpr(a).value > parseFactorExpr(b).value ? a : b);
-        // Unless it is PROVABLY prime, in which case the product matching means the
-        // entry really is complete and FactorDB's CF is simply behind. Arithmetic
-        // evidence beats a stale verdict; absence of evidence does not.
-        const provable = labelFactor(largest) === 'prime';
-        if (!provable) {
-          merged = merged.filter(f => f !== largest);
-          addLog('E(' + n + '): dropped a ' + String(largest).length
-            + '-digit unfactored cofactor that had been stored as a prime factor', 'warn');
-        }
-      }
-    } catch (e) { logSwallowed('applyFdbResult/cofactorInPrior', e); }
-  }
+  const merged = sortFactorsAsc(dedupeCompositeFactors(collapsePowers([...priorOwn, ...fdbPrimes])));
 
   // Per-factor provenance. Only factors FDB actually contributed are attributed
   // to it — recordDiscovery() keeps the FIRST attribution for a given (n, factor),
@@ -6560,27 +5646,13 @@ function applyFdbResult(data, n, numberStr) {
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
   const fdbMaxExp = new Map();
   for (const f of fdbPrimes) {
-    const { base, exp } = parseFactorPower(f);
+    const { base, exp } = parsePow(f);
     if (!fdbMaxExp.has(base) || exp > fdbMaxExp.get(base)) fdbMaxExp.set(base, exp);
   }
-  // 'fdb' means "FactorDB already holds everything we do", and it is read as a
-  // positive claim: exportFDBSubmission SKIPS an entry whose source is 'fdb', and
-  // so does the check list's 'ours' set.
-  //
-  // With no factors at all, `merged.every(...)` is vacuously true and used to
-  // return 'fdb' — a claim about a factor list that does not exist. That is
-  // harmless while the list stays empty and poisonous the moment it does not: a
-  // number FactorDB knows nothing about (status 'U') got a record saying 'fdb',
-  // and when the sieve later found a small prime the stale claim was still sitting
-  // there, so the factor was silently withheld from submission forever. Exactly
-  // backwards — those are the factors most worth sending.
-  //
-  // Null, not 'fdb': with nothing in hand there is no claim to make.
-  const source = merged.length === 0 ? null
-    : merged.every(f => {
-        const { base, exp } = parseFactorPower(f);
-        return fdbMaxExp.has(base) && fdbMaxExp.get(base) >= exp;
-      }) ? 'fdb' : 'import';
+  const source = merged.every(f => {
+    const { base, exp } = parsePow(f);
+    return fdbMaxExp.has(base) && fdbMaxExp.get(base) >= exp;
+  }) ? 'fdb' : 'import';
 
   // --- Update the cache entry ---
   // FactorDB's API returns an `id` alongside status/factors, and this used to be
@@ -6614,21 +5686,7 @@ function applyFdbResult(data, n, numberStr) {
   // Cache the VERIFIED status. An unproven FF is recorded as CF, so every path that
   // later reads the cache reaches the same conclusion the entry did.
   const verifiedStatus = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF' : status;
-  // What FACTORDB HOLDS, as distinct from who found each factor first.
-  //
-  // Provenance answers "who found it", and recordDiscovery deliberately keeps the
-  // ORIGINAL attribution — right for the yield report, wrong for deciding what to
-  // submit. Sieve a small prime, then check the number on FactorDB: FactorDB
-  // reports the same prime, recordDiscovery declines to overwrite 's' with 'f',
-  // and the submission export goes on offering FactorDB a factor it has just told
-  // us it has. That is where the 5s, 13s and 47s in a submission run come from.
-  //
-  // This is the direct answer to the question the export actually asks, and it
-  // needs no heuristic about how small a factor has to be before FactorDB "must"
-  // know it — which would be wrong anyway for a number FactorDB has no record of,
-  // where even a single-digit factor is genuinely new to it.
   const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
-                       ...(fdbPrimes.length ? { fdbHas: fdbPrimes.slice() } : {}),
                        ...(fdbId ? { fdbId } : {}) };
   if (numberStr) {
     fdbCache[numberStr] = cacheEntry;
@@ -6684,11 +5742,7 @@ function applyFdbResult(data, n, numberStr) {
         if (entry.status !== 'composite') { entry.status = 'composite'; statusChanged = true; }
       }
     } else if (status === 'U') {
-      // FactorDB has no factorisation for this number — status 'U'. Not the same as
-      // never having asked: we DID ask, and the answer was that FactorDB has not
-      // determined anything about it, not even whether it is composite. That is a
-      // fact worth recording, and it is what the ECM export's priority weight and
-      // the "our factors are new" badge both key on.
+      // FactorDB knows nothing about this number.
       //
       // Always record that, even when we hold factors of our own. Previously this
       // branch did nothing unless the entry was already unknown, so an entry we had
@@ -6708,6 +5762,10 @@ function applyFdbResult(data, n, numberStr) {
     }
   }
 
+  // Clear seed-new flag if FDB now fully covers the entry
+  if (source === 'fdb' && merged.length > 0) {
+  }
+
   if (numberStr) saveFDBCache(fdbCache);
 
   return {
@@ -6724,15 +5782,17 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   polling = true;
 
   try {
-  // Disable the check buttons; animate the one that was clicked. There are two of
-  // them now — Check and Check submitted — where there used to be seven.
-  const mainBtn      = document.getElementById('pollBtn');
+  // Disable both buttons; animate the one that was clicked
+  const mainBtn  = document.getElementById('pollBtn');
+  const unknownBtn   = document.getElementById('pollUnknownBtn');
+  const compositeBtn = document.getElementById('pollCompositeBtn');
+  const staleBtn     = document.getElementById('pollStaleBtn');
+  const fdbUnkBtn    = document.getElementById('pollFdbUnknownBtn');
+  const partialBtn   = document.getElementById('pollPartialBtn');
   const submittedBtn = document.getElementById('pollSubmittedBtn');
-  // activeBtn is null for every starter reached through the Check prompt, since
-  // their individual buttons no longer exist; mainBtn is the one to animate.
   const btn = activeBtn || mainBtn;
-  [mainBtn, submittedBtn].forEach(b => { if (b) b.disabled = true; });
-  if (btn) btn.classList.add('polling');
+  [mainBtn, unknownBtn, compositeBtn, staleBtn, fdbUnkBtn, partialBtn, submittedBtn].forEach(b => { if (b) b.disabled = true; });
+  btn.classList.add('polling');
 
   const progress   = document.getElementById('pollProgress');
   const progressIn = document.getElementById('pollProgressInner');
@@ -6789,7 +5849,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       const r = applyFdbResult(data, target.n, target.number);
       const status = r.status;
       const primeFactors = r.factors;
-      const entry = entryByN(target.n);
+      const entry = allEntries.find(x => x.n === target.n);
 
       // Log what FDB returned
       addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${primeFactors.length} factor(s)${primeFactors.length ? ': '+primeFactors.slice(0,3).join(' × ')+(primeFactors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
@@ -6802,7 +5862,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       }
 
       // Tally detailed stats per entry
-      const entryNow = entryByN(target.n);
+      const entryNow = allEntries.find(x => x.n === target.n);
       if (entryNow) {
         // If the snapshot fields are missing (e.g. allEntries got rebuilt mid-poll
         // by a concurrent import/pull, replacing entry objects), default to "no
@@ -6846,7 +5906,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         err.message?.includes('Non-numeric') || err.message?.includes('too large');
       if (isQueryError) {
         errors++;
-        const failEntry = entryByN(target.n);
+        const failEntry = allEntries.find(e => e.n === target.n);
         if (failEntry && failEntry.status === 'unknown') {
           failEntry.status = 'fdb-unknown';
           fdbCache[target.number] = { status: 'U', timestamp: Date.now(), n: target.n };
@@ -6890,7 +5950,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   if (nowFull > 0)        details.push(`${nowFull} → fully factored`);
   if (nowPartial > 0)     details.push(`${nowPartial} → partial`);
   if (nowComposite > 0)   details.push(`${nowComposite} → no factors`);
-  if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB undetermined`);
+  if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB unknown`);
   const detailStr = details.length ? ' (' + details.join(', ') + ')' : '';
 
   // A run halted by the breaker must NOT report as "Done". The completion path used
@@ -6922,6 +5982,11 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
   const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
   btn.classList.remove('polling');
   if (mainBtn) mainBtn.disabled = false;
+  if (unknownBtn) unknownBtn.disabled = false;
+  if (compositeBtn) compositeBtn.disabled = false;
+  const _sb = document.getElementById('pollStaleBtn'); if (_sb) _sb.disabled = false;
+  const _fu = document.getElementById('pollFdbUnknownBtn'); if (_fu) _fu.disabled = false;
+  const _pp = document.getElementById('pollPartialBtn'); if (_pp) _pp.disabled = false;
   const _sub = document.getElementById('pollSubmittedBtn'); if (_sub) _sub.disabled = false;
   polling = false;
   cancelRequested = false;
@@ -6940,7 +6005,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     // itself fail due to a scoping issue.
     polling = false;
     cancelRequested = false;
-    ['pollBtn','pollSubmittedBtn']
+    ['pollBtn','pollUnknownBtn','pollCompositeBtn','pollStaleBtn','pollFdbUnknownBtn','pollPartialBtn']
       .forEach(id => { const b = document.getElementById(id); if (b) { b.disabled = false; b.classList.remove('polling'); } });
     const qi2 = document.getElementById('queueInfo'); if (qi2) qi2.style.display = 'none';
     const cb2 = document.getElementById('cancelBtn'); if (cb2) cb2.style.display = 'none';
@@ -6967,37 +6032,8 @@ let _storageWarningShown = false;
 //  That's the conventional way ECM yield is accounted (a d-digit factor counts
 //  toward the level that targets d digits), but it will undercount factors on
 //  entries FactorDB touched afterwards.
-// The digit count ECM was actually working against, for COSTING a recorded run.
-//
-// Distinct from getCofactorDigits, which answers a display question — "what is
-// left to factor?" — and correctly returns null for a finished entry, because
-// there is no cofactor left. Costing asks something different and still has an
-// answer: the run happened, on a number of some size, and it took real time.
-//
-// Passing that null straight into the cost model priced every attempt on a
-// completed entry at ZERO. Identical work on two entries, one finished by it and
-// one not, contributed 1,185 CPU-seconds and 0. Backwards in the worst way: the
-// finished entries are the ones where the effort paid off, so their cost vanished
-// from the denominator while their finds stayed in the numerator, and every level
-// that had actually succeeded reported free factors.
-//
-// For a finished entry the original cofactor size is not recoverable — it shrank
-// with each factor found — so this returns the FULL value's digit count, an upper
-// bound. That overstates cost, which understates yield: the conservative
-// direction, and far closer than zero. Callers that care are told how many
-// attempts were priced this way.
-function workingDigitsFor(e) {
-  if (!e || !e.val) return null;
-  const cof = getCofactorDigits(e);
-  if (cof && cof > 1) return { digits: cof, exact: true };
-  return { digits: e.val.length, exact: false };
-}
-
 function computeYieldByLevel() {
-  // Starts at ECM_MIN_LEVEL for the same reason b1ToDigits does: these are the
-  // levels the recommendation engine actually offers, and a row that cannot be
-  // filled is worse than no row.
-  const levels = ecmLevels();
+  const levels = [10, 15, ...ECM_TABLE.map(t => t.d)];
   // Two parallel tallies per level:
   //   runs/curves/cpuSec        — ALL recorded work, all time
   //   tRuns/tCurves/tCpuSec     — only work done since provenance tracking began
@@ -7025,29 +6061,20 @@ function computeYieldByLevel() {
     return !!(d && d >= startDate);
   };
 
-  const ecmD = loadECM() || {};
-
-  // n -> the ECM levels run on it, each with the date it was last extended. Built
-  // here so a find can be credited to the level that was actually RUNNING when it
-  // happened, rather than to the size of the factor it turned up. See the finds
-  // pass below for why that distinction is the whole report.
-  const ecmRunsByN = new Map();
-  // Attempts priced from the full value rather than a real cofactor (see
-  // workingDigitsFor). Reported, because it makes those rows upper bounds.
-  let approxPricedRuns = 0;
+  const ecmD = loadECM();
+  const byN = new Map(allEntries.map(e => [e.n, e]));
 
   // ── Effort ──
-  for (const [nStr, attempts] of Object.entries(ecmD)) {
-    const e = entryByN(parseInt(nStr));
-    const work = workingDigitsFor(e);
+  for (const [nStr, attempts] of Object.entries(ecmD || {})) {
+    const e = byN.get(parseInt(nStr));
+    const cofDig = e ? getCofactorDigits(e) : null;
     for (const a of (attempts || [])) {
       if (!a || !a.b1) continue;
       const b1n = parseB1(a.b1);
       const cv  = parseInt(a.curves) || 1;
-      // A measured ms is authoritative and needs no digit count at all;
-      // attemptCpuSeconds prefers it. Only the estimate needs a size.
-      const sec = work ? attemptCpuSeconds(a, work.digits) : 0;
-      if (work && !work.exact && !(a.ms > 0)) approxPricedRuns++;
+      const sec = (cofDig && cofDig > 1)
+        ? attemptCpuSeconds(a, cofDig)
+        : 0;
       const tracked = isTracked(a);
       if (!(a && (a.lastRun || a.date))) undatedRuns++;
       if (a.method === 'P-1' || a.method === 'P+1') {
@@ -7063,8 +6090,6 @@ function computeYieldByLevel() {
       stats[bucket].runs++;
       stats[bucket].curves += cv;
       stats[bucket].cpuSec += sec;
-      if (!ecmRunsByN.has(parseInt(nStr))) ecmRunsByN.set(parseInt(nStr), []);
-      ecmRunsByN.get(parseInt(nStr)).push({ lvl: bucket, date: a.lastRun || a.date || null });
       if (tracked) {
         stats[bucket].tRuns++;
         stats[bucket].tCurves += cv;
@@ -7074,41 +6099,12 @@ function computeYieldByLevel() {
   }
 
   // ── Finds ──
-  //
-  // A find is credited to the LEVEL OF EFFORT THAT PRODUCED IT, not to the size of
-  // the factor. That sounds like a detail and is the entire report.
-  //
-  // Effort can only be bucketed one way — by the B1 a run used. Finds used to be
-  // bucketed by the found factor's own digit count, so the two tallies sat on
-  // different axes and only lined up when a run happened to turn up a factor of
-  // exactly the size its B1 targets. That is not the normal case: running at t35
-  // clears smaller factors too, and usually that is what it finds.
-  //
-  // The result was a report where every row was unusable. Two runs at B1=1,000,000
-  // each finding a 25-digit factor produced: level 35 with 1,185 CPU-seconds and
-  // ZERO finds, level 25 with two finds and ZERO seconds. Cost per find came out
-  // null on the row that did the work and 0.0 on the row that did none — the level
-  // you spent everything on found nothing, the level you spent nothing on found
-  // two for free. Neither number was ever right, for any dataset.
-  //
-  // Which run found it is not recorded, so this attributes to the highest level
-  // run on that number on or before the find's date — the run that was going when
-  // it happened. Undated runs stay eligible rather than being discarded.
-  const findLevel = (hn, findDate) => {
-    const runs = ecmRunsByN.get(hn) || [];
-    if (!runs.length) return null;
-    const eligible = runs.filter(r => !r.date || r.date <= findDate);
-    const pool = eligible.length ? eligible : runs;
-    return pool.reduce((m, r) => Math.max(m, r.lvl), pool[0].lvl);
-  };
-  // Kept as information rather than as the bucketing axis: how big the factors we
-  // found actually were. Useful, just not the same question as cost per find.
+  // Bucket a found factor by its own digit count, rounded to the nearest level.
   const bucketForDigits = (dig) => {
     let best = levels[0];
     for (const d of levels) if (Math.abs(d - dig) < Math.abs(best - dig)) best = d;
     return best;
   };
-  const findSizes = {};
 
   // Counted from the append-only discovery history, which records provenance PER
   // FACTOR at the moment of discovery. This is exact: it can't be confused by
@@ -7117,32 +6113,22 @@ function computeYieldByLevel() {
   // under-counted depending on write order).
   const hist = loadHistory();
   let totalFinds = 0, unattributed = 0, fdbFinds = 0;
-  // The small-prime sieve costs no ECM time, so its finds get their own tally.
-  // Counting them as ECM finds credited free factors to whichever ECM level
-  // happened to have been run on the same number, flattering exactly the levels
-  // that had done the least.
-  const sieveFinds = { finds: 0 };
   const ownByN = new Map(); // n -> count of own finds, for the P±1 split below
   for (const r of hist) {
     if (!Array.isArray(r) || r.length < 5) continue;
-    const [hn, ts, dig, src] = r;
+    const [hn, , dig, src] = r;
     if (src === 'f') { fdbFinds++; continue; }   // FactorDB's, not ours — not our yield
-    if (src !== 'e' && src !== 'm' && src !== 's') continue;
+    if (src !== 'e' && src !== 'm' && src !== 's') continue;   // 's' = small-prime sieve, also our own work
     totalFinds++;
     ownByN.set(hn, (ownByN.get(hn) || 0) + 1);
-    const sizeBucket = bucketForDigits(dig);
-    findSizes[sizeBucket] = (findSizes[sizeBucket] || 0) + 1;
-    if (src === 's') { sieveFinds.finds++; continue; }   // sieve, not ECM effort
+    // Credit P±1 when this number only ever saw P±1 runs; otherwise bucket by the
+    // factor's own size, which is the conventional way ECM yield is accounted.
     const att = (ecmD[String(hn)] || []);
     const hadEcm = att.some(a => a.method === 'ECM');
     const hadPm1 = att.some(a => a.method === 'P-1' || a.method === 'P+1');
-    // Credit P±1 when this number only ever saw P±1 runs.
     if (!hadEcm && hadPm1) { pm1.finds++; continue; }
     if (!hadEcm && !hadPm1) { unattributed++; continue; } // no run log explains it
-    const findDate = ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '9999-12-31';
-    const lvl = findLevel(hn, findDate);
-    if (lvl == null) { unattributed++; continue; }
-    stats[lvl].finds++;
+    stats[bucketForDigits(dig)].finds++;
   }
 
   // How many currently-known factors predate the history store? Those can't be
@@ -7161,19 +6147,14 @@ function computeYieldByLevel() {
   // finds come from — putting that decision in the view layer meant it couldn't
   // be tested, and a change to all-time effort would have gone unnoticed.
   const withRate = (L) => {
-    // Both require tracked effort to exist. With finds but no recorded cost,
-    // `tCpuSec / finds` is 0 — which reads as "these factors were free" when it
-    // means "we do not know what they cost". null is the honest answer and the
-    // renderer already shows it as a dash.
-    L.cpuPerFind = (L.finds > 0 && L.tCpuSec > 0) ? L.tCpuSec / L.finds : null;
+    L.cpuPerFind = L.finds > 0 ? L.tCpuSec / L.finds : null;
     L.findsPerHundredHours = L.tCpuSec > 0 ? (L.finds / (L.tCpuSec / 3600)) * 100 : 0;
     return L;
   };
   return { levels: levels.map(d => withRate(stats[d])), pm1: withRate(pm1),
-           totalFinds, unattributed, sieveFinds: sieveFinds.finds, findSizes,
+           totalFinds, unattributed,
            fdbFinds, preHistory, historyCount: hist.length,
-           startDate, trackingStarted: historyStartTs(), undatedRuns,
-           approxPricedRuns };
+           startDate, trackingStarted: historyStartTs(), undatedRuns };
 }
 // ── Storage headroom ────────────────────────────────────────────────
 // Browsers don't agree on how localStorage is metered, and the limit isn't
@@ -7331,7 +6312,7 @@ async function quickCheckFDB(n, btn) {
   // and if it fails the breaker simply re-arms.
   resetFdbBreaker();
   if (polling) return;
-  const e = entryByN(n);
+  const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) return;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
@@ -7365,33 +6346,6 @@ function parseFactorExpr(s) {
   const mul = s.match(/^(\d+)\*(\d+)$/);
   if (mul) return { value: BigInt(mul[1]) * BigInt(mul[2]), display: String(BigInt(mul[1]) * BigInt(mul[2])) };
   throw new Error('Unsupported expression — use digits, base^exp, or base*mult');
-}
-
-// Parse a factor string into { base, exp }. "5" → {5,1}; "5^2" → {5,2}.
-function parseFactorPower(f) {
-  const s = String(f);
-  const m = /^(\d+)\^(\d+)$/.exec(s);
-  if (m) return { base: m[1], exp: parseInt(m[2]) };
-  return { base: s, exp: 1 };
-}
-
-// Collapse a factor list so each prime base appears once at its HIGHEST power.
-// e.g. ["5","5^2","53"] → ["5^2","53"].
-//
-// MAX, not sum. This is for combining what two SOURCES know about the same
-// number: "5" and "5^2" are the same prime reported at different precision, so
-// the more informative one wins. Summing them would claim 5^3 divides — a factor
-// that does not, which is the one thing that must never be written.
-//
-// Note there is a separate collapse in fixIntegrityIssues that deliberately SUMS
-// exponents; see the comment there. The two are not interchangeable.
-function collapseFactorPowers(list) {
-  const maxExp = new Map();
-  for (const f of (list || [])) {
-    const { base, exp } = parseFactorPower(f);
-    if (!maxExp.has(base) || exp > maxExp.get(base)) maxExp.set(base, exp);
-  }
-  return [...maxExp.entries()].map(([base, exp]) => exp === 1 ? base : `${base}^${exp}`);
 }
 
 // Canonical factor ordering — ascending by numeric value (handles "5^3" style
@@ -7436,26 +6390,9 @@ function dedupeCompositeFactors(list) {
     // Only composites can be redundant; primality check is cheap at ≤19 digits and
     // conservative above (assume prime → keep) since ECM-found large factors are
     // near-always prime and false removal would lose real data.
-    // Primality is only a SHORTCUT here, never the evidence.
-    //
-    // A value that divides out exactly against the other listed factors is a
-    // product of them, and therefore composite by construction — the primality
-    // test adds nothing to that conclusion. It used to gate the whole check at 19
-    // digits, "assume prime above", which meant the redundant composites this
-    // exists to remove were unreachable whenever they were large. E(634)'s was 36
-    // digits: flagged by the integrity scan, and invisible to every automatic
-    // cleanup that runs on a merge or a migration.
-    //
-    // So: skip only what is DEFINITELY prime and therefore cannot be a product.
-    // Everything else is offered to the reconstruction test below, which is exact
-    // and cannot remove a genuine prime — a prime has no decomposition into other
-    // listed factors unless one of them equals it, which is the duplicate case and
-    // is correct to collapse.
-    if (v.toString().length <= 19) {
-      let definitelyPrime = false;
-      try { definitelyPrime = isProbablePrime(v); } catch { definitelyPrime = false; }
-      if (definitelyPrime) continue;
-    }
+    let composite = false;
+    if (v.toString().length <= 19) { try { composite = !isProbablePrime(v); } catch { composite = false; } }
+    if (!composite) continue;
     let rem = v;
     for (let j = 0; j < values.length && rem > 1n; j++) {
       if (j === i || drop.has(j)) continue;
@@ -7479,7 +6416,7 @@ async function verifyAndAddFactor(n) {
   const raw = input.value.trim();
   if (!raw) { msg.innerHTML = '<span style="color:var(--red)">⚠ Enter a factor</span>'; return; }
 
-  const e = entryByN(n);
+  const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) {
     msg.innerHTML = '<span style="color:var(--red)">⚠ Euler value not loaded</span>'; return;
   }
@@ -7560,7 +6497,7 @@ async function verifyAndAddFactor(n) {
 }
 
 function markFactorsFdbConfirmed(n) {
-  const entry = entryByN(n);
+  const entry = allEntries.find(e => e.n === n);
   if (!entry || !entry.val) return;
   const factors = (entry.factors || []).filter(f => f && f !== '1');
   if (!factors.length) {
@@ -7586,7 +6523,7 @@ function markFactorsFdbConfirmed(n) {
 }
 
 function markAsFdbUnknown(n) {
-  const entry = entryByN(n);
+  const entry = allEntries.find(e => e.n === n);
   if (!entry || !entry.val) return;
   // Store U status in fdbCache with current timestamp
   fdbCache[entry.val] = { status: 'U', timestamp: Date.now(), n };
@@ -7596,7 +6533,7 @@ function markAsFdbUnknown(n) {
   saveFDBCache(fdbCache);
   entry.status = 'fdb-unknown';
   addFdbUnknown(n); // persist in dedicated set — survives chunk load failures
-  addLog('E(' + n + ') manually marked as FDB undetermined', 'warn');
+  addLog('E(' + n + ') manually marked as FDB Unknown', 'warn');
   applyFilters();
   renderStats();
   // Refresh the modal
@@ -7605,146 +6542,67 @@ function markAsFdbUnknown(n) {
   scheduleECMPush();
 }
 
-// Remembered between runs — a standing preference about what counts as stale,
-// not a per-run decision. Was an input box in the toolbar before the six check
-// buttons became one.
-const STALE_DAYS_KEY = 'eulerFDB_staleDays_v1';
-function loadStaleDays() {
-  const v = parseInt(localStorage.getItem(STALE_DAYS_KEY) || '');
-  return (isFinite(v) && v > 0) ? v : 31;
-}
-
-// ONE Check button. It used to be six, plus a number input, which put the rarest
-// scopes at the same weight as the common one and made the toolbar hard to read.
-//
-// This asks and then delegates to the existing starters rather than reimplementing
-// them, deliberately: each carries rules the others do not — 'all' resets the
-// FactorDB breaker and respects the on-screen filter, 'all'/'none'/'unknown' honour
-// the manual cooldown while the others do not, and only some apply the request cap.
-// Those differences are real, and folding six functions into one body would have
-// meant re-deciding all of them at once, silently.
-//
-// Counts come from the same target functions the starters use, so what the prompt
-// says and what the run does cannot drift apart.
-function startCheck() {
-  if (polling) { alert('Wait for the current poll to finish.'); return; }
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const filterActive = Array.isArray(filtered) && filtered.length && filtered.length < allEntries.length;
-  const source = filterActive ? filtered : allEntries;
-  const staleDays = loadStaleDays();
-
-  const scopes = [
-    { key: 'all',       match: /^(all|a|1)$/i,
-      label: filterActive ? 'everything in the current view' : 'every unfinished entry',
-      count: allTargets(false, source).length,
-      run: () => startManualPoll() },
-    { key: 'partial',   match: /^(partial|p|2)$/i,
-      label: 'partially factored — entries that already have factors',
-      count: partialTargets(0).length,
-      run: () => startPartialPoll() },
-    { key: 'composite', match: /^(composite|comp|none|no|c|3)$/i,
-      label: 'no known factors — FactorDB says composite',
-      count: compositeTargets().length,
-      run: () => startCompositePoll() },
-    // The one to reach for. The two below it are the same entries split by WHY we
-    // know nothing, which matters for the ECM export's priority weight and almost
-    // never for deciding what to check next.
-    { key: 'nothing',   match: /^(nothing|nothingknown|both|4)$/i,
-      label: 'nothing known at all — the two below, together',
-      count: nothingKnownTargets(0).length,
-      run: () => startNothingKnownPoll() },
-    { key: 'never',     match: /^(never|unchecked|u|unknown|5)$/i,
-      label: '  · never checked — we have not asked FactorDB',
-      count: getUnknownTargets().length,
-      run: () => startUnknownPoll() },
-    { key: 'fdb',       match: /^(fdb|f|undetermined|6)$/i,
-      label: '  · FDB undetermined — we asked, FactorDB has no factorisation',
-      count: fdbUnknownTargets(0).length,
-      run: () => startFdbUnknownPoll() },
-    { key: 'old',       match: /^(old|o|stale|s|7)$/i,
-      label: 'old records — not checked in ' + staleDays + ' days',
-      count: staleTargets(staleDays).length,
-      run: (days) => startStalePoll(days) },
-  ];
-
-  const pad = (s, w) => (s + ' '.repeat(w)).slice(0, w);
-  const body = scopes.map(s =>
-    '  ' + pad('"' + s.key + '"', 12) + pad(s.label, 52)
-      + (s.count ? s.count.toLocaleString() : '—')).join('\n');
-
-  const ans = prompt(
-    'Check which entries against FactorDB?\n\n' + body + '\n\n'
-    + (filterActive
-        ? 'A filter is active, so "all" means the ' + source.length.toLocaleString()
-          + ' entries on screen. The other scopes ignore it.\n\n'
-        : '')
-    + 'Request cap is ' + cap.toLocaleString() + ' — change it in the toolbar.',
-    'all');
-  if (ans === null) return;
-  const chosen = scopes.find(s => s.match.test(ans.trim()));
-  if (!chosen) { alert('Did not recognise "' + ans + '". Nothing has been checked.'); return; }
-  if (!chosen.count) {
-    alert('Nothing to check under "' + chosen.key + '" — ' + chosen.label + '.');
-    return;
-  }
-
-  if (chosen.key === 'old') {
-    const dRaw = prompt(
-      'Re-check entries not seen by FactorDB in how many days?\n\n'
-      + 'Currently ' + staleTargets(staleDays).length.toLocaleString()
-      + ' entries qualify at ' + staleDays + ' days.',
-      String(staleDays));
-    if (dRaw === null) return;
-    const days = Math.max(1, Math.floor(Number(dRaw)));
-    if (!isFinite(days)) { alert('That is not a number of days.'); return; }
-    localStorage.setItem(STALE_DAYS_KEY, String(days));
-    const n = staleTargets(days).length;
-    if (!n) { alert('Nothing has gone ' + days + ' days without a check.'); return; }
-    chosen.run(days);
-    return;
-  }
-  chosen.run();
-}
-
-function startStalePoll(daysArg) {
+function startStalePoll() {
   if (polling) return;
-  // The day count now comes from the Check prompt. The old inline input is gone,
-  // but reading it as a fallback costs nothing and keeps this callable either way.
-  const days = Math.max(1, daysArg
-    || parseInt(document.getElementById('staleDaysInput')?.value)
-    || loadStaleDays());
-  const targets = staleTargets(days);
+  const days    = Math.max(1, parseInt(document.getElementById('staleDaysInput')?.value) || 31);
+  const cutoff  = Date.now() - days * 86400000;
+  const targets = allEntries
+    .filter(e => {
+      if (e.status === 'full') return false; // skip fully factored
+      if (!e.val || e.n <= 2) return false;
+      const info = getFdbCheckInfo(e);
+      // Include if never checked OR checked before cutoff
+      return !info || info.timestamp < cutoff;
+    })
+    .map(e => {
+      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
+        ? e.cofactor : e.val;
+      return { n: e.n, number: queryNum };
+    })
+    .filter(t => t.number);
 
   if (!targets.length) {
     setStatus(`No entries with FDB check older than ${days} days`, 'warn');
     return;
   }
   addLog(`Checking ${targets.length} stale entries (>${days}d old)`, '');
-  runPollQueue(targets, true, null, true);
+  runPollQueue(targets, true, document.getElementById('pollStaleBtn'), true);
 }
 
 function startPartialPoll() {
   if (polling) return;
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const targets = partialTargets(cap);
+  // Target any non-full entry that HAS known factors — not just those whose status
+  // label is exactly 'partial'. An entry can hold factors while still labelled
+  // 'composite' or 'fdb-unknown' (e.g. stale status), and those must be re-checkable
+  // here too, otherwise the bulk sweep silently skips them (the modal recheck didn't).
+  const targets = allEntries
+    .filter(e => e.status !== 'full' && e.val && e.n > 2 && (e.factors || []).filter(f => f && f !== '1').length > 0)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number)
+    .slice(0, cap);
   if (!targets.length) {
     setStatus('No partially factored entries to check', 'warn');
     return;
   }
   addLog('Checking ' + targets.length + ' entries with known factors (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, false, true);
+  runPollQueue(targets, true, document.getElementById('pollPartialBtn'), false, true);
 }
 
 function startFdbUnknownPoll() {
   if (polling) return;
   const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const targets = fdbUnknownTargets(cap);
+  const targets = allEntries
+    .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }))
+    .filter(t => t.number)
+    .slice(0, cap);
   if (!targets.length) {
     setStatus('No FDB-unknown entries to re-check', 'warn');
     return;
   }
   addLog('Re-checking ' + targets.length + ' FDB-unknown entries (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, false, false);
+  runPollQueue(targets, true, document.getElementById('pollFdbUnknownBtn'), false, false);
 }
 
 function startCompositePoll() {
@@ -7755,35 +6613,16 @@ function startCompositePoll() {
     setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
     return;
   }
-  const targets = compositeTargets();
+  // Composite = confirmed by FDB as no known factors (C status)
+  const targets = allEntries
+    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
+    .map(e => ({ n: e.n, number: e.val }));
   if (targets.length === 0) {
     setStatus('No "no known factors" entries to check', 'warn');
     return;
   }
   addLog(`Checking ${targets.length} no-known-factors entries`, '');
-  runPollQueue(targets, true, null, true);
-}
-
-function startNothingKnownPoll() {
-  if (polling) return;
-  // Takes the cooldown, like the other sweeps that can queue thousands of numbers,
-  // and the request cap, because this is the widest of the three "nothing known"
-  // scopes. startFdbUnknownPoll skips the cooldown since re-checking a handful of
-  // undetermined entries is cheap; that is not true here.
-  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
-  const wait = MANUAL_COOLDOWN - (Date.now() - last);
-  if (wait > 0) {
-    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
-    return;
-  }
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
-  const targets = nothingKnownTargets(cap);
-  if (!targets.length) {
-    setStatus('Nothing unchecked or undetermined to check', 'warn');
-    return;
-  }
-  addLog('Checking ' + targets.length + ' entries with nothing known (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, true);
+  runPollQueue(targets, true, document.getElementById('pollCompositeBtn'), true);
 }
 
 function startUnknownPoll() {
@@ -7803,7 +6642,7 @@ function startUnknownPoll() {
     return;
   }
   addLog(`Checking ${targets.length} unknown/unchecked entries`, '');
-  runPollQueue(targets, true, null, true);
+  runPollQueue(targets, true, document.getElementById('pollUnknownBtn'), true);
 }
 
 function startManualPoll() {
@@ -7859,38 +6698,6 @@ function startManualPoll() {
 // ─────────────────────────────────────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
-// The factors we hold that FACTORDB DOES NOT HAVE.
-//
-// One rule, used by the submission export to decide what to send and by the
-// "ahead of FDB" filter to decide what to show — so what the filter lists and what
-// the export would submit are the same thing by construction, rather than by two
-// pieces of code happening to agree.
-//
-// Two independent sources of truth, and both are needed:
-//
-//   fdbHas      what FactorDB last reported for this number. Exact, and the only
-//               one that catches a factor WE found first and FactorDB later
-//               confirmed — recordDiscovery keeps the original attribution, so
-//               provenance stays 's' or 'e' forever in that case.
-//   provenance  covers entries not re-checked since fdbHas was introduced.
-//
-// A factor of unknown provenance counts as ours. Provenance only exists from the
-// day tracking began, so a null means "cannot tell" — and the two errors are not
-// symmetric: calling it ours costs a wasted request, calling it FactorDB's loses
-// the factor.
-function factorsFdbLacks(e) {
-  if (!e || !e.val) return [];
-  const factors = (e.factors || []).filter(f => f && f !== '1');
-  if (!factors.length) return [];
-  const cached = fdbCache[e.val];
-  const fdbKnown = new Set(((cached && cached.fdbHas) || []).map(f => String(f).split('^')[0]));
-  return factors.filter(f => {
-    const base = String(f).split('^')[0];
-    if (fdbKnown.has(base)) return false;
-    return factorProvenance(e.n, f) !== 'f';
-  });
-}
-
 function applyFilters() {
   // Build fast n→fdbCache lookup for filter checks
   window._fdbCacheByN = {};
@@ -7905,12 +6712,6 @@ function applyFilters() {
     } else if (activeFilter === 'attempted') {
       // Show entries with ECM logs — but never fully factored ones
       matchFilter = e.status !== 'full' && (ecmData[String(e.n)] || []).length > 0;
-    } else if (activeFilter === 'ahead-of-fdb') {
-      // Entries where we hold at least one factor FactorDB does not — exactly what
-      // "Export FDB submission" would send. Includes fully factored entries: having
-      // finished a number FactorDB knows nothing about is the strongest case of
-      // being ahead of it, not a reason to hide the entry.
-      matchFilter = factorsFdbLacks(e).length > 0;
     } else {
       matchFilter = e.status === activeFilter;
     }
@@ -8099,21 +6900,12 @@ function renderGrid() {
       partial:        '<span class="card-badge badge-partial">◐ PARTIAL</span>',
       composite:      '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>',
       attempted:      '<span class="card-badge badge-attempted">⟳ ECM</span>',
-      'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNDETERMINED</span>',
+      'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNKNOWN</span>',
     }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
 
     const hasAttempt = e.status !== 'full' && (loadECM()[String(e.n)] || []).length > 0;
     const attemptBadge = (hasAttempt && e.status !== 'attempted')
       ? '<span class="card-badge badge-attempted" style="opacity:0.6">⟳</span>' : '';
-
-    // "ours / FactorDB's" at a glance — 3/2 means we hold three factors and
-    // FactorDB has two of them. Shown only when we are actually ahead, so it reads
-    // as a call to submit rather than as decoration on every card.
-    const aheadCount = factorsFdbLacks(e).length;
-    const heldCount  = (e.factors || []).filter(f => f && f !== '1').length;
-    const aheadBadge = aheadCount
-      ? `<span class="card-badge badge-ahead" title="We hold ${heldCount} factor(s); ${heldCount - aheadCount} of them are on FactorDB. ${aheadCount} would be submitted.">↑ ${heldCount}/${heldCount - aheadCount} FDB</span>`
-      : '';
 
     return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative" data-n="${e.n}">
       <button onclick="event.stopPropagation();quickCheckFDB(${e.n},this)"
@@ -8122,7 +6914,7 @@ function renderGrid() {
         ${polling?'disabled':''}>↻</button>
       <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
       <div class="card-label">E(${e.n})</div>
-      ${badge}${attemptBadge}${aheadBadge}
+      ${badge}${attemptBadge}
       <div class="card-lazy" style="min-height:28px"></div>
     </div>`;
   }).join('');
@@ -8181,13 +6973,13 @@ function renderGrid() {
       } catch(e) { logSwallowed('tile/ecmSummary', e); }
 
       // "We know more than FactorDB does". Worth showing prominently: when we hold
-      // factors for a number FactorDB has no factorisation for, those factors are new to
+      // factors for a number FactorDB has no record of, those factors are new to
       // FDB and worth submitting — the opposite of the usual direction. Without
       // this the entry just reads "partially factored", which looks as though FDB
       // supplied the factors.
       try {
         if (e._fdbUnknown && (e.factors || []).filter(f => f && f !== '1').length) {
-          html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no factorisation for this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has nothing on this — our factors are new</div>`;
+          html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no record of this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has no record — our factors are new</div>`;
         }
       } catch(err) { logSwallowed('tile/fdbUnknownBadge', err); }
 
@@ -8258,9 +7050,12 @@ function invalidateCpuTotal() { _cpuTotalCache = null; }
 function computeTotalCpuSec() {
   if (_cpuTotalCache !== null) return _cpuTotalCache;
   const ecmD = loadECM();
+  // Build an n→entry map once (avoids O(n²) allEntries.find inside the loop)
+  const byN = new Map();
+  for (const e of allEntries) byN.set(e.n, e);
   let total = 0;
   for (const [nStr, attempts] of Object.entries(ecmD)) {
-    const entry = entryByN(parseInt(nStr));
+    const entry = byN.get(parseInt(nStr));
     const digits = entry ? getCofactorDigits(entry) : null;
     if (!digits) continue;
     for (const a of attempts) {
@@ -8352,7 +7147,7 @@ function goPage(p) {
 // MODAL
 // ─────────────────────────────────────────────────────────────────────────────
 function openModal(n) {
-  const e = entryByN(n);
+  const e = allEntries.find(x => x.n === n);
   if (!e) return;
   document.getElementById('modalTitle').textContent = `E(${n})`;
 
@@ -8360,8 +7155,8 @@ function openModal(n) {
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
-    'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Undetermined', desc:'We asked and FactorDB has no factorisation for it — it has not even settled whether the number is composite. Nothing else is working on it, so your own ECM is the only thing that will move it.' },
-       unknown:   { icon:'○', color:'var(--red)',     label:'Never Checked',         desc:'We have not asked FactorDB about this number yet. Checking it is cheap and almost always tells us something.' },
+    'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Unknown', desc:'FactorDB has seen this number but its factorization is unknown.' },
+       unknown:   { icon:'○', color:'var(--red)',     label:'Unknown',               desc:'Not yet checked — no factorization attempt recorded.' },
     composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
     attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
@@ -8400,11 +7195,22 @@ function openModal(n) {
         return av < bv ? -1 : av > bv ? 1 : 0;
       } catch { return String(a).length - String(b).length; } // fallback if unparsable
     });
-    // Computed once for the whole entry: which of our factors FactorDB is missing.
-    const fdbLacks = factorsFdbLacks(e);
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
-      const lbl = factorPrimalityLabel(f, allVerifiedPrime, fdbCache);
+      let lbl;
+      if (allVerifiedPrime) {
+        lbl = 'prime';
+      } else {
+        // Also check if this specific factor was individually queried as prime by FDB
+        const factorFDB = fdbCache[f];
+        if (factorFDB && ['P','PRP'].includes(factorFDB.status)) {
+          lbl = factorFDB.status === 'PRP' ? 'prp' : 'prime'; // P/PRP = confirmed prime
+        } else if (factorFDB && factorFDB.status === 'FF') {
+          lbl = 'composite'; // FF = fully factored composite, not itself prime
+        } else {
+          lbl = labelFactor(f);
+        }
+      }
       // Has FACTORDB confirmed this factor is prime?
       //
       // Deliberately independent of HOW the result arrived. A small number checked
@@ -8417,11 +7223,6 @@ function openModal(n) {
       // Two ways FactorDB can establish it:
       //   * the entry came back FF — every factor it listed is prime by definition
       //   * this specific factor was queried and returned P or PRP
-      // PRIMALITY, not possession. "PRIME · FDB" means FactorDB has declared this
-      // factor prime — a stronger and different claim from "FactorDB holds it",
-      // which is what the provenance tag below answers. Merging the two would make
-      // this tooltip a lie on every CF result, where FactorDB has the factor and
-      // has said nothing about its primality.
       const fdbConfirmed = allVerifiedPrime || !!(fdbCache[f] && ['P','PRP'].includes(fdbCache[f].status));
       const tag = lbl === 'prime'  ? (fdbConfirmed
                     ? '<span class="prime-tag" style="color:var(--green)" title="FactorDB confirms this factor is prime">PRIME · FDB</span>'
@@ -8441,31 +7242,15 @@ function openModal(n) {
       // already says FDB, which was rendering "PRIME · FDB  FDB" on every
       // FactorDB-supplied factor. YOURS is still worth showing alongside it: a factor
       // you found by ECM that FactorDB has since confirmed is genuinely both.
-      // The tag answers "is FactorDB holding this one?", NOT "who found it first".
-      //
-      // Those are different questions and this used to answer the second. A factor
-      // the sieve found, that was then submitted and accepted, keeps provenance 's'
-      // forever — recordDiscovery deliberately preserves the original attribution —
-      // so it showed no FDB tag even though FactorDB now has it. That makes the
-      // list unusable for the thing it is actually wanted for: scanning for what
-      // still needs posting.
-      //
-      // Same rule as factorsFdbLacks, so the chips are a preview of exactly what
-      // "Export FDB submission" would send. Who found it is still available, in the
-      // tooltip, where it is interesting rather than load-bearing.
-      const onFdb = !fdbLacks.includes(f);
-      const foundBy = prov === 'e' ? 'your ECM' : prov === 'm' ? 'your P±1'
-                    : prov === 's' ? 'your small-prime sieve' : prov === 'f' ? 'FactorDB' : 'before tracking began';
-      const provTag = onFdb
-        ? `<span class="prime-tag" style="color:var(--text-muted)" title="FactorDB has this factor. Found by ${foundBy}.">FDB</span>`
-        : `<span class="prime-tag" style="color:var(--green)" title="FactorDB does NOT have this factor — it is in the submission export. Found by ${foundBy}.">YOURS</span>`;
+      const provTag = prov === 'e' ? '<span class="prime-tag" style="color:var(--green)" title="Found by your own ECM/P±1 run">YOURS</span>'
+                    : (prov === 'f' && !fdbConfirmed) ? '<span class="prime-tag" style="color:var(--text-muted)" title="Supplied by FactorDB">FDB</span>'
+                    : prov === 'm' ? '<span class="prime-tag" style="color:var(--text-muted)" title="Entered manually">MANUAL</span>'
+                    : '';
       return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}<span class="fdb-arrow">↗</span></a>`;
     }).join('');
-    const sourceNote = fdbLacks.length
-      ? `— ${fdbLacks.length} of ${primeFactors.length} not on FactorDB yet (green), in the next submission export`
-      : allVerifiedPrime
-        ? '— all prime, verified by FactorDB'
-        : '— FactorDB has every factor we hold';
+    const sourceNote = allVerifiedPrime
+      ? '— all prime, verified by FactorDB'
+      : '— click to open on FactorDB';
     if (primeFactors.length) {
       factorsHtml = `<div class="modal-section"><div class="modal-section-label">Known Factors <span style="font-size:9px;color:var(--text-muted);letter-spacing:0.3px;font-weight:400">${sourceNote}</span></div><div class="factors-list">${chips}</div></div>`;
     }
@@ -8476,24 +7261,16 @@ function openModal(n) {
   // Value — store in a global map to avoid attribute escaping issues with large numbers
   window._eulerValMap = window._eulerValMap || {};
   window._eulerValMap[n] = e.val || '';
-  // `let`, because this was an undeclared assignment writing to a global that
-  // outlived the modal. Declaring it is also what made the bug below visible.
-  let valueHtml = '';
   // If eulerValues not yet loaded for this entry, show loading state
   if (!e.val && Object.keys(eulerValues).length === 0) {
     valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value</div><div class="value-box" style="color:var(--text-muted)">Loading…</div></div>';
   }
   const valCopyId = 'vc_' + n;
-  // Guarded rather than unconditional. This used to be `valueHtml = e.val ? (...)
-  // : ''`, which always ran and overwrote the loading message with an empty string
-  // three lines after setting it — so the loading state was dead code that could
-  // never render. Only visible once the variable was declared and both writes
-  // could be read as one flow.
-  if (e.val) valueHtml = ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
+  valueHtml = e.val ? ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
     + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
     + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>'
-    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>');
-  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
+    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>')
+    : '';  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
   let unknownFdbHtml = '';
@@ -8580,7 +7357,7 @@ async function modalCheckFull(n) {
   // back. Clear the breaker so it is allowed — the cost is one number's requests,
   // and if it fails the breaker simply re-arms.
   resetFdbBreaker();
-  const e = entryByN(n);
+  const e = allEntries.find(x => x.n === n);
   if (!e || !e.val) return;
 
   // Show loading state on the button
@@ -8625,7 +7402,7 @@ async function modalCheckFull(n) {
       const isLarge = e && e.val && e.val.length > currentQueryCap();
       errEl.innerHTML = '<span style="color:var(--red)">⚠ ' + err.message + '</span>'
         + (isLarge
-          ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB undetermined</button>'
+          ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB Unknown</button>'
           : '');
       errEl.setAttribute('data-persistent', '1');
     }
@@ -8889,7 +7666,7 @@ function recommendNextRun(digits, attempts) {
   // Including it is self-limiting: once any t15+ run exists it already covers
   // 10-digit factors to ~95%, so t10's marginal gain collapses and the efficiency
   // ranking stops choosing it without needing a special case.
-  const levels = ecmLevels().filter(d => d <= maxUseful);
+  const levels = [10, 15, ...ECM_TABLE.map(t => t.d)].filter(d => d <= maxUseful);
 
   // How "complete" is each ECM level? Use the efficiency-aware probability of the
   // user's actual runs at that digit size (ecmProbForDigit accounts for B1 — a
@@ -9807,21 +8584,6 @@ function getBulkTargets() {
   const fromN  = from % 2 === 0 ? from : from + 1;
   const toN    = to   % 2 === 0 ? to   : to - 1;
 
-  // Both of these were referenced below as bare globals, evidently copied from
-  // applyFilters' own filter body without bringing its locals along.
-  //
-  // `ecmData` has no binding anywhere outside applyFilters, so selecting the
-  // 'attempted' filter here threw a ReferenceError and the panel produced nothing
-  // — the §7 bug class again (used but never declared, live error, invisible to
-  // `node --check` and to every test, because nothing exercises this panel).
-  //
-  // `_fdbCacheByN` did resolve, but only because applyFilters assigns it to
-  // `window` on every render, so this worked purely by render order. Building it
-  // here makes the dependency explicit rather than inherited.
-  const ecmData = loadECM();
-  const fdbByN = {};
-  for (const v of Object.values(fdbCache)) if (v && v.n != null) fdbByN[v.n] = v;
-
   return allEntries.filter(e => {
     if (e.n < fromN || e.n > toN) return false;
     if (filter === 'all')        return true;
@@ -9831,7 +8593,7 @@ function getBulkTargets() {
       // Check if fully factored — look at both e.status AND fdbCache
       if (e.status === 'full') return false;
       // Also check fdbCache directly by n (in case e.status wasn't updated yet)
-      const fdbEntry = fdbByN[e.n];
+      const fdbEntry = _fdbCacheByN[e.n];
       if (fdbEntry && ['FF','P','PRP','UN'].includes(fdbEntry.status)) return false;
       return true;
     }
@@ -9925,7 +8687,7 @@ function applyBulkECM() {
 function syncAttemptedStatus(n) {
   const ecmD  = loadECM();
   const has   = (ecmD[String(n)] || []).length > 0;
-  const entry = entryByN(n);
+  const entry = allEntries.find(e => e.n === n);
   if (entry) {
     if (entry.status === 'full') return; // fully factored — never show as ECM logged
     if (has && (entry.status === 'unknown' || entry.status === 'composite')) entry.status = 'attempted';
@@ -9983,7 +8745,7 @@ function addECMAttempt(n) {
   syncAttemptedStatus(n);
 
   const sec = document.getElementById(`ecmSection_${n}`);
-  const e   = entryByN(n);
+  const e   = allEntries.find(x => x.n === n);
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
 
@@ -10045,12 +8807,12 @@ function confirmDeleteECM(n, idx) {
   saveECM(ecmData);
   syncAttemptedStatus(n);
   const sec = document.getElementById('ecmSection_' + n);
-  const e   = entryByN(n);
+  const e   = allEntries.find(x => x.n === n);
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
 
 function clearEntryCache(n) {
-  const e = entryByN(n);
+  const e = allEntries.find(x => x.n === n);
   if (!e) return;
 
   // Remove FDB cache entries for this entry's value and cofactor
@@ -10351,70 +9113,10 @@ async function runDataIntegrityCheck(onProgress) {
 // Deliberately conservative: every change is verified against E(n) before it is
 // written, and anything that would require guessing is left for a FactorDB
 // re-check instead. Returns a summary of what it did and what it declined to do.
-// Clamp every exponent in a factor list to the multiplicity the base ACTUALLY has
-// in E(n). Exact — repeated division, not a heuristic.
-//
-// The fixer's collapse SUMS exponents, on the reading that a list recording "5"
-// twice means 5². That is right when the duplicate is a second occurrence, and
-// wrong when it is the same occurrence counted twice — and splitting a composite
-// produces exactly the second case. E(634) held [p, q, C] with C = p·q; the split
-// removed C and added p and q, which were already there, and the sum turned two
-// correct prime factors into p² and q². Both then displayed as PRIME FDB with a
-// square that is simply false about the number.
-//
-// The list alone cannot distinguish those two cases. E(n) can, so ask it. A base's
-// true multiplicity is the largest k with base^k dividing E(n), and the exponent
-// written is min(claimed, k):
-//
-//   * never above k, because that asserts something provably untrue — the error
-//     this exists to stop, and the one that would go on to be submitted to
-//     FactorDB as a false claim;
-//   * never above what was claimed, so it cannot invent a power nobody recorded.
-//
-// A base that does not divide at all is dropped: keeping a factor that provably
-// does not divide is the worse of the two errors, and step 1 removes those anyway.
-function clampExponentsToValue(list, valStr) {
-  let v;
-  try { v = BigInt(valStr); } catch (e) { return { factors: list || [], clamped: 0, dropped: 0 }; }
-  if (v <= 1n) return { factors: list || [], clamped: 0, dropped: 0 };
-  const out = []; let clamped = 0, dropped = 0;
-  // A factor equal to the WHOLE NUMBER, when other factors are present.
-  //
-  // It divides perfectly, so the exponent clamp below keeps it and the redundant-
-  // composite dedupe cannot reconstruct it — it falls between every existing
-  // check. It also slips past the integrity scan twice over: not a LONE factor, so
-  // the "claims E(n) is prime" rule does not apply, and far too large to
-  // primality-test, so the "stored factor is composite" rule never sees it.
-  //
-  // 90 records in a real dataset were carrying one: a 57,000-digit value alongside
-  // the genuine small primes, and divisible by every one of them — which is what
-  // gives it away, since a real cofactor shares no factors with them. The product
-  // of such a list is E(n) times the small primes, so the entry claims far more
-  // than the number contains.
-  const others = (list || []).filter(f => String(f).split('^')[0] !== String(valStr));
-  const selfWithSiblings = others.length < (list || []).length && others.length > 0;
-  for (const f of (list || [])) {
-    const s = String(f);
-    const m = /^(\d+)\^(\d+)$/.exec(s);
-    const base = m ? m[1] : s;
-    const claimed = m ? parseInt(m[2]) : 1;
-    let b;
-    try { b = BigInt(base); } catch (e) { out.push(s); continue; }
-    if (b <= 1n) { out.push(s); continue; }
-    if (selfWithSiblings && base === String(valStr)) { dropped++; continue; }
-    // Stop as soon as the claim is matched — no need to know how far past it goes.
-    let k = 0, r = v;
-    while (k < claimed && r % b === 0n) { r /= b; k++; }
-    if (k === 0) { dropped++; continue; }
-    if (k < claimed) clamped++;
-    out.push(k === 1 ? base : base + '^' + k);
-  }
-  return { factors: out, clamped, dropped };
-}
-
 async function fixIntegrityIssues(scan) {
-  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0, overclaimed: 0 };
+  const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0 };
   const needsRecheck = [];
+  const byN = new Map(allEntries.map(e => [e.n, e]));
   const deadline = Date.now() + 20000;
 
   const productOf = (factors) => {
@@ -10435,7 +9137,7 @@ async function fixIntegrityIssues(scan) {
 
   // 1) Factors that do not divide E(n) — provably wrong, so removing them is safe.
   for (const it of (scan.issues.notDividing || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== it.factor);
     e.status  = e.factors.length ? 'partial' : 'composite';
     e.cofactor = null;
@@ -10444,7 +9146,7 @@ async function fixIntegrityIssues(scan) {
 
   // 2) A lone oversized factor equal to E(n) — the cofactor-as-prime artefact.
   for (const it of (scan.issues.wholeValue || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     // Never strip a number FactorDB has confirmed prime: for those, being its own
     // sole factor is the correct representation, and removing it would destroy a
     // complete factorisation. Re-checked here rather than trusted from the scan,
@@ -10464,7 +9166,7 @@ async function fixIntegrityIssues(scan) {
   //     destructive on an entry FDB calls prime (see the E(454) case), which is why
   //     this is gated on C/CF and nothing weaker.
   for (const it of (scan.issues.contradictsFdb || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     const rec = fdbCache[e.val];
     if (!rec || !['C', 'CF'].includes(rec.status)) continue;   // re-verify, never trust the scan
     const keep = (e.factors || []).filter(f => {
@@ -10489,7 +9191,7 @@ async function fixIntegrityIssues(scan) {
   //     answers it. No factors are touched (there are none), so this is purely a
   //     status correction and cannot lose data.
   for (const it of (scan.issues.fullNoFactors || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     if (Array.isArray(e.factors) && e.factors.length) continue; // re-verify: factors appeared since the scan
     const rec = fdbCache[e.val];
     const st  = rec && rec.status;
@@ -10505,7 +9207,7 @@ async function fixIntegrityIssues(scan) {
   //     multiplicity is computable exactly, so this is a precise correction rather
   //     than a guess: divide down and record what really divides.
   for (const it of (scan.issues.wrongExponent || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('fixIntegrity/expVal', err); continue; }
     const base = BigInt(it.factor);
@@ -10528,7 +9230,7 @@ async function fixIntegrityIssues(scan) {
   //     is already correct in substance; recompute the remainder, re-verify it is
   //     prime, and record it. Everything needed is local — no FactorDB round trip.
   for (const it of (scan.issues.missingPrime || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     let val, product = 1n;
     try {
       val = BigInt(e.val);
@@ -10553,23 +9255,17 @@ async function fixIntegrityIssues(scan) {
 
   // 3) Duplicate primes — collapse to powers. Verified: the product must not change.
   for (const it of (scan.issues.duplicate || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     const before = productOf(e.factors);
     const collapsed = collapseTo(e.factors);
-    if (productOf(collapsed) !== before) continue;   // collapse must be value-neutral
-    // ...and then the same check against E(n), because "unchanged" only says the
-    // collapse was faithful to a list that may already have been over-claiming.
-    const clamp3 = clampExponentsToValue(collapsed, e.val);
-    e.factors = sortFactorsAsc(clamp3.factors);
-    fixed.overclaimed += clamp3.clamped + clamp3.dropped;
-    fixed.collapsed++;
+    if (productOf(collapsed) === before) { e.factors = sortFactorsAsc(collapsed); fixed.collapsed++; }
   }
 
   // 4) Composite "primes" — try to split them. Only accepted when the pieces
   //    multiply back exactly, so a partial or wrong split is never written.
   for (const it of (scan.issues.compositeFactor || [])) {
     if (Date.now() > deadline) break;
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     let parts = null;
     try { parts = factorizeSmall(BigInt(it.factor)); }
     catch(err) { logSwallowed('fixIntegrity/split', err); }
@@ -10590,21 +9286,14 @@ async function fixIntegrityIssues(scan) {
     let prod = 1n; for (const p of parts) prod *= p;
     if (prod !== BigInt(it.factor)) { needsRecheck.push(it.n); continue; }
     const rest = (e.factors || []).filter(f => String(f).split('^')[0] !== it.factor);
-    // Collapse expresses the claim; the clamp checks it against E(n). Needed here
-    // specifically because a split adds primes that may ALREADY be in `rest`, and
-    // the collapse sums them — which is how two correct prime factors became p²
-    // and q². Note the usual "product must not change" guard cannot catch it: the
-    // list was over-claiming before the fix too, which is why it was flagged.
-    const clamp4 = clampExponentsToValue(collapseTo([...rest, ...parts.map(String)]), e.val);
-    e.factors = sortFactorsAsc(clamp4.factors);
-    fixed.overclaimed += clamp4.clamped + clamp4.dropped;
+    e.factors = sortFactorsAsc(collapseTo([...rest, ...parts.map(String)]));
     fixed.split++;
     await new Promise(r => setTimeout(r, 0));
   }
 
   // 5) Factors that already complete E(n) — promoting is purely additive.
   for (const it of (scan.issues.unmarkedFull || [])) {
-    const e = entryByN(it.n); if (!e) continue;
+    const e = byN.get(it.n); if (!e) continue;
     if (productOf(e.factors) !== BigInt(e.val)) continue; // re-verify; never promote on trust
     e.status = 'full';
     e.cofactor = null;
@@ -10617,7 +9306,7 @@ async function fixIntegrityIssues(scan) {
   //    previously left at 'full' and only flagged for re-check, so the app went on
   //    asserting something it had just proved wrong.
   for (const it of (scan.issues.fullMismatch || [])) {
-    const e = entryByN(it.n);
+    const e = byN.get(it.n);
     if (e && e.status === 'full' && !isVerifiedComplete(it.n)) {
       e.status = 'partial'; e.cofactor = null; fixed.demotedShort++;
     }
@@ -10800,7 +9489,7 @@ async function showSievePrompt() {
   const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
   const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
 
-  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false, statuses = null;
+  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false;
 
   // Settings loop: nothing runs until the estimate has been seen and accepted.
   // The estimate is measured, not guessed, so it costs a few seconds to produce —
@@ -10838,48 +9527,13 @@ async function showSievePrompt() {
       if (nFrom != null && nTo != null && nFrom > nTo) { alert('"from" is larger than "to".'); continue; }
     }
 
-    // ── which entries, by status ─────────────────────────────────────────────
-    // Offered before the estimate because it is usually the biggest lever on how
-    // long the run takes — far bigger than the range for most people.
-    const inRange = sieveCandidates(false, nFrom, nTo);
-    if (!inRange.length) { alert('No unfinished entries in that range.'); continue; }
-    const nU  = inRange.filter(e => e.status === 'unknown').length;
-    const nFU = inRange.filter(e => e.status === 'fdb-unknown').length;
-    statuses = null;
-    if (nU + nFU) {
-      const sRaw = prompt(
-        'Which entries?\n\n'
-        + '  "all"      every unfinished entry in range           ' + inRange.length.toLocaleString() + '\n'
-        + '  "nothing"  nothing known about them at all           ' + (nU + nFU).toLocaleString() + '\n\n'
-        + 'Or one half of that on its own:\n'
-        + '  "never"    never checked on FactorDB                 ' + nU.toLocaleString() + '\n'
-        + '  "fdb"      checked — FactorDB has no factorisation   ' + nFU.toLocaleString() + '\n\n'
-        + 'The sieve tests the cofactor, so entries that already have factors have\n'
-        + 'usually had the easy ones taken. A first small factor is most likely — and\n'
-        + 'worth most — on numbers nothing has touched yet.',
-        'all');
-      if (sRaw === null) return;
-      const a = sRaw.trim().toLowerCase();
-      // Same vocabulary as the Check prompt, deliberately. These two dialogs used
-      // "unknown" for different things — both categories here, only the
-      // never-checked one there — which is precisely the confusion the rename is
-      // meant to end.
-      if (/^(nothing|nothingknown|both|none|n)$/.test(a))  statuses = ['unknown', 'fdb-unknown'];
-      else if (/^(never|unchecked|u|unknown)$/.test(a))    statuses = ['unknown'];
-      else if (/^(fdb|f|undetermined)$/.test(a))           statuses = ['fdb-unknown'];
-      // anything else, including "all" and an empty answer, leaves it unrestricted
-    }
-    const scope = !statuses ? 'unfinished'
-                : statuses.length === 2 ? 'with nothing known'
-                : statuses[0] === 'unknown' ? 'never-checked' : 'FDB-undetermined';
-
-    const all = sieveCandidates(false, nFrom, nTo, statuses);
-    const fresh = sieveCandidates(true, nFrom, nTo, statuses);
-    if (!all.length) { alert('No ' + scope + ' entries in that range.'); continue; }
+    const all = sieveCandidates(false, nFrom, nTo);
+    const fresh = sieveCandidates(true, nFrom, nTo);
+    if (!all.length) { alert('No unfinished entries in that range.'); continue; }
     onlyUnsearched = !confirm(
-      all.length.toLocaleString() + ' ' + scope + ' entries in range, '
+      all.length.toLocaleString() + ' unfinished entries in range, '
       + fresh.length.toLocaleString() + ' of which FactorDB has never processed.\n\n'
-      + 'OK      — sieve all ' + all.length.toLocaleString() + '\n'
+      + 'OK      — sieve all ' + all.toLocaleString() + '\n'
       + 'Cancel  — sieve only the ' + fresh.length.toLocaleString() + ' unprocessed ones');
     const cands = onlyUnsearched ? fresh : all;
     if (!cands.length) { alert('Nothing to sieve with that choice.'); continue; }
@@ -10924,7 +9578,7 @@ async function showSievePrompt() {
       setStatus('Sieving ' + i.toLocaleString() + '/' + total.toLocaleString()
         + ' — ' + found + ' with factors'
         + (left != null && i > 5 ? ' — ~' + (left > 90 ? Math.round(left / 60) + ' min' : left + 's') + ' left' : ''), '');
-    }, nFrom, nTo, statuses);
+    }, nFrom, nTo);
   } catch(err) {
     polling = false; setStatus('', ''); if (cancelBtn) cancelBtn.style.display = 'none';
     alert('Sieve failed: ' + err.message); return;
@@ -10977,7 +9631,7 @@ function applySieveFindings() {
   if (!findings || !findings.length) return;
   let applied = 0, rejected = 0;
   for (const f of findings) {
-    const e = entryByN(f.n);
+    const e = allEntries.find(x => x.n === f.n);
     if (!e || !e.val) continue;
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('sieveApply/val', err); continue; }
@@ -11000,20 +9654,7 @@ function applySieveFindings() {
     catch(err) { logSwallowed('sieveApply/product', err); }
     e.status = (prod === val) ? 'full' : 'partial';
     const rec = fdbCache[e.val];
-    if (rec) {
-      rec.factors = e.factors;
-      rec.status = e.status === 'full' ? 'FF' : 'CF';
-      // Update the source too. We just found these ourselves, so whatever the
-      // record claimed before, FactorDB is no longer the origin of everything in
-      // it — and leaving a stale 'fdb' here is what made a sieve hit on an entry
-      // FactorDB knew nothing about vanish from the submission export.
-      //
-      // Unconditional rather than conditional on the old value, because the cost
-      // is asymmetric: if FactorDB does turn out to have this factor, saying
-      // 'sieve' costs one redundant submission that FactorDB ignores. Saying
-      // 'fdb' when it does not costs a factor that is never offered at all.
-      rec.source = 'sieve';
-    }
+    if (rec) { rec.factors = e.factors; rec.status = e.status === 'full' ? 'FF' : 'CF'; }
     else fdbCache[e.val] = { status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors, timestamp: Date.now(), source: 'sieve', n: f.n };
   }
   saveFDBCache(fdbCache);
@@ -11036,7 +9677,7 @@ function computeCostToFinish(entry, digits, attempts) {
   const ecmAtt = (attempts || []).filter(a => a.method === 'ECM' && a.b1);
   const rows = [];
   let cum90 = 0;
-  for (const d of ecmLevels()) {
+  for (const d of ECM_TABLE.map(t => t.d)) {
     if (d > Math.floor(digits / 2)) break;   // a factor larger than half the digits cannot be the smallest
     let have = 0;
     try { have = ecmProbForDigit(d, ecmAtt); } catch(e) { logSwallowed('costToFinish/have', e); }
@@ -11282,8 +9923,6 @@ function showYieldReport() {
       something on it.
       ${y.fdbFinds ? `<br><br>${y.fdbFinds} known factor(s) came from FactorDB rather than your own runs, and are excluded from the yield above.` : ''}
       ${y.unattributed ? `<br><br><span style="color:var(--yellow)">${y.unattributed} of your find(s) are on numbers with no run log, so they can't be assigned to a level.</span>` : ''}
-      ${y.sieveFinds ? `<br><br>${y.sieveFinds} factor(s) came from the small-prime sieve, which costs no ECM time — counted as your own work but kept out of the levels above, so they don't flatter whichever level happened to share the number.` : ''}
-      ${y.approxPricedRuns ? `<br><br><span style="color:var(--text-muted)">${y.approxPricedRuns.toLocaleString()} run(s) are on entries that are now fully factored, so the cofactor they actually worked on is no longer recoverable. Those are priced against the full value — an upper bound, so those rows understate yield rather than overstating it. Runs with a measured runtime are unaffected.</span>` : ''}
       ${y.preHistory ? `<br><br><span style="color:var(--text-muted)">${y.preHistory} factor(s) predate the history store and have no provenance recorded, so they're excluded entirely. Only discoveries made from now on can be attributed — the old changelog was capped at 100 entries and can't be reconstructed.</span>` : ''}
     </div>`;
 
@@ -11295,7 +9934,7 @@ function showYieldReport() {
 function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
 
 function downloadEntry(n) {
-  const e = entryByN(n);
+  const e = allEntries.find(x => x.n === n);
   if (!e) return;
   const sign = e.sign === -1 ? '-' : '+';
   const fdbEntry = e.cofactor && fdbCache[e.cofactor]
