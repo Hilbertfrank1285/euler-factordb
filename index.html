@@ -4732,23 +4732,50 @@ async function exportNextRuns() {
   sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
   sum.push('Generated ' + dateStr + ' · ranked by value (odds gained per unit time)');
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
-  sum.push('─'.repeat(86));
-  sum.push('  #   E(n)      digits  method  B1         curves   ~time        +odds     value');
-  sum.push('─'.repeat(86));
+  // Two columns worth having that were missing:
+  //
+  //   /curve   — how long a single curve takes. The total time hides this, and it
+  //              is what tells you whether a run is worth starting on a given
+  //              machine or should be split across cores.
+  //   ranked   — the score the list is actually ORDERED by. With a weight applied
+  //              the table was sorted by the weighted score while displaying the
+  //              unweighted one, so the ordering looked arbitrary: a run showing
+  //              0.04%/hr could sit above one showing 0.20%/hr with no visible
+  //              reason. The column only appears when a weight is in effect.
+  const weighted = FDB_WEIGHT !== 1;
+  const W = weighted ? 104 : 92;
+  sum.push('─'.repeat(W));
+  sum.push('  #   E(n)      digits  method  B1         curves   ~time       /curve     +odds     value'
+    + (weighted ? '     ranked' : ''));
+  sum.push('─'.repeat(W));
   top.forEach((r, i) => {
     const idx = String(i+1).padStart(3);
     const en  = ('E(' + r.n + ')').padEnd(9);
     const dig = String(r.digits).padStart(6);
     const m   = r.method.padEnd(6);
     const b1  = String(r.b1).padEnd(9);
+    const nCv = parseInt(String(r.rawCurves != null ? r.rawCurves : r.curves).replace(/[^0-9]/g, '')) || 0;
     const cv  = (r.method === 'ECM' ? String(r.curves) : '—').padStart(7);
-    const tm  = fmtCpuTime(r.cpuTime).padStart(11);
+    const tm  = fmtCpuTime(r.cpuTime).padStart(10);
+    // P±1 is a single run, so per-curve is meaningless there.
+    const per = (r.method === 'ECM' && nCv > 0 && r.cpuTime)
+      ? fmtCpuTime(r.cpuTime / nCv).padStart(9) : '—'.padStart(9);
     const gn  = ('+' + r.gain.toFixed(2) + '%').padStart(8);
     const effHr = r.cpuTime ? (r.gain / (r.cpuTime / 3600)) : 0;
-    const val = (effHr >= 0.01 ? effHr.toFixed(2) + '%/hr' : (effHr * 24).toFixed(2) + '%/d').padStart(9);
-    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${gn}  ${val}`);
+    const fmtRate = (v) => v >= 0.01 ? v.toFixed(2) + '%/hr' : (v * 24).toFixed(2) + '%/d';
+    const val = fmtRate(effHr).padStart(9);
+    const rank = weighted
+      ? ('  ' + fmtRate(effHr * (r.fdbUnknown ? FDB_WEIGHT : 1)).padStart(9) + (r.fdbUnknown ? ' *' : '  '))
+      : '';
+    sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${per}  ${gn}  ${val}${rank}`);
   });
-  sum.push('─'.repeat(86));
+  sum.push('─'.repeat(W));
+  if (weighted) {
+    sum.push('  * untouched entry — FactorDB has no record, or no factors are known yet.');
+    sum.push('    "ranked" is value × ' + FDB_WEIGHT + ' for those, and is what this list is sorted by.');
+    sum.push('    "value" stays the true odds per hour, so the real numbers are never distorted.');
+  }
+  sum.push('  /curve is one ECM curve at this B1 on the machine the estimates were calibrated on.');
   sum.push('');
   if (isSh) {
     sum.push('HOW TO RUN (Linux):');
