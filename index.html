@@ -2595,6 +2595,48 @@ function fdbUnknownTargets(cap) {
 // Filtered from allEntries rather than concatenating the two lists, so the result
 // stays in n order instead of running every never-checked entry before the first
 // undetermined one.
+// Entries holding at least one factor FactorDB does not have — the AHEAD OF FDB
+// filter's set, and exactly what "Export FDB submission" would send.
+//
+// This is the other half of the submission loop: post the factors, then re-check
+// those numbers so FactorDB's answer is recorded, `fdbHas` fills in, and they drop
+// out of the ahead list. Without it the only way to close that loop was "Check
+// submitted", which covers just the entries exported since the last reconcile.
+//
+// SIZE-GATED, unlike the other scopes. Past the query cap a check falls back to a
+// POST, and when that fails the run stops on an error rather than skipping the
+// entry — so a scope defined by "we hold factors" would routinely drag in the
+// 50,000+ digit entries and fail. Returns the same {targets, oversized, limit}
+// shape as submittedTargets so the prompt can say how many were left out and why.
+function aheadOfFdbTargets(cap) {
+  const limit = currentQueryCap();
+  let oversized = 0;
+  const out = [];
+  for (const e of allEntries) {
+    if (!e.val || e.n <= 2) continue;
+    if (!factorsFdbLacks(e).length) continue;
+    if (e.val.length > limit) { oversized++; continue; }
+    out.push({ n: e.n, number: e.val });
+  }
+  return { targets: cap ? out.slice(0, cap) : out, oversized, limit };
+}
+
+function startAheadOfFdbPoll() {
+  if (polling) return;
+  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const { targets, oversized, limit } = aheadOfFdbTargets(cap);
+  if (!targets.length) {
+    setStatus(oversized
+      ? 'All ' + oversized + ' entries ahead of FactorDB are above the ' + limit.toLocaleString()
+        + 'd query limit — use the offline check list'
+      : 'No entries are ahead of FactorDB', 'warn');
+    return;
+  }
+  addLog('Re-checking ' + targets.length + ' entries that hold factors FactorDB lacks'
+    + (oversized ? ' (' + oversized + ' too large to query)' : '') + ' (cap: ' + cap + ')', '');
+  runPollQueue(targets, true, null, false, false);
+}
+
 function nothingKnownTargets(cap) {
   const out = allEntries
     .filter(e => (e.status === 'unknown' || e.status === 'fdb-unknown') && e.val && e.n > 2)
@@ -3044,9 +3086,32 @@ function pm1ToDigits(b1, b2, method) {
 // is not evidence of anything — the right move there is to CHECK the number, not
 // to pour ECM into it.
 function isFdbUndetermined(entry, rec) {
+  // A REAL ANSWER FROM FACTORDB OVERRIDES ANY OLDER MARKER, and this has to come
+  // first.
+  //
+  // The marker means "we asked and FactorDB had nothing". Nothing ever removes an
+  // n from that set — it was built to union cleanly across machines — so once
+  // FactorDB does answer, the marker is simply out of date and says the opposite
+  // of the truth. E(19836) showed "FDB has nothing on this — our factors are new"
+  // on its tile while its own modal said "FactorDB has every factor we hold", and
+  // it was collecting the export's ×20 priority boost for a number FactorDB has
+  // fully described.
+  //
+  // Recency is not the test — the record is the test. A status of FF/CF/C/P/PRP
+  // is FactorDB having said something, which is exactly what the marker denies.
+  if (rec && ['FF', 'CF', 'C', 'P', 'PRP'].includes(rec.status)) return false;
   if (entry && entry._fdbUnknown === true) return true;
   if (rec && rec.status === 'U') return true;
   try { return loadFdbUnknownSet().has(entry && entry.n); } catch (e) { return false; }
+}
+
+// Drop a number from the fdb-unknown set. Called when FactorDB answers, so the
+// set stops accumulating markers that its own cache records contradict.
+function removeFdbUnknown(n) {
+  try {
+    const s = loadFdbUnknownSet();
+    if (s.delete(n)) saveFdbUnknownSet(s);
+  } catch (e) { logSwallowed('removeFdbUnknown', e); }
 }
 
 // Does this entry qualify for the ECM export's priority weight?
@@ -4126,15 +4191,37 @@ function mergeSyncPayload(remote) {
   // other machine has not asked yet. Nothing ever removes an n, so the union is
   // convergent — and an entry that later gains factors displays as 'partial'
   // whatever the set says, so a stale marker cannot mislabel anything.
-  if (Array.isArray(remote.fdbUnknown) && remote.fdbUnknown.length) {
+  // No `.length` guard: this block does two jobs now, and only one of them needs
+  // the peer to have sent anything. Retiring markers our own records contradict is
+  // worth doing on every merge, including a pull from a machine that has none.
+  if (Array.isArray(remote.fdbUnknown)) {
     try {
+      // Union, but never against our own evidence. A peer that has not re-checked
+      // still carries markers for numbers FactorDB has since described, and a
+      // plain union would reinstate them here — the same shape as a stale peer
+      // undoing an integrity repair. The cache record is the check, so this heals
+      // whichever side is behind rather than needing a tombstone.
+      const answered = new Set();
+      for (const rec of Object.values(fdbCache)) {
+        if (rec && rec.n != null && ['FF', 'CF', 'C', 'P', 'PRP'].includes(rec.status)) {
+          answered.add(parseInt(rec.n));
+        }
+      }
       const set = loadFdbUnknownSet();
-      let added = 0;
+      let added = 0, refused = 0, dropped = 0;
+      for (const n of set) if (answered.has(n)) { set.delete(n); dropped++; }
       for (const n of remote.fdbUnknown) {
         const num = parseInt(n);
-        if (isFinite(num) && !set.has(num)) { set.add(num); added++; }
+        if (!isFinite(num) || set.has(num)) continue;
+        if (answered.has(num)) { refused++; continue; }
+        set.add(num); added++;
       }
-      if (added) { saveFdbUnknownSet(set); addLog('Pulled ' + added + ' FDB-undetermined marker(s)', ''); }
+      if (added || dropped || refused) {
+        saveFdbUnknownSet(set);
+        addLog('FDB-undetermined markers: +' + added + ' pulled'
+          + (dropped ? ', ' + dropped + ' retired (FactorDB has since answered)' : '')
+          + (refused ? ', ' + refused + ' refused (stale on the other machine)' : ''), '');
+      }
     } catch(e) { logSwallowed('merge/fdbUnknown', e); }
   }
 
@@ -6627,6 +6714,12 @@ function applyFdbResult(data, n, numberStr) {
   // needs no heuristic about how small a factor has to be before FactorDB "must"
   // know it — which would be wrong anyway for a number FactorDB has no record of,
   // where even a single-digit factor is genuinely new to it.
+  // FactorDB has answered, so any older "it had nothing" marker is now false.
+  // Retiring it here is what stops the set accumulating markers its own cache
+  // records contradict — the state that made a tile claim "FDB has nothing on
+  // this" beside a modal saying FactorDB held every factor.
+  if (['FF', 'CF', 'C', 'P', 'PRP'].includes(verifiedStatus)) removeFdbUnknown(n);
+
   const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
                        ...(fdbPrimes.length ? { fdbHas: fdbPrimes.slice() } : {}),
                        ...(fdbId ? { fdbId } : {}) };
@@ -7609,6 +7702,13 @@ function startCheck() {
   const source = filterActive ? filtered : allEntries;
   const staleDays = loadStaleDays();
 
+  // Computed once: the ahead-of-FDB set is size-gated, and the label has to say so
+  // or an entry silently missing from a run looks like a bug rather than a limit.
+  const aheadInfo = aheadOfFdbTargets(0);
+  const aheadLabel = 'ahead of FactorDB — we hold factors it lacks'
+    + (aheadInfo.oversized
+        ? ' (' + aheadInfo.oversized.toLocaleString() + ' too large)' : '');
+
   const scopes = [
     { key: 'all',       match: /^(all|a|1)$/i,
       label: filterActive ? 'everything in the current view' : 'every unfinished entry',
@@ -7641,6 +7741,12 @@ function startCheck() {
       label: 'old records — not checked in ' + staleDays + ' days',
       count: staleTargets(staleDays).length,
       run: (days) => startStalePoll(days) },
+    // Listed last so the digit shortcuts stay in display order — "7" was already
+    // "old" and renumbering it would silently redirect anyone used to typing it.
+    { key: 'ahead',     match: /^(ahead|a-fdb|new|8)$/i,
+      label: aheadLabel,
+      count: aheadInfo.targets.length,
+      run: () => startAheadOfFdbPoll() },
   ];
 
   const pad = (s, w) => (s + ' '.repeat(w)).slice(0, w);
@@ -8162,7 +8268,10 @@ function renderGrid() {
       // this the entry just reads "partially factored", which looks as though FDB
       // supplied the factors.
       try {
-        if (e._fdbUnknown && (e.factors || []).filter(f => f && f !== '1').length) {
+        // Same test the export weight uses, so the tile and the ranking cannot
+        // disagree — and so a marker FactorDB has since contradicted stops
+        // claiming the opposite of what the modal says.
+        if (isFdbUndetermined(e, fdbCache[e.val]) && (e.factors || []).filter(f => f && f !== '1').length) {
           html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no factorisation for this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has nothing on this — our factors are new</div>`;
         }
       } catch(err) { logSwallowed('tile/fdbUnknownBadge', err); }
