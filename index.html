@@ -7559,31 +7559,7 @@ async function verifyAndAddFactor(n) {
   }
 }
 
-function markFactorsFdbConfirmed(n) {
-  const entry = entryByN(n);
-  if (!entry || !entry.val) return;
-  const factors = (entry.factors || []).filter(f => f && f !== '1');
-  if (!factors.length) {
-    const el = document.getElementById('fdbQueryStatus_' + n);
-    if (el) el.innerHTML = '<span style="color:var(--red)">No factors to confirm.</span>';
-    return;
-  }
-  // Mark this entry's existing factors as FDB-sourced. Used for numbers too large
-  // to auto-query: the user has visually verified on factordb.com that FDB holds
-  // these factors, so they should drop out of the FDB-submission export.
-  const status = entry.status === 'full' ? 'FF' : 'CF';
-  fdbCache[entry.val] = { status, factors, timestamp: Date.now(), source: 'fdb', n };
-  fdbFactors[entry.val] = { factors };
-  saveFDBCache(fdbCache);
-  entry._fdbVerified = true;
-  // clear seed-new flag since FDB now (manually) covers it
-  addLog('E(' + n + ') factors manually marked as FDB-confirmed (' + factors.length + ')', 'ok');
-  const el = document.getElementById('fdbQueryStatus_' + n);
-  if (el) el.innerHTML = '<span style="color:var(--green)">✓ Marked as FDB-confirmed — will drop out of the export.</span>';
-  applyFilters();
-  renderStats();
-  scheduleECMPush();
-}
+
 
 function markAsFdbUnknown(n) {
   const entry = entryByN(n);
@@ -8544,12 +8520,17 @@ function openModal(n) {
       <div class="modal-section-label">FactorDB</div>
       ${e.val.length > currentQueryCap() ? `
       <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">
-        This number is ${e.val.length} digits, above the measured query limit of ${currentQueryCap().toLocaleString()}d
-        (a query was rejected as too long at ${loadQueryLimits().minFail.toLocaleString()}d).
-        Check it directly: <a href="https://factordb.com/index.php?query=${e.val}" target="_blank" style="color:var(--accent)">open on FactorDB ↗</a>.
-        If FactorDB lists all the factors you already have, mark it confirmed:
+        This number is ${e.val.length.toLocaleString()} digits — too long for the browser to ask about,
+        which sends the number in the request URL.
+        <strong style="color:var(--text)">fdb_check.py has no such limit</strong>: it puts the number in the
+        request body instead, so size stops mattering. Use
+        <strong style="color:var(--text)">↑ Export FDB check list</strong>, run the script, then import the
+        results — the answer comes back recorded and verified, the same as any other check.
+        <br><br>
+        You can also <a href="https://factordb.com/index.php?query=${e.val}" target="_blank" style="color:var(--accent)">open it on FactorDB ↗</a>
+        to look, but reading a page is not evidence the app can store: the script is what turns
+        it into a checked result.
       </div>
-      <button class="fdb-check-btn" onclick="markFactorsFdbConfirmed(${n})">✓ Mark factors as FDB-confirmed</button>
       ` : `
       <button class="fdb-check-btn" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Recheck FactorDB for |E(${n})|<span style="font-size:9px;opacity:0.7;margin-left:6px">(${e.val.length}d · up to ${e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120}s)</span></button>
       `}
@@ -11034,12 +11015,34 @@ async function showSievePromptGuarded() { try { await showSievePrompt(); } catch
 // point is visible rather than something you back into.
 function computeCostToFinish(entry, digits, attempts) {
   const ecmAtt = (attempts || []).filter(a => a.method === 'ECM' && a.b1);
+  // P-1 and P+1 coverage counts too. It was filtered out entirely, so a level
+  // already half-covered by a big P-1 run was priced as though nothing had touched
+  // it — overstating both the curves still needed and the value of doing them.
+  //
+  // bestPm1Prob is the right aggregator and already exists: P-1 is DETERMINISTIC,
+  // so re-running it finds the same factors and attempts must not be compounded as
+  // independent trials. It takes the best P-1 and the best P+1 and combines those
+  // two, which are genuinely different events.
+  const pm1Att = (attempts || []).filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
   const rows = [];
   let cum90 = 0;
   for (const d of ecmLevels()) {
     if (d > Math.floor(digits / 2)) break;   // a factor larger than half the digits cannot be the smallest
     let have = 0;
-    try { have = ecmProbForDigit(d, ecmAtt); } catch(e) { logSwallowed('costToFinish/have', e); }
+    try {
+      const haveEcm = ecmProbForDigit(d, ecmAtt);
+      const havePm1 = pm1Att.length ? bestPm1Prob(d, pm1Att) : 0;
+      // Independent events, so combine as 1 − (1−a)(1−b) — the same rule the
+      // recommendation engine uses when it nets out the other method's coverage.
+      have = 1 - (1 - haveEcm) * (1 - havePm1);
+    } catch(e) { logSwallowed('costToFinish/have', e); }
+    // No cap on `have` here, deliberately. curvesForProb(d, 1) is infinite, which
+    // looks like it would poison the arithmetic — but `need` subtracts it and
+    // clamps at zero, so a fully covered level correctly reports 0 curves and 0
+    // cost. A cap would only matter if `have` could exceed 1, and it cannot: the
+    // combination above is 1 − (1−a)(1−b) with both factors in [0,1]. Guarding
+    // against that would be unreachable code standing in for the real guarantee,
+    // which is the combination rule itself.
     const b1 = ecmTableB1(d);
     const need = (target) => Math.max(0, curvesForProb(d, target) - curvesForProb(d, have));
     const n90 = need(0.90), n99 = need(0.99);
