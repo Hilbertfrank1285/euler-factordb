@@ -619,6 +619,10 @@
     title="Export entries above the browser's ~65,470-digit URL limit, for fdb_check.py to run against on any machine with Python">
     ↓ Export FDB check list
   </button>
+  <button class="poll-btn" id="testRoutesBtn" onclick="diagnoseRoutes()"
+    title="Query FactorDB for the number 5 down each route in turn and report which work. &#10;&#10;'All query routes failed' names no route and no reason, and the three fail for &#10;different causes — a proxy being down or rate-limiting, versus the direct route &#10;being blocked by the browser's origin policy, which it always is.">
+    ⚕ Test routes
+  </button>
   <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
@@ -3109,7 +3113,84 @@ async function queryFactorDB(numberStr, knownId) {
       + FDB_BREAKER_LIMIT + ' failures in a row — FactorDB looks down. Stopping so we '
       + 'do not keep hammering it. Try again later.');
   }
+  // A SMALL number failing on every route is not about the number.
+  //
+  // The generic message named the digit count, which reads as though length were
+  // the problem — and for a 1-digit number that sends you looking in exactly the
+  // wrong place. Every route failing on E(4) = 5 means nothing got through at all:
+  // both CORS proxies are unreachable and the direct route is blocked by the
+  // browser's origin policy, which it always is (FactorDB sends no CORS header, so
+  // the direct URL only ever works outside a browser — that is what euler.py is
+  // for).
+  if (numberStr.length < 1000) {
+    throw new Error('Every route failed on a ' + numberStr.length + '-digit number, so this is '
+      + 'NOT a size problem — nothing is getting through at all. The two CORS proxies are '
+      + 'unreachable and the direct route cannot work from a browser. Run "⚕ Test routes" to '
+      + 'see which is failing, or use euler.py check, which needs no proxy. Last error: ' + lastErr);
+  }
   throw new Error('All query routes failed (' + numberStr.length + 'd number): ' + lastErr);
+}
+
+// Try every route against a known-tiny number and report what each one does.
+//
+// "All query routes failed" says nothing about WHICH failed or why, and the three
+// fail for entirely different reasons: a proxy can be down or rate-limiting, while
+// the direct route is blocked by the browser's origin policy essentially always.
+// Without this the only way to tell them apart is the network tab.
+async function diagnoseRoutes() {
+  const probe = '5';                       // E(4). Small, real, and certainly known.
+  const api = `https://factordb.com/api?query=${probe}`;
+  const routes = [
+    { key: 'corsproxy',  url: `https://corsproxy.io/?url=${encodeURIComponent(api)}` },
+    { key: 'allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(api)}` },
+    { key: 'direct',     url: api },
+  ];
+  const lines = [];
+  let anyOk = false;
+  for (const r of routes) {
+    const t0 = Date.now();
+    try {
+      const resp = await fetchWithTimeout(r.url, 15000);
+      const ms = Date.now() - t0;
+      if (!resp.ok) { lines.push('  ' + r.key.padEnd(11) + ' HTTP ' + resp.status + '  (' + ms + 'ms)'); continue; }
+      // Parsed in its own try. A proxy that is UP but returning its own error page,
+      // a captcha or a rate-limit notice is a different diagnosis from one that is
+      // unreachable — and letting a JSON parser message escape here would report
+      // the difference as "Unexpected token '<'", which helps nobody.
+      const text = await resp.text();
+      let result = null;
+      try {
+        const data = JSON.parse(text);
+        result = data.contents ? JSON.parse(data.contents) : data;
+      } catch (parseErr) { result = null; }
+      if (result && result.status) {
+        anyOk = true;
+        lines.push('  ' + r.key.padEnd(11) + ' OK — FactorDB says ' + result.status + '  (' + ms + 'ms)');
+      } else {
+        lines.push('  ' + r.key.padEnd(11) + ' answered, but not with a FactorDB result  (' + ms + 'ms)');
+      }
+    } catch (e) {
+      const ms = Date.now() - t0;
+      const why = (e && e.name === 'AbortError') ? 'timed out'
+                : /NetworkError|Failed to fetch|load failed/i.test(String(e && e.message)) ? 'unreachable or blocked'
+                : (e && e.message) || 'failed';
+      lines.push('  ' + r.key.padEnd(11) + ' ' + why + '  (' + ms + 'ms)');
+    }
+  }
+  const verdict = anyOk
+    ? 'At least one route works, so checking should function. If a run still fails '
+      + 'on big numbers it IS a size limit; on small ones it is intermittent.'
+    : 'NOTHING got through. FactorDB itself may be fine — the two proxies this app '
+      + 'depends on are third-party and free, and both being down at once is the '
+      + 'common cause. The direct route cannot work from a browser at all, because '
+      + 'FactorDB sends no CORS header.\n\n'
+      + 'euler.py check needs no proxy and is unaffected — use it until a route '
+      + 'comes back, or check a number by hand on factordb.com.';
+  alert('Route test — querying FactorDB for the number 5\n\n'
+    + lines.join('\n') + '\n\n' + verdict);
+  addLog('Route test: ' + (anyOk ? 'at least one route works' : 'every route failed'),
+    anyOk ? 'ok' : 'warn');
+  return anyOk;
 }
 
 // Query FactorDB for a standalone composite number that isn't itself an E(n)
