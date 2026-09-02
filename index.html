@@ -2098,11 +2098,26 @@ function parseB1(v) {
 // for a few KB saved. Plain decimal decodes instantly (_decodeFactor returns any
 // un-prefixed string as-is), so large factors simply skip the round trip.
 const FACTOR_ENCODE_MAX_DIGITS = 2000;
+// Memoised. The same factor strings are re-encoded on every save — the store is
+// rewritten whole each time — and BigInt→base36 is the more expensive half of it.
+// Factors are immutable once found, so the cache is correct by construction and
+// runs at a ~100% hit rate after the first save.
+const _encodeFactorMemo = new Map();
+const ENCODE_MEMO_MAX = 200000;   // far above any real factor count; a runaway guard
+
 function _encodeFactor(f) {
   const s = String(f);
-  if (!/^\d+$/.test(s)) return s; // not a plain decimal number — leave untouched
-  if (s.length > FACTOR_ENCODE_MAX_DIGITS) return s; // too costly to convert; store as-is
-  try { return '~' + BigInt(s).toString(36); } catch(e) { logSwallowed('encodeFactor', e); return s; }
+  const hit = _encodeFactorMemo.get(s);
+  if (hit !== undefined) return hit;
+  let out;
+  if (!/^\d+$/.test(s)) out = s;                        // not a plain decimal
+  else if (s.length > FACTOR_ENCODE_MAX_DIGITS) out = s; // too costly to convert
+  else {
+    try { out = '~' + BigInt(s).toString(36); }
+    catch(e) { logSwallowed('encodeFactor', e); out = s; }
+  }
+  if (_encodeFactorMemo.size < ENCODE_MEMO_MAX) _encodeFactorMemo.set(s, out);
+  return out;
 }
 function _decodeFactor(f) {
   if (typeof f !== 'string' || f[0] !== '~') return f; // old format, or already decimal
@@ -2126,6 +2141,18 @@ function _encodeStatus(s) { return _STATUS_CODE[s] || s; }
 function _decodeStatus(s) { return _STATUS_DECODE[s] || s; }
 
 function loadFDBCache() {
+  // Any pending save is written FIRST, so the debounce is invisible to readers.
+  //
+  // Without this the pull path would lose data outright: mergeSyncPayload saves the
+  // merged cache and githubPull then re-reads it from storage on purpose ("because
+  // mergeSyncPayload may have updated it"). A deferred write means that re-read
+  // returns the PRE-merge store and the merge is discarded — a silent regression
+  // caused entirely by making saves faster.
+  //
+  // Putting the flush here rather than at each call site means no future reader has
+  // to know the write is deferred, which is the only version of this that stays
+  // true as the code changes.
+  try { flushFDBCache(); } catch (e) { logSwallowed('loadFDBCache/flush', e); }
   try {
     const slim = JSON.parse(kvGet(STORAGE_KEY) || '{}');
     // Rebuild full cache: slim uses n as key, we need to map back to number string
@@ -2232,12 +2259,45 @@ function saveFDBCache(c) {
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
     if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
   }
+  // Serialising is deferred; the fdbFactors bookkeeping above is NOT.
+  //
+  // A poll run calls this once per number, and rebuilding the whole store each
+  // time costs ~270 ms against a 10,000-entry cache — 140 for the base36 encoding
+  // and 130 for stringifying 6.4 MB. Over a 500-number run that is two minutes of
+  // pure re-serialisation, all of it thrown away by the next call.
+  //
+  // kvSet already debounces the IndexedDB write, but the expensive work happens
+  // BEFORE it, so that debounce never helped here.
+  //
+  // What is deliberately NOT deferred: the in-memory fdbCache is authoritative and
+  // already updated, and fdbFactors is populated synchronously above, so every
+  // reader sees the change immediately. Only the on-disk copy lags, by at most
+  // FDB_SAVE_DEBOUNCE_MS, and flushFDBCache() forces it at the points where that
+  // matters — end of a run, before a push, and on unload.
+  _fdbSavePending = slim;
+  if (!_fdbSaveTimer) {
+    _fdbSaveTimer = setTimeout(() => { _fdbSaveTimer = null; flushFDBCache(); }, FDB_SAVE_DEBOUNCE_MS);
+  }
+}
+
+const FDB_SAVE_DEBOUNCE_MS = 400;
+let _fdbSaveTimer = null;
+let _fdbSavePending = null;
+
+// Write the pending cache out now. Cheap and safe to call when nothing is pending.
+function flushFDBCache() {
+  if (_fdbSaveTimer) { clearTimeout(_fdbSaveTimer); _fdbSaveTimer = null; }
+  const slim = _fdbSavePending;
+  _fdbSavePending = null;
+  if (!slim) return false;
   try {
     kvSet(STORAGE_KEY, JSON.stringify(slim));
     markDirty();
+    return true;
   } catch(e) {
     console.error('saveFDBCache failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
+    return false;
   }
 }
 
@@ -2386,9 +2446,18 @@ window.addEventListener('beforeunload', (e) => {
 // and 'visibilitychange' are the reliable signals here — 'beforeunload' doesn't
 // fire dependably on mobile. flushKvNow() is best-effort: IDB writes can't be
 // guaranteed synchronously at teardown, but this closes the common window.
-window.addEventListener('pagehide', () => { flushKvNow().catch(err => logSwallowed('pagehide/flush', err)); });
+// flushFDBCache() first: the FDB store's serialisation is debounced separately and
+// has not reached kvSet yet, so flushing only the kv layer would write everything
+// EXCEPT the most recent factor results.
+window.addEventListener('pagehide', () => {
+  try { flushFDBCache(); } catch(err) { logSwallowed('pagehide/fdbFlush', err); }
+  flushKvNow().catch(err => logSwallowed('pagehide/flush', err));
+});
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') flushKvNow().catch(err => logSwallowed('visibilitychange/flush', err));
+  if (document.visibilityState === 'hidden') {
+    try { flushFDBCache(); } catch(err) { logSwallowed('visibilitychange/fdbFlush', err); }
+    flushKvNow().catch(err => logSwallowed('visibilitychange/flush', err));
+  }
 });
 let cancelRequested = false;
 // Largest number successfully queried THIS session. Session-scoped on purpose: it
@@ -2623,7 +2692,7 @@ function aheadOfFdbTargets(cap) {
 
 function startAheadOfFdbPoll() {
   if (polling) return;
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const cap = requestCap();
   const { targets, oversized, limit } = aheadOfFdbTargets(cap);
   if (!targets.length) {
     setStatus(oversized
@@ -2772,6 +2841,20 @@ function timeoutForNumber(numStr) {
 // Two fixes: a pause between route attempts, and a breaker that stops the whole run
 // after a run of total failures rather than grinding through thousands more.
 const FDB_ROUTE_DELAY_MS = 600;   // between route attempts within one number (was 300)
+const FDB_ROUTE_KEY = 'eulerFDB_route_v1';
+
+// Which route answered last. Remembered across reloads so a dead proxy costs one
+// discovery, not one per number for the rest of time.
+function loadPreferredRoute() {
+  try { return localStorage.getItem(FDB_ROUTE_KEY) || null; }
+  catch (e) { return null; }
+}
+function savePreferredRoute(key) {
+  try {
+    if (key) localStorage.setItem(FDB_ROUTE_KEY, key);
+    else localStorage.removeItem(FDB_ROUTE_KEY);
+  } catch (e) { logSwallowed('savePreferredRoute', e); }
+}
 const FDB_BREAKER_LIMIT  = 8;     // consecutive total failures before stopping
 let _fdbConsecutiveFails = 0;
 let _fdbBreakerTripped   = false;
@@ -2890,7 +2973,29 @@ async function queryFactorDB(numberStr, knownId) {
   // limit when the direct route was still viable — a local run proved GET succeeds
   // at 65,486 and 65,494 digits, so the wall was the proxy wrapper, not FactorDB.
   const URL_BYTE_BUDGET = 65536;
-  const routes = [proxyUrl, proxyUrl2, fdbApiUrl].filter(u => u.length <= URL_BYTE_BUDGET);
+  // TRY THE ROUTE THAT WORKED LAST TIME FIRST.
+  //
+  // The order was fixed, so a dead first proxy was paid for on EVERY number, not
+  // once. corsproxy timing out at 8s for a 50-digit number, then allorigins failing
+  // too, is 8 + 0.6 + 8 + 0.6 before the direct route is even attempted — a check
+  // that should take under a second takes seventeen, and a 500-digit number takes
+  // two minutes. It looks like FactorDB being slow; it is us knocking on two doors
+  // we already know are shut.
+  //
+  // The preference is remembered across reloads, so the discovery cost is paid once
+  // ever rather than once per run, and cleared the moment its route fails so a
+  // proxy coming back is picked up again on the next number.
+  const ROUTES = [
+    { key: 'corsproxy',  url: proxyUrl  },
+    { key: 'allorigins', url: proxyUrl2 },
+    { key: 'direct',     url: fdbApiUrl },
+  ];
+  const preferred = loadPreferredRoute();
+  const ordered = preferred
+    ? ROUTES.slice().sort((a, b) => (b.key === preferred) - (a.key === preferred))
+    : ROUTES;
+  const usable = ordered.filter(r => r.url.length <= URL_BYTE_BUDGET);
+  const routes = usable.map(r => r.url);
   if (!routes.length) {
     // Even the shortest prefix does not fit; POST is the only remaining option.
     try {
@@ -2909,7 +3014,8 @@ async function queryFactorDB(numberStr, knownId) {
 
   let lastErr = '';
   let sawSizeRejection = false;
-  for (const url of routes) {
+  for (let ri = 0; ri < usable.length; ri++) {
+    const url = usable[ri].url;
     try {
       const r = await fetchWithTimeout(url, timeout);
       // 414 (URI Too Long) and 413 (Payload Too Large) are unambiguous size
@@ -2924,6 +3030,7 @@ async function queryFactorDB(numberStr, knownId) {
       if (!result.status) throw new Error('No status in response');
       noteQuerySuccess(numberStr.length); // this size demonstrably works
       noteFdbSuccess();                   // the service is answering; reset the breaker
+      savePreferredRoute(usable[ri].key);  // start here next time
       // Session-scoped proof that the network is working. Needed below to tell a
       // size rejection apart from being offline.
       if (numberStr.length > _sessionMaxOkDigits) _sessionMaxOkDigits = numberStr.length;
@@ -2931,7 +3038,13 @@ async function queryFactorDB(numberStr, knownId) {
     } catch(e) {
       lastErr = e.message;
       logSwallowed('queryFactorDB/route', e);
-      await cancellableSleep(FDB_ROUTE_DELAY_MS);     // do not burst through routes
+      // The preferred route just failed, so stop preferring it — otherwise every
+      // remaining number in the run keeps starting with the one door we now know
+      // is shut.
+      if (preferred && usable[ri].key === preferred) savePreferredRoute(null);
+      // No sleep after the LAST route: there is nothing left to be polite to, and
+      // it only delays the error the caller is already waiting for.
+      if (ri < usable.length - 1) await cancellableSleep(FDB_ROUTE_DELAY_MS);
     }
   }
   if (sawSizeRejection) {
@@ -4356,6 +4469,10 @@ function scheduleECMPush() {
   }, 8000);
 }
 async function githubPush() {
+  // The payload is built from the persisted store, so a debounced save still in
+  // flight would be pushed as its previous version — silently shipping stale data
+  // to the other machines.
+  try { flushFDBCache(); } catch(e) { logSwallowed('githubPush/flush', e); }
   const s = loadGHSettings();
   if (!s.user || !s.repo || !s.token) {
     setGHStatus('Please configure GitHub settings ⚙ first (token required to push)', 'err');
@@ -6970,6 +7087,10 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
     if (done < total && !cancelRequested) await cancellableSleep(REQUEST_DELAY_MS);
   }
 
+  // Write out whatever the run accumulated, rather than leaving the last few
+  // numbers riding on a timer.
+  try { flushFDBCache(); } catch(e) { logSwallowed('poll/flush', e); }
+
   progressIn.style.width = '100%';
   await sleep(400);
   progress.classList.remove('active');
@@ -7697,7 +7818,7 @@ function loadStaleDays() {
 // says and what the run does cannot drift apart.
 function startCheck() {
   if (polling) { alert('Wait for the current poll to finish.'); return; }
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const cap = requestCap();
   const filterActive = Array.isArray(filtered) && filtered.length && filtered.length < allEntries.length;
   const source = filterActive ? filtered : allEntries;
   const staleDays = loadStaleDays();
@@ -7805,9 +7926,29 @@ function startStalePoll(daysArg) {
   runPollQueue(targets, true, null, true);
 }
 
+// How many numbers one run may check. The toolbar box, floored at 1.
+//
+// This expression existed six times, identically, in every poll starter — and a
+// blind mutation survey found it: turning the Math.max into a Math.min caps every
+// run at one number, and not a single test noticed, six times over. Reading a
+// value out of the DOM is what made each copy untestable; the parsing is not, so
+// it moves here.
+//
+// The floor matters. parseInt('') and parseInt('abc') are NaN, parseInt('0') is 0,
+// and a negative is possible by typing one — each would make a run do nothing at
+// all while looking like it was working.
+function requestCap(raw) {
+  const v = raw !== undefined
+    ? raw
+    : (typeof document !== 'undefined'
+        ? document.getElementById('maxRequestsInput')?.value
+        : undefined);
+  return Math.max(1, parseInt(v) || 500);
+}
+
 function startPartialPoll() {
   if (polling) return;
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const cap = requestCap();
   const targets = partialTargets(cap);
   if (!targets.length) {
     setStatus('No partially factored entries to check', 'warn');
@@ -7819,7 +7960,7 @@ function startPartialPoll() {
 
 function startFdbUnknownPoll() {
   if (polling) return;
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const cap = requestCap();
   const targets = fdbUnknownTargets(cap);
   if (!targets.length) {
     setStatus('No FDB-unknown entries to re-check', 'warn');
@@ -7858,7 +7999,7 @@ function startNothingKnownPoll() {
     setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
     return;
   }
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const cap = requestCap();
   const targets = nothingKnownTargets(cap);
   if (!targets.length) {
     setStatus('Nothing unchecked or undetermined to check', 'warn');
@@ -7900,7 +8041,7 @@ function startManualPoll() {
     addLog(`Manual poll blocked — cooldown ${Math.ceil(wait/1000)}s`, 'warn');
     return;
   }
-  const cap = Math.max(1, parseInt(document.getElementById('maxRequestsInput')?.value) || 500);
+  const cap = requestCap();
   // Check what is on screen. Previously this always used the FULL entry list and
   // then took the first `cap` of it — so with a filter applied (say E(14700)-E(14800))
   // and the default cap of 500, it checked E(0) onwards and never reached the range
