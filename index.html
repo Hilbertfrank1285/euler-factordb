@@ -2678,15 +2678,34 @@ function fdbUnknownTargets(cap) {
 // 50,000+ digit entries and fail. Returns the same {targets, oversized, limit}
 // shape as submittedTargets so the prompt can say how many were left out and why.
 function aheadOfFdbTargets(cap) {
-  const limit = currentQueryCap();
+  // confirmedQueryDigits(), NOT currentQueryCap().
+  //
+  // They answer different questions and the difference is the whole bug here.
+  // currentQueryCap is optimistic — "worth ATTEMPTING" — and never drops below
+  // QUERY_FLOOR_DIGITS (52,000) however small a rejection has been measured, so
+  // that one big number still gets a genuine try. That is right for a single
+  // manual re-check and wrong for a queue of five hundred: every number between
+  // the measured limit and the floor burns three route attempts and two waits
+  // before being abandoned.
+  //
+  // Observed: a 32,992-digit entry queued against a measured limit near 19,400,
+  // failing with "All query routes failed" after about twenty seconds — as the
+  // first item of a 500-number run. confirmedQueryDigits is the measured bound and
+  // has no floor, which is what submittedTargets already uses for the same reason.
+  const limit = confirmedQueryDigits();
   let oversized = 0;
   const out = [];
   for (const e of allEntries) {
     if (!e.val || e.n <= 2) continue;
     if (!factorsFdbLacks(e).length) continue;
     if (e.val.length > limit) { oversized++; continue; }
-    out.push({ n: e.n, number: e.val });
+    out.push({ n: e.n, number: e.val, digits: e.val.length });
   }
+  // Smallest first. The cost of a check is dominated by the size of the number, so
+  // this front-loads the cheap ones: a run that gets interrupted has done the most
+  // it could in the time, rather than having spent it all on the largest entry it
+  // happened to meet first.
+  out.sort((a, b) => a.digits - b.digits || a.n - b.n);
   return { targets: cap ? out.slice(0, cap) : out, oversized, limit };
 }
 
@@ -3038,10 +3057,14 @@ async function queryFactorDB(numberStr, knownId) {
     } catch(e) {
       lastErr = e.message;
       logSwallowed('queryFactorDB/route', e);
-      // The preferred route just failed, so stop preferring it — otherwise every
-      // remaining number in the run keeps starting with the one door we now know
-      // is shut.
-      if (preferred && usable[ri].key === preferred) savePreferredRoute(null);
+      // Deliberately NOT clearing the preference here.
+      //
+      // A route failing says nothing on its own: an over-long number fails every
+      // route, and punishing the remembered one for that means each oversized
+      // entry in a queue resets the preference and every number after it re-pays
+      // the discovery cost. The success path below already overwrites the
+      // preference with whatever answered, which is the only evidence that
+      // actually distinguishes "this route is down" from "this number is too big".
       // No sleep after the LAST route: there is nothing left to be polite to, and
       // it only delays the error the caller is already waiting for.
       if (ri < usable.length - 1) await cancellableSleep(FDB_ROUTE_DELAY_MS);
