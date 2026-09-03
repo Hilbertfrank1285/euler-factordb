@@ -596,6 +596,11 @@
     title="Re-check every entry from your last FactorDB submission in one pass. Entries clear themselves once FactorDB confirms them.">
     <span class="poll-icon">↻</span><span class="spinner">◌</span> Check submitted (<span class="submitted-count">0</span>)
   </button>
+  <button class="poll-btn" id="testRoutesBtn" onclick="diagnoseRoutes()"
+    style="background:var(--surface2)"
+    title="Ask FactorDB for the number 5 down each route and report which ones answer.&#10;&#10;Run this when a check fails: &quot;All query routes failed&quot; names neither the route nor&#10;the reason, and the three fail for different causes — a proxy down, a proxy rate-&#10;limiting, or the direct route blocked by the browser's origin policy, which it&#10;always is. Nothing here depends on the size of the number.">
+    ⚕ Test routes
+  </button>
 
   <span class="bar-sep"></span>
 
@@ -616,22 +621,18 @@
 
   <!-- ── 3. Numbers the browser cannot reach, and giving back ─────────────── -->
   <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)"
-    title="Export entries above the browser's ~65,470-digit URL limit, for fdb_check.py to run against on any machine with Python">
+    title="Export entries above the browser's ~65,470-digit URL limit, for euler.py check to run against on any machine with Python">
     ↓ Export FDB check list
-  </button>
-  <button class="poll-btn" id="testRoutesBtn" onclick="diagnoseRoutes()"
-    title="Query FactorDB for the number 5 down each route in turn and report which work. &#10;&#10;'All query routes failed' names no route and no reason, and the three fail for &#10;different causes — a proxy being down or rate-limiting, versus the direct route &#10;being blocked by the browser's origin policy, which it always is.">
-    ⚕ Test routes
   </button>
   <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
     ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importFDBResults(event.dataTransfer.files[0]);"
-    style="background:var(--surface2)" title="Load fdb_results.json produced by fdb_check.py">
+    style="background:var(--surface2)" title="Load fdb_results.json produced by euler.py check">
     ↑ Import FDB results
   </button>
   <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)"
-    title="Export your factors for submission to FactorDB — paste into factordb.com/report.php, or run fdb_submit.py">
+    title="Export your factors for submission to FactorDB — paste into factordb.com/report.php, or run euler.py submit">
     ↑ Export FDB submission
   </button>
 
@@ -2057,7 +2058,7 @@ const QUERY_MAX_DIGITS = QUERY_FLOOR_DIGITS;
 //
 //   confirmedQueryDigits() what is KNOWN to work. Never optimistic. Everything
 //                          above it is unproven, and unproven is precisely the
-//                          territory fdb_check.py exists to cover.
+//                          territory euler.py check exists to cover.
 //
 // Use the cap to decide whether to try one query. Use this to decide whether a
 // whole batch belongs in the browser at all — because there the cost of being
@@ -2550,7 +2551,7 @@ function replayFDBCache() {
     // answered U while we held ["5^2","41","5399","15881"]. The record was correct
     // in storage and unreachable in the app; the entry rebuilt at 'unknown', and
     // applyFdbUnknownSet then relabelled it 'fdb-unknown'. Importing a batch of
-    // fdb_check.py results did this to hundreds of entries at once, which is what
+    // euler.py check results did this to hundreds of entries at once, which is what
     // took the unknown count from ~163 to 430.
     //
     // 'FF'/'P'/'PRP' are handled above and set 'full'; everything else that carries
@@ -2865,6 +2866,53 @@ function timeoutForNumber(numStr) {
 // after a run of total failures rather than grinding through thousands more.
 const FDB_ROUTE_DELAY_MS = 600;   // between route attempts within one number (was 300)
 const FDB_ROUTE_KEY = 'eulerFDB_route_v1';
+const CUSTOM_PROXY_KEY = 'eulerFDB_customProxy_v1';
+
+function loadCustomProxy() {
+  try { return (localStorage.getItem(CUSTOM_PROXY_KEY) || '').trim(); } catch (e) { return ''; }
+}
+function saveCustomProxy(t) {
+  try {
+    const v = (t || '').trim();
+    if (v) localStorage.setItem(CUSTOM_PROXY_KEY, v);
+    else localStorage.removeItem(CUSTOM_PROXY_KEY);
+  } catch (e) { logSwallowed('saveCustomProxy', e); }
+}
+
+// Every route to FactorDB, in preference order. ONE list.
+//
+// The query path and the route diagnostic each had their own copy, which is the
+// arrangement where adding a route to one and forgetting the other produces a
+// diagnostic that reports on something the app does not use.
+//
+// A browser cannot reach FactorDB directly — it sends no CORS header — so the
+// direct entry only ever works outside a browser, which is what euler.py is for.
+// That leaves public CORS proxies, and they are not durable infrastructure:
+// corsproxy.io began answering 401 (it wants an API key now) and allorigins
+// started timing out, which between them took out every route at once. Hence
+// several candidates, and a custom slot so a dead list is never a dead end.
+//
+// The candidates below are NOT verified from here. ⚕ Test routes is how you find
+// out which of them work today, in one click, which is the point of having it.
+function fdbRoutes(apiUrl) {
+  const enc = encodeURIComponent(apiUrl);
+  const out = [];
+  const custom = loadCustomProxy();
+  if (custom) {
+    // {url} marks where the encoded target goes; without it the target is appended,
+    // which is the shape most of these proxies use.
+    out.push({ key: 'custom',
+               url: custom.includes('{url}') ? custom.replace('{url}', enc) : custom + enc });
+  }
+  out.push(
+    { key: 'corsproxy',   url: `https://corsproxy.io/?url=${enc}` },
+    { key: 'allorigins',  url: `https://api.allorigins.win/raw?url=${enc}` },
+    { key: 'allorigins2', url: `https://api.allorigins.win/get?url=${enc}` },
+    { key: 'codetabs',    url: `https://api.codetabs.com/v1/proxy?quest=${enc}` },
+    { key: 'direct',      url: apiUrl },
+  );
+  return out;
+}
 
 // Which route answered last. Remembered across reloads so a dead proxy costs one
 // discovery, not one per number for the rest of time.
@@ -3008,11 +3056,7 @@ async function queryFactorDB(numberStr, knownId) {
   // The preference is remembered across reloads, so the discovery cost is paid once
   // ever rather than once per run, and cleared the moment its route fails so a
   // proxy coming back is picked up again on the next number.
-  const ROUTES = [
-    { key: 'corsproxy',  url: proxyUrl  },
-    { key: 'allorigins', url: proxyUrl2 },
-    { key: 'direct',     url: fdbApiUrl },
-  ];
+  const ROUTES = fdbRoutes(fdbApiUrl);
   const preferred = loadPreferredRoute();
   const ordered = preferred
     ? ROUTES.slice().sort((a, b) => (b.key === preferred) - (a.key === preferred))
@@ -3140,11 +3184,7 @@ async function queryFactorDB(numberStr, knownId) {
 async function diagnoseRoutes() {
   const probe = '5';                       // E(4). Small, real, and certainly known.
   const api = `https://factordb.com/api?query=${probe}`;
-  const routes = [
-    { key: 'corsproxy',  url: `https://corsproxy.io/?url=${encodeURIComponent(api)}` },
-    { key: 'allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(api)}` },
-    { key: 'direct',     url: api },
-  ];
+  const routes = fdbRoutes(api);
   const lines = [];
   let anyOk = false;
   for (const r of routes) {
@@ -3177,6 +3217,28 @@ async function diagnoseRoutes() {
       lines.push('  ' + r.key.padEnd(11) + ' ' + why + '  (' + ms + 'ms)');
     }
   }
+  // Offer the custom slot when nothing worked. Public CORS proxies come and go —
+  // corsproxy.io started demanding an API key and allorigins began timing out, both
+  // without notice — so being able to point at a working one is the difference
+  // between a bad week and a dead feature.
+  if (!anyOk) {
+    const cur = loadCustomProxy();
+    const entered = prompt(
+      'No route reached FactorDB.\n\n'
+      + 'If you know a CORS proxy that works, paste it here and it will be tried FIRST\n'
+      + 'from now on. Use {url} to mark where the encoded FactorDB URL goes; without\n'
+      + 'it the URL is appended, which is what most of these expect.\n\n'
+      + '  https://my-proxy.example/?url={url}\n'
+      + '  https://my-proxy.example/fetch/\n\n'
+      + 'Leave blank to clear it and use the built-in list.',
+      cur);
+    if (entered !== null) {
+      saveCustomProxy(entered);
+      addLog(entered.trim() ? 'Custom proxy set — it will be tried first'
+                            : 'Custom proxy cleared', '');
+    }
+  }
+
   const verdict = anyOk
     ? 'At least one route works, so checking should function. If a run still fails '
       + 'on big numbers it IS a size limit; on small ones it is intermittent.'
@@ -5033,7 +5095,7 @@ function reconcileSubmitted() {
 // counters, and left the entry pending anyway.
 //
 // Those entries are not stranded — they are exactly what "Export FDB check list"
-// and fdb_check.py handle, and importing those results sets source 'fdb', which
+// and euler.py check handle, and importing those results sets source 'fdb', which
 // clears them from the pending list through reconcileSubmitted() like any other
 // confirmation. So the two routes partition the pending list rather than overlap:
 // this button takes everything provably reachable, the script takes the rest.
@@ -5065,7 +5127,7 @@ async function startSubmittedPoll() {
   const offlineNote = '\n\n' + oversized + ' pending entr' + (oversized === 1 ? 'y is' : 'ies are')
     + ' above ' + limit.toLocaleString() + ' digits, which the browser cannot query — '
     + 'the number travels in the URL and the request line is capped at 64 KiB.\n\n'
-    + 'Use "Export FDB check list", run fdb_check.py, then "Import FDB results". '
+    + 'Use "Export FDB check list", run euler.py check, then "Import FDB results". '
     + 'That confirms them and clears them from this list too.';
 
   if (!targets.length) {
@@ -5078,7 +5140,7 @@ async function startSubmittedPoll() {
     return;
   }
   addLog('Checking ' + targets.length + ' submitted entries against FactorDB'
-    + (oversized ? ' (' + oversized + ' too large for the browser — see fdb_check.py)' : ''), '');
+    + (oversized ? ' (' + oversized + ' too large for the browser — see euler.py check)' : ''), '');
   await runPollQueue(targets, true, document.getElementById('pollSubmittedBtn'), true, true);
   const after = reconcileSubmitted();
   updateSubmittedBtn();
@@ -5106,7 +5168,7 @@ function updateSubmittedBtn() {
   btn.title = oversized
     ? targets.length + ' of ' + pending + ' pending submissions are within the '
       + limit.toLocaleString() + '-digit browser limit. The other ' + oversized
-      + ' need fdb_check.py — see "Export FDB check list".'
+      + ' need euler.py check — see "Export FDB check list".'
     : 'Re-check the ' + targets.length + ' pending submission(s) against FactorDB';
 }
 
@@ -5162,7 +5224,7 @@ function exportFDBSubmission() {
     // Every factor FactorDB reports is recorded with provenance 'f' when it
     // arrives, so the app already knows, per factor, who found it. Re-submitting
     // FactorDB's own factors back to FactorDB teaches it nothing, and it is not
-    // free: fdb_submit.py posts each factor as a separate request 2s apart, so an
+    // free: euler.py submit posts each factor as a separate request 2s apart, so an
     // entry where we found one new prime among four known ones cost four writes to
     // someone else's server instead of one.
     //
@@ -5231,7 +5293,7 @@ function exportFDBSubmission() {
     + totalFactors.toLocaleString() + ' factor(s) to post'
     + (withheldFactors ? ', with ' + withheldFactors.toLocaleString()
         + ' left out because FactorDB reported them to us in the first place' : '')
-    + '.\n\nfdb_submit.py posts one factor every 2s, so that is about '
+    + '.\n\neuler.py submit posts one factor every 2s, so that is about '
     + Math.max(1, Math.round(totalFactors * 2 / 60)) + ' min'
     + (withheldFactors ? ' instead of ' + Math.max(1, Math.round((totalFactors + withheldFactors) * 2 / 60)) : '')
     + '.\n\nAfter pasting these into FactorDB, use "Check submitted (' + pending + ')" '
@@ -5828,11 +5890,26 @@ function fdbCheckListSets() {
   const all       = over.filter(e => e.status !== 'full').sort(byN);
   const ours      = over.filter(ownFactorsFdbLacks).sort(byN);
   const submitted = ours.filter(e => sentList[String(e.n)]).sort(byN);
-  return { threshold, all, ours, submitted,
-           allBytes: bytes(all), oursBytes: bytes(ours), submittedBytes: bytes(submitted) };
+
+  // EVERY unfinished entry, whatever its size.
+  //
+  // The other three start from `over` — entries past the browser's reach — because
+  // the browser could handle the rest itself. That reason only holds while the
+  // browser CAN reach FactorDB, and it reaches it only through third-party CORS
+  // proxies: corsproxy.io now answers 401 and allorigins times out, so at the
+  // moment it reaches nothing at all. With this set the offline route is a
+  // substitute rather than a fallback, and `euler.py check` needs no proxy, has no
+  // URL-length limit, and does not care about CORS.
+  const everything = allEntries
+    .filter(e => e.val && e.n > 2 && e.status !== 'full')
+    .sort(byN);
+
+  return { threshold, all, ours, submitted, everything,
+           allBytes: bytes(all), oursBytes: bytes(ours), submittedBytes: bytes(submitted),
+           everythingBytes: bytes(everything) };
 }
 
-// Export the entries the browser cannot ask FactorDB about, for fdb_check.py.
+// Export the entries the browser cannot ask FactorDB about, for euler.py check.
 //
 // The ceiling is a hard 64 KiB request-line limit: the number goes in the URL, and
 // the CORS proxy's wrapper costs 69 bytes of it, leaving 65,467 digits. Outside a
@@ -5868,6 +5945,11 @@ function exportFDBCheckList() {
            + 'results, or from importing FactorDB results. Until one of those has\n'
            + 'turned something up on a number this large, there is nothing here to\n'
            + 'ask FactorDB about.' },
+    { key: 'everything', list: sets.everything, bytes: sets.everythingBytes,
+      match: /^(everything|every|e|4)$/i,
+      line: '  "everything" EVERY unfinished entry, any size — the browser is not needed',
+      noun: (n) => n + ' unfinished entr' + (n === 1 ? 'y' : 'ies') + ' of any size',
+      empty: 'Nothing is unfinished — every entry is fully factored.' },
     { key: 'submitted', list: sets.submitted, bytes: sets.submittedBytes,
       match: /^(submitted|sub|sent|s|pending|p|3)$/i,
       line: '  "submitted"  of those, only the ones already sent and still unconfirmed',
@@ -5891,7 +5973,7 @@ function exportFDBCheckList() {
       + (o.list.length ? o.list.length.toLocaleString() + ' entries, ' + mb(o.bytes) : 'none right now')).join('\n\n');
   const ans = prompt(
     'What should go in the check list?\n\n' + body + '\n\n'
-    + '"submitted" is the post-fdb_submit.py check and the smallest run — these are\n'
+    + '"submitted" is the post-euler.py submit check and the smallest run — these are\n'
     + 'precisely the pending entries "Check submitted" cannot reach from a browser.\n'
     + '"ours" widens that to factors we hold but never sent. "all" also turns up\n'
     + 'factorisations FactorDB already has that we do not.',
@@ -5907,7 +5989,7 @@ function exportFDBCheckList() {
   downloadText('fdb_numbers.txt', picked.map(e => e.val).join('\n') + '\n');
   downloadText('fdb_labels.txt',  picked.map(e => 'E' + e.n).join('\n') + '\n');
   const what = chosen.noun(picked.length);
-  addLog('Exported ' + what + ' for fdb_check.py', 'ok');
+  addLog('Exported ' + what + ' for euler.py check', 'ok');
   alert('Exported ' + what + ', above '
     + threshold.toLocaleString() + ' digits (' + mb(chosen.bytes) + ').\n\n'
     + (chosen.key === 'submitted'
@@ -5922,14 +6004,14 @@ function exportFDBCheckList() {
                 ? 'That is the largest size confirmed working, so everything above it is unproven.\n\n'
                 : ''))
     + 'Run on any machine with Python 3 — no server needed:\n\n'
-    + '  python3 fdb_check.py fdb_numbers.txt --labels fdb_labels.txt \\\n'
+    + '  python3 euler.py check fdb_numbers.txt --labels fdb_labels.txt \\\n'
     + '      -o fdb_results.json --limit 5\n\n'
     + 'Start with --limit 5. That is enough to tell you whether these are reachable\n'
     + 'at all, before committing to the full run. Then drop --limit and add --resume.\n\n'
     + 'Bring the results back with "Import FDB results".');
 }
 
-// Import what fdb_check.py produced. Everything is routed through applyFdbResult,
+// Import what euler.py check produced. Everything is routed through applyFdbResult,
 // the same path a live query uses, so status, factors, provenance and the stored
 // FactorDB id all behave exactly as an in-browser check would.
 async function importFDBResults(file) {
@@ -5953,7 +6035,7 @@ async function importFDBResults(file) {
   }
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
   markDirty();
-  addLog('Imported ' + applied + ' FactorDB results from fdb_check.py', 'ok');
+  addLog('Imported ' + applied + ' FactorDB results from euler.py check', 'ok');
   alert('Imported ' + applied + ' result(s).'
     + (biggest ? '\n\nLargest was ' + biggest.toLocaleString() + ' digits — '
         + (biggest > currentQueryCap() ? 'past what the browser can reach.' : 'within browser range.') : '')
@@ -8876,7 +8958,7 @@ function openModal(n) {
       <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">
         This number is ${e.val.length.toLocaleString()} digits — too long for the browser to ask about,
         which sends the number in the request URL.
-        <strong style="color:var(--text)">fdb_check.py has no such limit</strong>: it puts the number in the
+        <strong style="color:var(--text)">euler.py check has no such limit</strong>: it puts the number in the
         request body instead, so size stops mattering. Use
         <strong style="color:var(--text)">↑ Export FDB check list</strong>, run the script, then import the
         results — the answer comes back recorded and verified, the same as any other check.
