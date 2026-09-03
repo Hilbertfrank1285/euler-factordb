@@ -3181,6 +3181,8 @@ async function queryFactorDB(numberStr, knownId) {
 // fail for entirely different reasons: a proxy can be down or rate-limiting, while
 // the direct route is blocked by the browser's origin policy essentially always.
 // Without this the only way to tell them apart is the network tab.
+const ROUTE_PROBE_TIMEOUT_MS = 5000;
+
 async function diagnoseRoutes() {
   const probe = '5';                       // E(4). Small, real, and certainly known.
   const api = `https://factordb.com/api?query=${probe}`;
@@ -3190,7 +3192,11 @@ async function diagnoseRoutes() {
   for (const r of routes) {
     const t0 = Date.now();
     try {
-      const resp = await fetchWithTimeout(r.url, 15000);
+      // 5s, not 15. This is a one-digit query: anything healthy answers in well
+      // under a second, and a route that needs longer is unusable for a run of
+      // hundreds anyway. At 15s a five-route probe spent over a minute confirming
+      // what the first second already showed.
+      const resp = await fetchWithTimeout(r.url, ROUTE_PROBE_TIMEOUT_MS);
       const ms = Date.now() - t0;
       if (!resp.ok) { lines.push('  ' + r.key.padEnd(11) + ' HTTP ' + resp.status + '  (' + ms + 'ms)'); continue; }
       // Parsed in its own try. A proxy that is UP but returning its own error page,
@@ -5876,6 +5882,74 @@ async function exportNextRuns() {
 // alone. reconcileSubmitted() clears confirmed entries, but only when it runs, so
 // the list can be briefly stale — and re-checking something FactorDB has already
 // confirmed is exactly the wasted work this export exists to avoid.
+// The scopes both FactorDB prompts offer, as ENTRIES.
+//
+// The Check button and the check-list export asked different questions with
+// different vocabularies — "all/partial/composite/nothing/never/fdb/old/ahead"
+// against "all/ours/submitted" — which is the same divergence §8 records for the
+// sieve and Check prompts, and it means a scope you can check in the browser had
+// no offline equivalent. Since the browser reaches FactorDB only through proxies
+// that are currently all down, that gap is the difference between doing the work
+// and not.
+//
+// Defined once here as entry lists; each caller shapes them for its own purpose —
+// the Check button wants {n, number} targets, the export wants byte totals.
+// The keyword each scope answers to, defined ONCE.
+//
+// Both prompts pick with `find(s => s.match.test(answer))`, so first match wins
+// and a keyword shared between two scopes makes the later one unreachable by that
+// word — silently. Adding the Check scopes to the export prompt collided "p"
+// (pending vs partial) straight away, and the only reason it was caught is that a
+// collision table was run by hand.
+//
+// As data, it can be checked directly rather than scraped back out of the source.
+// The export menu's OWN options, which sit alongside the shared scopes. Kept here
+// so the collision check has both halves to compare: a keyword can clash across
+// the two sets without clashing inside either, which is exactly how "2" ended up
+// meaning "ours" in one menu and "partial" in the other.
+//
+// No digit aliases here except "1" for all, which means the same thing in both
+// menus. The digits belong to the shared scopes so a number means one scope
+// wherever it is typed.
+const FDB_EXPORT_ONLY_MATCH = {
+  ours:       /^(ours|mine|m)$/i,
+  submitted:  /^(submitted|sub|sent|pending)$/i,
+  everything: /^(everything|every)$/i,
+};
+
+const FDB_SCOPE_MATCH = {
+  all:       /^(all|a|1)$/i,
+  partial:   /^(partial|part|2)$/i,
+  composite: /^(composite|comp|c|3)$/i,
+  nothing:   /^(nothing|both|4)$/i,
+  never:     /^(never|unchecked|u|5)$/i,
+  fdb:       /^(fdb|f|undetermined|6)$/i,
+  old:       /^(old|stale|7)$/i,
+  ahead:     /^(ahead|a-fdb|8)$/i,
+};
+
+function fdbScopeEntries(staleDays) {
+  const held = (e) => (e.factors || []).filter(f => f && f !== '1').length;
+  const base = allEntries.filter(e => e.val && e.n > 2);
+  const ecm = loadECM();
+  const days = staleDays || 31;
+  const cutoff = Date.now() - days * 86400000;
+  const stale = (e) => {
+    const rec = fdbCache[e.val];
+    return rec && rec.timestamp && rec.timestamp < cutoff;
+  };
+  return {
+    all:       base.filter(e => e.status !== 'full'),
+    partial:   base.filter(e => e.status !== 'full' && held(e) > 0),
+    composite: base.filter(e => e.status === 'composite'),
+    nothing:   base.filter(e => e.status === 'unknown' || e.status === 'fdb-unknown'),
+    never:     base.filter(e => e.status === 'unknown'),
+    fdb:       base.filter(e => e.status === 'fdb-unknown'),
+    old:       base.filter(e => e.status !== 'full' && stale(e)),
+    ahead:     base.filter(e => factorsFdbLacks(e).length > 0),
+  };
+}
+
 function fdbCheckListSets() {
   const threshold = confirmedQueryDigits();
   const over = allEntries.filter(e => e.val && e.val.length > threshold);
@@ -5929,6 +6003,17 @@ function exportFDBCheckList() {
   // the export just ran 'all' — which is indistinguishable from the options never
   // having been built. "Nothing qualifies right now" is information, and hiding it
   // costs more than the extra keypress saves.
+  // Every Check-button scope, offline. Same keys, same meanings — a scope you can
+  // check in the browser now has an equivalent you can run without one.
+  const scoped = fdbScopeEntries(parseInt(localStorage.getItem(STALE_DAYS_KEY)) || 31);
+  const bytesOf = (list) => list.reduce((n, e) => n + e.val.length, 0);
+  const scopeOpt = (key, match, label) => ({
+    key, list: scoped[key], bytes: bytesOf(scoped[key]), match,
+    line: '  "' + key + '" · ' + scoped[key].length.toLocaleString() + ' · ' + label,
+    noun: (n) => n + ' ' + label,
+    empty: 'Nothing matches "' + key + '" right now.',
+  });
+
   const options = [
     { key: 'all', list: sets.all, bytes: sets.allBytes,
       match: /^(all|a|1)$/i,
@@ -5937,7 +6022,7 @@ function exportFDBCheckList() {
       empty: 'Every unfinished entry is within ' + threshold.toLocaleString() + ' digits, so the\n'
            + 'browser can check them all itself.' },
     { key: 'ours', list: sets.ours, bytes: sets.oursBytes,
-      match: /^(ours|o|mine|m|2)$/i,
+      match: FDB_EXPORT_ONLY_MATCH.ours,
       line: '  "ours"       entries holding factors FactorDB does not have',
       noun: (n) => n + ' entr' + (n === 1 ? 'y' : 'ies') + ' holding factors FactorDB does not have',
       empty: 'No entry above ' + threshold.toLocaleString() + ' digits has a factor recorded.\n\n'
@@ -5946,17 +6031,27 @@ function exportFDBCheckList() {
            + 'turned something up on a number this large, there is nothing here to\n'
            + 'ask FactorDB about.' },
     { key: 'everything', list: sets.everything, bytes: sets.everythingBytes,
-      match: /^(everything|every|e|4)$/i,
+      match: FDB_EXPORT_ONLY_MATCH.everything,
       line: '  "everything" EVERY unfinished entry, any size — the browser is not needed',
       noun: (n) => n + ' unfinished entr' + (n === 1 ? 'y' : 'ies') + ' of any size',
       empty: 'Nothing is unfinished — every entry is fully factored.' },
     { key: 'submitted', list: sets.submitted, bytes: sets.submittedBytes,
-      match: /^(submitted|sub|sent|s|pending|p|3)$/i,
+      match: FDB_EXPORT_ONLY_MATCH.submitted,
       line: '  "submitted"  of those, only the ones already sent and still unconfirmed',
       noun: (n) => n + ' submitted entr' + (n === 1 ? 'y' : 'ies') + ' still awaiting confirmation',
       empty: 'Nothing above ' + threshold.toLocaleString() + ' digits is awaiting confirmation.\n\n'
            + 'Entries arrive here when "Export FDB submission" records them as sent,\n'
            + 'and leave again once FactorDB confirms them.' },
+    // Keywords from the shared table, so this menu and the Check menu answer to the
+    // same words. "all" is already taken above by the size-gated set, so the
+    // unrestricted scopes start at "partial".
+    scopeOpt('partial',   FDB_SCOPE_MATCH.partial,   'partially factored — entries that already have factors'),
+    scopeOpt('composite', FDB_SCOPE_MATCH.composite, 'no known factors — FactorDB says composite'),
+    scopeOpt('nothing',   FDB_SCOPE_MATCH.nothing,   'nothing known at all'),
+    scopeOpt('never',     FDB_SCOPE_MATCH.never,     'never checked — we have not asked FactorDB'),
+    scopeOpt('fdb',       FDB_SCOPE_MATCH.fdb,       'FDB undetermined — we asked, FactorDB had nothing'),
+    scopeOpt('old',       FDB_SCOPE_MATCH.old,       'old records — not re-checked lately'),
+    scopeOpt('ahead',     FDB_SCOPE_MATCH.ahead,     'ahead of FactorDB — we hold factors it lacks'),
   ];
 
   if (!options.some(o => o.list.length)) {
@@ -8056,10 +8151,16 @@ function startCheck() {
       run: () => startAheadOfFdbPoll() },
   ];
 
-  const pad = (s, w) => (s + ' '.repeat(w)).slice(0, w);
+  // Separators, not padding.
+  //
+  // pad() truncated anything past its width, so the longer labels were cut
+  // mid-word and the count ran straight into them — "…entries that already have
+  // facto9,394". And prompt() renders in a proportional font, so column alignment
+  // by spaces was never going to work in the first place. A visible separator
+  // reads correctly in any font and cannot swallow the text.
   const body = scopes.map(s =>
-    '  ' + pad('"' + s.key + '"', 12) + pad(s.label, 52)
-      + (s.count ? s.count.toLocaleString() : '—')).join('\n');
+    '  "' + s.key + '" · ' + (s.count ? s.count.toLocaleString() : '—') + ' · ' + s.label
+  ).join('\n');
 
   const ans = prompt(
     'Check which entries against FactorDB?\n\n' + body + '\n\n'
