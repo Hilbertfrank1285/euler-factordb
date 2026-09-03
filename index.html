@@ -5367,17 +5367,80 @@ function singleBatchText(lines, importFile, runs) {
   return header + lines.join('\r\n') + footer;
 }
 
+// "How much work?" answered as a COUNT or as a DURATION.
+//
+// The export has always asked for a number of runs, but a number of runs is not
+// the thing anyone actually has. You have an evening, or a machine free until
+// Monday. Picking 500 and discovering it is nineteen hours is the wrong way round.
+//
+// Accepts: 400 · 8h · 90m · 2d · 1.5h · "8 hours". A bare number stays a COUNT, so
+// every existing habit keeps working and nothing silently changes meaning.
+function parseRunBudget(text, fallbackCount) {
+  const t = String(text == null ? '' : text).trim().toLowerCase();
+  if (!t) return { kind: 'count', count: fallbackCount };
+  const m = /^([0-9]*\.?[0-9]+)\s*([a-z]*)$/.exec(t);
+  if (!m) return { kind: 'count', count: fallbackCount };
+  const n = parseFloat(m[1]);
+  if (!isFinite(n) || n <= 0) return { kind: 'count', count: fallbackCount };
+  const unit = m[2];
+  if (!unit) return { kind: 'count', count: Math.max(1, Math.floor(n)) };
+  if (/^(s|sec|secs|second|seconds)$/.test(unit))   return { kind: 'time', seconds: n };
+  if (/^(m|min|mins|minute|minutes)$/.test(unit))   return { kind: 'time', seconds: n * 60 };
+  if (/^(h|hr|hrs|hour|hours)$/.test(unit))         return { kind: 'time', seconds: n * 3600 };
+  if (/^(d|day|days)$/.test(unit))                  return { kind: 'time', seconds: n * 86400 };
+  if (/^(w|wk|week|weeks)$/.test(unit))             return { kind: 'time', seconds: n * 604800 };
+  // A number with a unit we do not know is not a count — guessing would silently
+  // export the wrong amount of work.
+  return { kind: 'unknown', text: t };
+}
+
+// Take runs in ranked order until the budget is spent.
+//
+// Greedy, not a knapsack, and deliberately: the list is already sorted by value
+// per CPU-second, so taking the best until time runs out IS the optimal fill for a
+// divisible budget. Swapping a cheap late run in to fill a gap would mean
+// preferring worse value per hour, which is the one thing the ranking exists to
+// avoid.
+function fillRunBudget(ranked, budget) {
+  if (!budget || budget.kind === 'count') {
+    return { runs: ranked.slice(0, (budget && budget.count) || ranked.length), seconds: 0, spilled: 0 };
+  }
+  const out = [];
+  let used = 0, spilled = 0;
+  for (const r of ranked) {
+    const cost = Math.max(0, r.cpuTime || 0);
+    if (used + cost > budget.seconds) { spilled++; continue; }
+    out.push(r);
+    used += cost;
+  }
+  return { runs: out, seconds: used, spilled };
+}
+
 async function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
-  const lastCap = parseInt(localStorage.getItem('eulerFDB_exportCap_v1')) || 1000;
-  const capInput = prompt('How many best-value runs to export?', String(lastCap));
+  const lastCap = localStorage.getItem('eulerFDB_exportCap_v1') || '1000';
+  const capInput = prompt(
+    'How much work to export?\n\n'
+    + '  400      that many runs, best value first\n'
+    + '  8h       as many runs as fit in 8 CPU-hours\n'
+    + '  90m      …or 90 minutes;  2d also works\n\n'
+    + 'A time budget takes runs in ranked order until it is spent, so you get the\n'
+    + 'best work that fits rather than a count you have to convert in your head.',
+    String(lastCap));
   if (capInput === null) return; // cancelled
-  const CAP = Math.max(1, parseInt(capInput.replace(/[^0-9]/g, '')) || lastCap);
-  try { localStorage.setItem('eulerFDB_exportCap_v1', String(CAP)); } catch(e) { logSwallowed('export/saveCap', e); }
+  const budget = parseRunBudget(capInput, Math.max(1, parseInt(lastCap) || 1000));
+  if (budget.kind === 'unknown') {
+    alert('Did not understand "' + budget.text + '".\n\n'
+      + 'Use a plain number for a run count, or a number with a unit for a time\n'
+      + 'budget: 400, 8h, 90m, 2d. Nothing has been exported.');
+    return;
+  }
+  const CAP = budget.kind === 'count' ? budget.count : Infinity;
+  try { localStorage.setItem('eulerFDB_exportCap_v1', capInput.trim()); } catch(e) { logSwallowed('export/saveCap', e); }
 
   // Range always defaults to "all" (not remembered) — a range restriction is a
   // one-off adjustment for this export, not a standing preference; remembering it
@@ -5491,7 +5554,8 @@ async function exportNextRuns() {
   if (FDB_WEIGHT === 0) ranked = runs.filter(r => !r.fdbUnknown);
   if (!ranked.length) { alert('Excluding FactorDB-unknown entries leaves no runs to export.'); return; }
   ranked.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
-  const top = ranked.slice(0, CAP);
+  const filled = fillRunBudget(ranked, budget);
+  const top = filled.runs;
   const unknownCount = top.filter(r => r.fdbUnknown).length;
   const totalSec = top.reduce((s, r) => s + (r.cpuTime || 0), 0);
 
@@ -5758,6 +5822,16 @@ async function exportNextRuns() {
   sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
   sum.push('Generated ' + dateStr + ' · ranked by value (odds gained per unit time)');
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
+  // Say what a time budget actually bought. "spilled" is the runs that were passed
+  // over because they did not fit — without it, a budget that stops early looks
+  // like the app running out of work rather than out of time.
+  if (budget.kind === 'time') {
+    sum.push('Budget: ' + fmtCpuTime(budget.seconds) + ' requested · '
+      + fmtCpuTime(filled.seconds) + ' filled ('
+      + Math.round(100 * filled.seconds / Math.max(1, budget.seconds)) + '%)'
+      + (filled.spilled ? ' · ' + filled.spilled.toLocaleString()
+          + ' run(s) skipped as too long to fit' : ''));
+  }
   // The ranking multiplies value by the priority weight, so with a weight in play
   // the rows are NOT in "value" order and the file gives no way to see why. RANKED
   // is the score the sort actually used; ★ marks the rows that earned the boost.
