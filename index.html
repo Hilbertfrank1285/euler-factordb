@@ -7562,6 +7562,92 @@ function workingDigitsFor(e) {
   return { digits: e.val.length, exact: false };
 }
 
+// How many finds a level needs before its measured rate is worth believing.
+//
+// 30 is where a Poisson band narrows to roughly ±35% — wide, but decisively
+// better than a model that has never been checked. Below it the estimate swings
+// more than the thing it is trying to correct, so the theory is left alone.
+const YIELD_CALIB_MIN_FINDS = 30;
+
+// Compare measured yield against what the model predicted, per level.
+//
+// Returns, for every level: the finds, the model's expectation, their ratio, a
+// 95% interval on that ratio, and a verdict on whether it is usable. The ratio is
+// the calibration — >1 means the model is pessimistic at that level, <1 optimistic.
+//
+// The interval is Poisson on the FIND COUNT, which is the only random quantity
+// here; curves and expectation are known exactly. With zero finds there is no
+// estimate at all, only a one-sided upper bound (3/expected, the 95% rule for
+// k=0), and saying so is the point — a level with 287,650 curves and no finds is
+// evidence of a small rate, not of a zero one.
+function yieldCalibration(rows) {
+  const out = {};
+  for (const r of (rows || [])) {
+    const k = r.finds || 0;
+    const exp = r.expFinds || 0;
+    if (exp <= 0) {
+      // Finds with no expectation behind them means the two came from different
+      // windows — the exact fault this accumulator was moved to avoid. Saying so
+      // beats reporting "no runs" beside a non-zero find count.
+      out[r.d] = { d: r.d, finds: k, expected: 0, ratio: null, lo: null, hi: null,
+                   usable: false,
+                   verdict: k > 0 ? 'finds but no tracked runs — windows disagree'
+                                  : 'no tracked runs at this level' };
+      continue;
+    }
+    if (k === 0) {
+      out[r.d] = { d: r.d, finds: 0, expected: exp, ratio: null,
+                   lo: 0, hi: 3 / exp, usable: false,
+                   verdict: 'bound only — no finds yet' };
+      continue;
+    }
+    // Poisson 95% on a count of k, normal approximation (k >= 1 here and the
+    // verdict below refuses anything small enough for that to matter).
+    const se = Math.sqrt(k);
+    const ratio = k / exp;
+    const lo = Math.max(0, (k - 1.96 * se) / exp);
+    const hi = (k + 1.96 * se) / exp;
+    const usable = k >= YIELD_CALIB_MIN_FINDS;
+    out[r.d] = { d: r.d, finds: k, expected: exp, ratio, lo, hi, usable,
+                 verdict: usable ? 'measured'
+                        : 'too few finds (' + k + ' < ' + YIELD_CALIB_MIN_FINDS + ')' };
+  }
+  return out;
+}
+
+// pFactorExists, corrected by measured yield where the measurement holds up.
+//
+// A HYBRID on purpose. Only t10 and t15 have enough finds to calibrate against —
+// t20 has ten finds across 236,582 curves and t25 upward have none at all — so
+// replacing the model wholesale would trade a known approximation for noise. Each
+// level uses whichever it has grounds for, and the report says which.
+let _yieldCalibCache = null;
+function invalidateYieldCalib() { _yieldCalibCache = null; }
+
+// Inject a calibration directly. Exists for tests: the applying half of the hybrid
+// is unreachable without yield data, so without this the only path ever exercised
+// is the fallback — testing the disclaimer instead of the claim.
+function setYieldCalib(c) { _yieldCalibCache = c; }
+
+function yieldCalibFor(d) {
+  if (!_yieldCalibCache) {
+    try { _yieldCalibCache = yieldCalibration(computeYieldByLevel().levels); }
+    catch (e) { logSwallowed('yieldCalibFor', e); _yieldCalibCache = {}; }
+  }
+  return _yieldCalibCache[d] || null;
+}
+
+function pFactorExistsCalibrated(d, totalDigits) {
+  const base = pFactorExists(d, totalDigits);
+  const c = yieldCalibFor(d);
+  if (!c || !c.usable || !isFinite(c.ratio) || c.ratio <= 0) return base;
+  // Clamped: a calibration is a correction, not a licence to rewrite the model.
+  // Anything outside 4x either way is far likelier to be a data problem than a
+  // real property of the number field.
+  const r = Math.min(4, Math.max(0.25, c.ratio));
+  return Math.min(0.5, Math.max(0, base * r));
+}
+
 function computeYieldByLevel() {
   // Starts at ECM_MIN_LEVEL for the same reason b1ToDigits does: these are the
   // levels the recommendation engine actually offers, and a row that cannot be
@@ -7575,7 +7661,7 @@ function computeYieldByLevel() {
   // would understate every level's yield, in some cases by years of work.
   const stats = {};
   for (const d of levels) stats[d] = { d, curves: 0, cpuSec: 0, runs: 0, finds: 0,
-                                       tCurves: 0, tCpuSec: 0, tRuns: 0 };
+                                       tCurves: 0, tCpuSec: 0, tRuns: 0, expFinds: 0 };
   const pm1 = { curves: 0, cpuSec: 0, runs: 0, finds: 0, tCurves: 0, tCpuSec: 0, tRuns: 0 };
   const startDate = historyStartDate();
   // Runs with no date at all cannot be placed in time. They are counted so the
@@ -7638,6 +7724,26 @@ function computeYieldByLevel() {
         stats[bucket].tRuns++;
         stats[bucket].tCurves += cv;
         stats[bucket].tCpuSec += sec;
+
+        // EXPECTED finds — accumulated over the TRACKED window ONLY, because that
+        // is the window `finds` comes from.
+        //
+        // Effort is known for all time; finds are attributable only from the
+        // tracking start, which is why this table has two column groups at all.
+        // Dividing tracked finds by all-time expectation compares a numerator and
+        // a denominator measured over different periods, and the error is not
+        // small: t20 has 236,728 curves all time and 146 inside the window, so the
+        // ratio came out 1,621x too low and the calibration would have driven the
+        // model down by the clamp on every level whose old work predates tracking.
+        //
+        // Same rule the CPU/FIND column already follows, for the same reason.
+        if (work.digits) {
+          try {
+            const pe = pFactorExists(bucket, work.digits);
+            const pf = ecmProbability(bucket, cv, b1n);
+            if (isFinite(pe) && isFinite(pf)) stats[bucket].expFinds += pe * pf;
+          } catch (e) { logSwallowed('yield/expected', e); }
+        }
       }
     }
   }
@@ -11660,12 +11766,21 @@ function computeCostToFinish(entry, digits, attempts) {
     const c90 = n90 > 0 ? estimateCpuSeconds('ECM', b1, null, n90, digits) : 0;
     const c99 = n99 > 0 ? estimateCpuSeconds('ECM', b1, null, n99, digits) : 0;
     cum90 += c90;
-    let pe = 0;
-    try { pe = pFactorExists(d, digits); } catch(e) { logSwallowed('costToFinish/exists', e); }
+    let pe = 0, calib = null;
+    try {
+      pe = pFactorExistsCalibrated(d, digits);
+      calib = yieldCalibFor(d);
+    } catch(e) { logSwallowed('costToFinish/exists', e); }
     // Expected gain per CPU-hour of actually completing the level — this is what
     // makes the cliff between levels visible.
     const perHr = c90 > 0 ? (pe * (0.90 - have) * 100) / (c90 / 3600) : null;
-    rows.push({ d, have, b1, n90, n99, c90, c99, pe, perHr, cum90 });
+    rows.push({ d, have, b1, n90, n99, c90, c99, pe, perHr, cum90,
+                // Which estimate this row rests on, and how well pinned it is.
+                calibrated: !!(calib && calib.usable),
+                calibRatio: calib && calib.ratio,
+                calibLo: calib && calib.lo, calibHi: calib && calib.hi,
+                calibFinds: calib ? calib.finds : 0,
+                calibVerdict: calib ? calib.verdict : 'no data' });
   }
   return rows;
 }
@@ -11697,7 +11812,15 @@ function costToFinishHtml(entry, digits, attempts) {
                   : r.perHr >= 0.1 ? 'var(--green)' : r.perHr >= 0.01 ? 'var(--yellow)' : 'var(--orange)';
         const doneSoon = r.c90 > 0 && r.c90 < 1800;   // under 30 min to complete
         return `<tr style="text-align:right">
-          <td style="text-align:left;padding:2px 0"><strong>t${r.d}</strong>${doneSoon ? ' <span style="color:var(--green);font-size:9px">easy win</span>' : ''}</td>
+          <td style="text-align:left;padding:2px 0"><strong>t${r.d}</strong>${doneSoon ? ' <span style="color:var(--green);font-size:9px">easy win</span>' : ''}${
+            // Which estimate this row rests on, and how tightly it is pinned.
+            // A number carrying a measured correction and a number resting on an
+            // unchecked model deserve to look different — otherwise the whole
+            // table reads with one confidence it has not earned.
+            r.calibrated
+              ? ` <span style="color:var(--green);font-size:9px" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level. The model was multiplied by ${r.calibRatio.toFixed(2)} (95% interval ${r.calibLo.toFixed(2)}–${r.calibHi.toFixed(2)}); a ratio above 1 means the model was pessimistic here.">measured ×${r.calibRatio.toFixed(2)}</span>`
+              : ` <span style="color:var(--text-muted);font-size:9px" title="Model estimate, not calibrated: ${r.calibVerdict}. Needs ${'${YIELD_CALIB_MIN_FINDS}'} finds at this level before the measurement beats the theory.">model</span>`
+          }</td>
           <td style="padding:2px 8px;color:var(--text-muted)">${(r.have * 100).toFixed(0)}%</td>
           <td style="padding:2px 8px">${r.c90 > 0 ? fmtCpuTime(r.c90) : '—'}</td>
           <td style="padding:2px 8px;color:var(--text-muted)">${r.c99 > 0 ? fmtCpuTime(r.c99) : '—'}</td>
