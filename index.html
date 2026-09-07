@@ -4247,6 +4247,7 @@ function buildSyncPayload() {
     // to verify locally. Shared so the acknowledgement does not have to be repeated
     // on every machine.
     verifiedComplete: loadVerifiedComplete(),
+    verifiedCleared: loadVerifiedCleared(),
     // Facts learned ABOUT THE WORLD, not preferences. Left out of the payload they
     // drifted per machine — two browsers on the same account showed 113 and 108
     // FDB-undetermined entries, because each had only asked FactorDB about the
@@ -4467,7 +4468,7 @@ function mergeSyncPayload(remote) {
   }
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
-    try { mergeVerifiedComplete(remote.verifiedComplete); } catch(e) { logSwallowed('merge/verifiedComplete', e); }
+    try { mergeVerifiedComplete(remote.verifiedComplete, remote.verifiedCleared); } catch(e) { logSwallowed('merge/verifiedComplete', e); }
   }
 
   // ── the three shared facts ──────────────────────────────────────────────
@@ -5445,11 +5446,29 @@ async function exportNextRuns() {
   // Range always defaults to "all" (not remembered) — a range restriction is a
   // one-off adjustment for this export, not a standing preference; remembering it
   // would risk silently narrowing a LATER export the user forgot they'd limited.
-  const rangeInput = prompt('E(n) range to export? e.g. "500-600" — leave blank for all', '');
+  // The range prompt also accepts a FRONTIER band, because "everything that has not
+  // reached t20 yet" is the shape of an actual campaign and picking it out of a
+  // 10,000-entry list by hand is not. Same box rather than another prompt: it is
+  // the same question — which entries — asked a different way.
+  const rangeInput = prompt(
+    'Which entries?\n\n'
+    + '  (blank)   all of them\n'
+    + '  500-600   an E(n) range\n'
+    + '  <t20      only entries whose ECM has not reached t20 — the backlog\n'
+    + '            below a frontier, cheapest work first', '');
   if (rangeInput === null) return; // cancelled
+
+  // "<t20" / "<20" / "below t20"
+  let frontierBelow = 0;
+  const fm = rangeInput.trim().match(/^(?:<|below\s*|under\s*)t?(\d+)$/i);
+  if (fm) {
+    frontierBelow = parseInt(fm[1]);
+    if (!isFinite(frontierBelow) || frontierBelow <= 0) frontierBelow = 0;
+  }
   let rangeMin = -Infinity, rangeMax = Infinity;
-  const rm = rangeInput.trim().match(/(\d+)?\s*[-–—to,]+\s*(\d+)?/i) || (rangeInput.trim() ? [null, rangeInput.trim(), rangeInput.trim()] : null);
-  if (rangeInput.trim() && rm) {
+  const rm = frontierBelow ? null
+    : (rangeInput.trim().match(/(\d+)?\s*[-–—to,]+\s*(\d+)?/i) || (rangeInput.trim() ? [null, rangeInput.trim(), rangeInput.trim()] : null));
+  if (!frontierBelow && rangeInput.trim() && rm) {
     if (rm[1] != null) rangeMin = parseInt(rm[1]);
     if (rm[2] != null) rangeMax = parseInt(rm[2]);
     if (rangeMin > rangeMax) [rangeMin, rangeMax] = [rangeMax, rangeMin];
@@ -5493,7 +5512,12 @@ async function exportNextRuns() {
   // ECM one. GMP-ECM has no such limit, and the export writes numbers to a separate
   // file specifically so arbitrarily large entries work fine — these are exactly
   // the numbers where FactorDB can't help at all and your own ECM work matters most.
-  const candidates = allEntries.filter(e => e.status !== 'full' && e.val && e.n >= rangeMin && e.n <= rangeMax);
+  const frontierSet = frontierBelow
+    ? new Set(belowFrontier(frontierBelow).map(e => e.n))
+    : null;
+  const candidates = allEntries.filter(e => e.status !== 'full' && e.val
+    && e.n >= rangeMin && e.n <= rangeMax
+    && (!frontierSet || frontierSet.has(e.n)));
   if (!candidates.length) { alert('No entries in that range (or all already fully factored).'); return; }
 
   const CHUNK = 150; // entries per tick. Benchmarked worst case (cold cache, ~40%
@@ -5903,7 +5927,9 @@ async function exportNextRuns() {
   filesToDownload.forEach((f, i) => setTimeout(() => downloadText(f.name, f.text), i * 350));
 
   const fileList = filesToDownload.map(f => f.name).join(', ');
-  const rangeStr = (rangeMin > -Infinity || rangeMax < Infinity)
+  const rangeStr = frontierBelow
+    ? ' [below t' + frontierBelow + ' only]'
+    : (rangeMin > -Infinity || rangeMax < Infinity)
     ? ' [E(' + (rangeMin > -Infinity ? rangeMin : '0') + ')–E(' + (rangeMax < Infinity ? rangeMax : '∞') + ') only]'
     : '';
   const msg = (multi
@@ -6202,9 +6228,20 @@ async function importFDBResults(file) {
       if (entry.val.length > biggest) biggest = entry.val.length;
     } catch(e) { logSwallowed('importFDBResults/apply:' + n, e); skipped++; }
   }
+  // Clear anything FactorDB has now confirmed.
+  //
+  // reconcileSubmitted only ever ran from "Check submitted", which needs a working
+  // proxy — so an offline round trip recorded the confirmation in the cache and
+  // left the pending count untouched, showing work as outstanding that FactorDB had
+  // already taken. The comment on submittedTargets claimed importing cleared them
+  // "like any other confirmation"; nothing on this path made that true.
+  let cleared = 0;
+  try { cleared = reconcileSubmitted(); } catch(e) { logSwallowed('importFDBResults/reconcile', e); }
+
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
   markDirty();
-  addLog('Imported ' + applied + ' FactorDB results from euler.py check', 'ok');
+  addLog('Imported ' + applied + ' FactorDB results from euler.py check'
+    + (cleared ? ' · ' + cleared + ' submission(s) confirmed and cleared' : ''), 'ok');
   alert('Imported ' + applied + ' result(s).'
     + (biggest ? '\n\nLargest was ' + biggest.toLocaleString() + ' digits — '
         + (biggest > currentQueryCap() ? 'past what the browser can reach.' : 'within browser range.') : '')
@@ -7646,6 +7683,58 @@ function pFactorExistsCalibrated(d, totalDigits) {
   // real property of the number field.
   const r = Math.min(4, Math.max(0.25, c.ratio));
   return Math.min(0.5, Math.max(0, base * r));
+}
+
+// The highest ECM level each unfinished entry has ever reached, aggregated.
+//
+// The yield table answers "what did effort at level L return"; this answers "where
+// has the work got to", which is a different question and the one that decides
+// what to do next. On the real dataset it is strikingly uneven — a third of
+// entries have never been past t10 while another large block sits at t25 — and
+// nothing in the app showed it, so a backlog of the cheapest possible runs stayed
+// invisible.
+//
+// Counts ENTRIES, not runs, and only unfinished ones: a finished number has no
+// frontier left to advance.
+function ecmFrontier() {
+  const levels = ecmLevels();
+  const counts = {};
+  for (const d of levels) counts[d] = 0;
+  let none = 0, total = 0;
+  const bestFor = new Map();
+
+  const ecmD = loadECM();
+  for (const e of allEntries) {
+    if (!e.val || e.n <= 2 || e.status === 'full') continue;
+    total++;
+    let best = 0;
+    for (const a of (ecmD[String(e.n)] || [])) {
+      if (!a || a.method !== 'ECM' || !a.b1) continue;
+      const lvl = b1ToDigits(a.b1);
+      if (!lvl) continue;
+      // Snap to a tracked level the same way the yield table does, so the two
+      // views cannot disagree about which level a run belongs to.
+      const bucket = counts[lvl] !== undefined ? lvl : levels.reduce((bst, d) =>
+        Math.abs(d - lvl) < Math.abs(bst - lvl) ? d : bst, levels[0]);
+      if (bucket > best) best = bucket;
+    }
+    if (best) { counts[best]++; bestFor.set(e.n, best); }
+    else none++;
+  }
+  const rows = levels.map(d => ({ d, entries: counts[d] }));
+  return { rows, none, total, bestFor };
+}
+
+// Entries whose ECM has not yet reached `level` — the backlog below a frontier.
+//
+// "Advance the frontier to t20" is a campaign; picking it out by hand from a
+// 10,000-entry list is not.
+function belowFrontier(level) {
+  const { bestFor } = ecmFrontier();
+  return allEntries.filter(e => {
+    if (!e.val || e.n <= 2 || e.status === 'full') return false;
+    return (bestFor.get(e.n) || 0) < level;
+  });
 }
 
 function computeYieldByLevel() {
@@ -10832,29 +10921,94 @@ function loadVerifiedComplete() {
   } catch(e) { logSwallowed('loadVerifiedComplete', e); return {}; }
 }
 function saveVerifiedComplete(v) { kvSet(VERIFIED_KEY, JSON.stringify(v)); }
-function isVerifiedComplete(n) { return !!loadVerifiedComplete()[n]; }
+function isVerifiedComplete(n) {
+  const ack = loadVerifiedComplete()[n];
+  if (!ack) return false;
+  const cleared = loadVerifiedCleared()[n];
+  // A retraction only counts if it came AFTER the acknowledgement it retracts.
+  return !(cleared && cleared >= ack);
+}
 function markVerifiedComplete(ns) {
   const v = loadVerifiedComplete();
+  const cleared = loadVerifiedCleared();
   const ts = Math.floor(Date.now() / 1000);
-  for (const n of ns) v[n] = ts;
+  for (const n of ns) {
+    v[n] = ts;
+    // Acknowledging again supersedes an earlier retraction; leaving the tombstone
+    // would make the merge treat the new acknowledgement as already withdrawn.
+    delete cleared[n];
+  }
   saveVerifiedComplete(v);
+  saveVerifiedCleared(cleared);
   return Object.keys(v).length;
 }
+// Retractions, recorded rather than merely applied.
+//
+// An acknowledgement is a human judgement — "I checked this on FactorDB myself" —
+// so unlike a bad factor or a stale FDB marker there is no arithmetic that can
+// re-derive it, and no evidence a merge could use to heal. Deleting the entry
+// alone made the retraction invisible to the sync: mergeVerifiedComplete is a pure
+// union, so a peer that had not cleared would hand the acknowledgement straight
+// back on the next pull, and the clear link in the integrity report would look
+// like it had done nothing.
+//
+// Third instance of this shape, after integrity repairs and the fdb-unknown
+// marker. The first two could self-heal from the data; this one needs a tombstone
+// because the fact being synced is somebody's decision.
+const VERIFIED_CLEARED_KEY = 'eulerFDB_verifiedCleared_v1';
+
+function loadVerifiedCleared() {
+  try {
+    const v = JSON.parse(kvGet(VERIFIED_CLEARED_KEY) || '{}');
+    return (v && typeof v === 'object') ? v : {};
+  } catch(e) { logSwallowed('loadVerifiedCleared', e); return {}; }
+}
+function saveVerifiedCleared(v) { kvSet(VERIFIED_CLEARED_KEY, JSON.stringify(v)); }
+
 function clearVerifiedComplete(ns) {
   const v = loadVerifiedComplete();
-  if (!ns) { saveVerifiedComplete({}); return 0; }
-  for (const n of ns) delete v[n];
+  const cleared = loadVerifiedCleared();
+  const ts = Math.floor(Date.now() / 1000);
+  const targets = ns || Object.keys(v);
+  for (const n of targets) {
+    delete v[n];
+    // Latest retraction wins, so re-acknowledging later still works.
+    if (!cleared[n] || ts > cleared[n]) cleared[n] = ts;
+  }
   saveVerifiedComplete(v);
+  saveVerifiedCleared(cleared);
   return Object.keys(v).length;
 }
 // Merge across devices — union, keeping the earliest acknowledgement.
-function mergeVerifiedComplete(remote) {
-  if (!remote || typeof remote !== 'object') return;
-  const v = loadVerifiedComplete();
-  for (const [n, ts] of Object.entries(remote)) {
-    if (!v[n] || ts < v[n]) v[n] = ts;
+function mergeVerifiedComplete(remote, remoteCleared) {
+  if (remote && typeof remote === 'object') {
+    const v = loadVerifiedComplete();
+    for (const [n, ts] of Object.entries(remote)) {
+      // LATEST wins, not earliest.
+      //
+      // Earliest was right while the timestamp was only provenance — "first
+      // acknowledged at". It became wrong the moment isVerifiedComplete started
+      // comparing it against a retraction: keeping the older acknowledgement means
+      // a re-acknowledgement made on another machine can never outrank a
+      // retraction already here, so the entry stays cleared forever on that
+      // machine and the two disagree permanently.
+      //
+      // A reducer chosen for display is not automatically the right reducer once
+      // the value decides something.
+      if (!v[n] || ts > v[n]) v[n] = ts;
+    }
+    saveVerifiedComplete(v);
   }
-  saveVerifiedComplete(v);
+  // Retractions union with LATEST wins, mirroring how they are recorded. Without
+  // this half the union above hands back every acknowledgement a peer still holds,
+  // and clearing them is undone by the next pull.
+  if (remoteCleared && typeof remoteCleared === 'object') {
+    const c = loadVerifiedCleared();
+    for (const [n, ts] of Object.entries(remoteCleared)) {
+      if (!c[n] || ts > c[n]) c[n] = ts;
+    }
+    saveVerifiedCleared(c);
+  }
 }
 
 // Offered from the integrity report for the entries it could not resolve.
@@ -11988,6 +12142,42 @@ function showYieldReport() {
         <tbody>${rows.join('')}${totRow}</tbody>
       </table>
     </div>
+    ${(() => {
+      // ── where the work has GOT TO, as opposed to what it returned ─────────
+      // The table above is effort vs result per level. This is the distribution of
+      // entries by the highest level each has reached — the question that decides
+      // what to do next, and one nothing in the app answered.
+      let f;
+      try { f = ecmFrontier(); } catch (e) { logSwallowed('modal/frontier', e); return ''; }
+      if (!f.total) return '';
+      const peak = Math.max(f.none, ...f.rows.map(r => r.entries)) || 1;
+      const bar = (n) => '<div style="height:8px;background:var(--accent);width:'
+        + Math.max(n ? 2 : 0, Math.round(100 * n / peak)) + '%"></div>';
+      const line = (label, n, note) => n === 0 ? '' : `
+        <tr>
+          <td style="padding:2px 8px 2px 0;text-align:left"><strong>${label}</strong></td>
+          <td style="padding:2px 8px;text-align:right;color:var(--text)">${n.toLocaleString()}</td>
+          <td style="padding:2px 0;width:55%">${bar(n)}</td>
+          <td style="padding:2px 0 2px 8px;font-size:9px;color:var(--text-muted)">${note || ''}</td>
+        </tr>`;
+      return `
+    <div class="modal-section">
+      <div class="modal-label">ECM FRONTIER — HIGHEST LEVEL REACHED, BY ENTRY</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <tbody>
+          ${line('none', f.none, 'no ECM at all — the cheapest work available')}
+          ${f.rows.map(r => line('t' + r.d, r.entries, '')).join('')}
+        </tbody>
+      </table>
+      <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-top:8px">
+        ${f.total.toLocaleString()} unfinished entries. This is where the work has GOT TO,
+        which is a different question from what it returned — an entry sitting at t10 has
+        had almost nothing spent on it, and a t15 run costs minutes. Use
+        <strong style="color:var(--text)">↓ Export ECM</strong> with a time budget to work a
+        band down.
+      </div>
+    </div>`;
+    })()}
     <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
       <strong style="color:var(--text)">Why two column groups.</strong>
       Effort is known for all time — it comes from the run log. Finds are only
