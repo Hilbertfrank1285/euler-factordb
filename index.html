@@ -1754,6 +1754,11 @@ function applyFdbUnknownSet() {
   }
 }
 function saveECM(d) {
+  // The yield calibration is derived from this data, so it is stale the moment
+  // this is written. It was never invalidated anywhere — computed once per session
+  // and then kept, so importing a log full of new finds left every recommendation
+  // scored against the yield from before the import.
+  invalidateYieldCalib();
   _ecmCache = d; // update cache immediately
   invalidateCpuTotal(); // ECM changed → recompute total CPU on next renderStats
   invalidateNextRunCache(); // ECM changed → recompute recommended-run times
@@ -1864,6 +1869,7 @@ function loadHistory() {
 }
 function saveHistory(h) {
   _historyCache = h;
+  invalidateYieldCalib();   // finds changed; the measured yield is now stale
   _provIndex = null; // index is derived — rebuild on next query
   kvSet(HISTORY_KEY, JSON.stringify(h));
 }
@@ -1912,7 +1918,21 @@ function mergeHistory(remote) {
     if (!Array.isArray(r) || r.length < 5) continue;
     const key = r[0] + '|' + r[4];
     const prev = byKey.get(key);
-    if (!prev || (r[1] || 0) < (prev[1] || 0)) byKey.set(key, r);
+    if (!prev) { byKey.set(key, r); continue; }
+    const ts = r[1] || 0, pts = prev[1] || 0;
+    if (ts < pts) { byKey.set(key, r); continue; }
+    // TIE-BREAK, deterministically.
+    //
+    // Earliest wins says who found it first, and on an equal timestamp there is no
+    // answer — but "keep whichever I saw first" is not a neutral fallback, because
+    // local is concatenated ahead of remote. Machine A keeps its own record and
+    // machine B keeps its own, each merge preserves the choice, and the two
+    // disagree about provenance permanently. A sync that cannot converge is worse
+    // than one that picks wrongly.
+    //
+    // So order by the record itself, which both machines compute identically. The
+    // winner is arbitrary; agreeing on it is not.
+    if (ts === pts && JSON.stringify(r) < JSON.stringify(prev)) byKey.set(key, r);
   }
   const merged = Array.from(byKey.values()).sort((a, b) => (a[1] || 0) - (b[1] || 0));
   saveHistory(merged);
@@ -2083,7 +2103,22 @@ function confirmedQueryDigits() {
 // Returns a Number (0 if blank/invalid). Used everywhere ECM/P±1 bounds are read.
 function parseB1(v) {
   if (v == null || v === '') return 0;
-  const n = parseFloat(String(v).replace(/,/g, '').replace(/[eE]/, 'e'));
+  const s = String(v).trim().replace(/,/g, '');
+  // Understand the suffixes fmtB1 PRODUCES.
+  //
+  // These two are siblings and disagreed: fmtB1(11000000) gives "11.0M" and
+  // parseB1("11.0M") gave 11 — parseFloat stops at the letter. Anything that
+  // round-trips a displayed bound back through the parser lost a factor of a
+  // million silently, and the only reason no stored data is affected is that the
+  // ECM store happens to hold plain numbers (checked: 0 of 27,345 attempts carry a
+  // suffix). A formatter and a parser that do not agree is a trap left armed.
+  const m = /^([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*([kKmMgG])$/.exec(s);
+  if (m) {
+    const mult = { k: 1e3, m: 1e6, g: 1e9 }[m[2].toLowerCase()];
+    const base = parseFloat(m[1]);
+    return isFinite(base) ? base * mult : 0;
+  }
+  const n = parseFloat(s.replace(/[eE]/, 'e'));
   return isFinite(n) ? n : 0;
 }
 
@@ -9628,7 +9663,14 @@ function fmtCpuTime(seconds) {
   if (seconds < 60)   return Math.round(seconds) + ' s';
   if (seconds < 3600) return (seconds/60).toFixed(1) + ' min';
   if (seconds < 86400) return (seconds/3600).toFixed(1) + ' hr';
-  return (seconds/86400).toFixed(1) + ' days';
+  // Past a year, days stop meaning anything. "4,380.0 days" is a number you have
+  // to divide in your head before you know whether a run is worth considering,
+  // and the cost-to-finish table is full of them at the deep levels.
+  if (seconds < 365 * 86400) return (seconds/86400).toFixed(1) + ' days';
+  const years = seconds / (365 * 86400);
+  // Two significant figures below ten, none above: "1.2 yr" is useful, "1,234.5 yr"
+  // is noise around the only fact that matters, which is that it is out of reach.
+  return (years < 10 ? years.toFixed(1) : Math.round(years).toLocaleString()) + ' yr';
 }
 
 // Suggest the next sensible factoring runs, returned as a list sorted by CPU time
@@ -9718,7 +9760,14 @@ function recommendNextRun(digits, attempts) {
       ? Math.min(50, targetCv)
       : (targetCv > 50 && remaining < 50 ? 50 : remaining);
     const pAfter   = ecmProbability(d, haveEff + addCurves, b1);
-    const pExists  = pFactorExists(d, digits);
+    // The CALIBRATED prior, the same one cost-to-finish uses.
+    //
+    // Calibrating the model and then not telling the thing that decides what to
+    // run leaves the correction visible in a table and absent from every
+    // recommendation — the half that matters least. Both ECM and P±1 gains use it,
+    // because scoring them with different priors would make their value-per-hour
+    // figures incomparable, which is the one thing the ranking depends on.
+    const pExists  = pFactorExistsCalibrated(d, digits);
     // Net out work the OTHER method has already done. (pAfter - pBefore) already
     // discounts this method's own prior runs, but each method was blind to the
     // other's coverage — so a factor prior P-1 would almost certainly have caught
@@ -9766,7 +9815,7 @@ function recommendNextRun(digits, attempts) {
       // well-worked number overstated its value by around 5x and pushed P-1 above
       // ECM runs that were genuinely worth more.
       const ecmAlready = ecmProbForDigit(d, ecmAttempts);
-      const contrib = pFactorExists(d, digits) * (1 - ecmAlready) * marginal;
+      const contrib = pFactorExistsCalibrated(d, digits) * (1 - ecmAlready) * marginal;
       g += contrib;
       if (contrib > bestContrib) { bestContrib = contrib; bestD = d; bestEcmCov = ecmAlready; }
     }
@@ -9821,10 +9870,55 @@ function recommendNextRun(digits, attempts) {
   // estimateCpuSeconds) for the formula and its derivation.
   if (priorP1)  { priorP1.b1  = snapDownB1(priorP1.b1);  priorP1.b2  = pm1DefaultB2(priorP1.b1); }
   if (priorPp1) { priorPp1.b1 = snapDownB1(priorPp1.b1); priorPp1.b2 = pm1DefaultB2(priorPp1.b1); }
-  const nextStandardB1 = (priorB1) => {
-    const target = (priorB1 || 0) * 5; // require at least a 5x step to be worthwhile
-    for (const b of _STANDARD_B1S) if (b >= target) return b;
-    return _STANDARD_B1S[_STANDARD_B1S.length - 1] * 10; // beyond the table, still bounded
+  // A CEILING ON HOW LONG ONE RECOMMENDED P±1 RUN MAY TAKE.
+  //
+  // The x5 step was measured on a 1,062-digit entry, where it costs 0.3 minutes.
+  // On the numbers actually being worked — E(n) up to E(20000) is 40,000 to 80,000
+  // digits — the same step costs 4.3 hours at 40k, 9.5 at 60k and 16.8 at 80k, and
+  // returns 0.04%/hr for the trouble. The flat B1=1e7 used when there is no prior
+  // is worse still: 38 hours for a first run at 80k digits.
+  //
+  // Nothing in the ranking noticed, because value-per-hour is a RATE. A 17-hour
+  // run and a 17-minute run at the same rate rank identically, and they are not
+  // remotely the same proposition: the long one cannot be checkpointed, cannot be
+  // split, loses everything to a reboot, and cannot fit inside any time budget a
+  // person would set.
+  //
+  // 12 hours is the ceiling: a run that starts in the evening is done by morning.
+  // Past that the interruption risk stops being theoretical.
+  const PM1_MAX_RUN_SEC = 12 * 3600;
+
+  // Largest standard B1 above the prior whose run fits the ceiling.
+  //
+  // Prefers the x5 step as before — that logic was right, it was the absence of any
+  // upper bound that was wrong — and steps DOWN only when the preferred target does
+  // not fit. Returns null when even a single step up is too long, which is the
+  // honest answer for the biggest entries: there is no P±1 run worth proposing, and
+  // proposing a nine-day one is worse than proposing nothing.
+  const nextStandardB1 = (priorB1, digits, method) => {
+    // Costed as the METHOD being proposed. P+1 is twice the price of P-1 at the
+    // same bound, so a ceiling checked only against P-1 lets every P+1 through at
+    // double the limit — an 18-hour run passing a 12-hour test.
+    const m = method || 'P-1';
+    const fits = (b) => {
+      try { return estimateCpuSeconds(m, b, null, 1, digits) <= PM1_MAX_RUN_SEC; }
+      catch (e) { logSwallowed('nextStandardB1/cost', e); return true; }
+    };
+    // With a prior: at least a 5x step to be worthwhile. Without one: the same 1e7
+    // this used to start from, so a fresh entry is not quietly demoted to the
+    // smallest rung on the ladder. Both are then subject to the ceiling.
+    const target = priorB1 ? priorB1 * 5 : 1e7;
+    // One rung past the table, as before — an entry already at the top B1 still has
+    // somewhere to go. It is subject to the same ceiling as everything else, which
+    // is the part that was missing.
+    const ladder = _STANDARD_B1S.concat([_STANDARD_B1S[_STANDARD_B1S.length - 1] * 10]);
+    const above = ladder.filter(b => b > (priorB1 || 0));
+    if (!above.length) return null;
+    const preferred = above.find(b => b >= target) || above[above.length - 1];
+    if (fits(preferred)) return preferred;
+    // Too long: take the largest that does fit, still above the prior.
+    for (let i = above.length - 1; i >= 0; i--) if (fits(above[i])) return above[i];
+    return null;                          // not even one step up is affordable
   };
   // Explain WHERE the value is, not just how far the bounds reach.
   //
@@ -9862,10 +9956,14 @@ function recommendNextRun(digits, attempts) {
   // behind the other — the efficiency ranking below already picks whichever (if
   // either) is actually worth including in the final top-3.
   {
-    const newB1 = priorP1 ? nextStandardB1(priorP1.b1) : 1e7;
-    const p1res = pmGain('P-1', newB1, pm1DefaultB2(newB1), priorP1 && priorP1.b1, priorP1 && priorP1.b2);
+    // The no-prior default of a flat 1e7 gets the same ceiling — it was the worst
+    // case of all, being both unbounded and applied to entries with no P±1 history,
+    // which at these sizes is most of them.
+    const newB1 = nextStandardB1(priorP1 ? priorP1.b1 : 0, digits, 'P-1');
+    const p1res = newB1 ? pmGain('P-1', newB1, pm1DefaultB2(newB1), priorP1 && priorP1.b1, priorP1 && priorP1.b2)
+                        : { gain: 0, bestD: 0 };
     const { gain, bestD } = p1res;
-    if (gain > 0.0005) { // skip proposing a near-zero-value escalation
+    if (newB1 && gain > 0.0005) { // skip proposing a near-zero-value escalation
       candidates.push({
         method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
         gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', newB1, null, 1, digits),
@@ -9874,10 +9972,11 @@ function recommendNextRun(digits, attempts) {
     }
   }
   {
-    const newB1 = priorPp1 ? nextStandardB1(priorPp1.b1) : 1e7;
-    const pp1res = pmGain('P+1', newB1, pm1DefaultB2(newB1), priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2);
+    const newB1 = nextStandardB1(priorPp1 ? priorPp1.b1 : 0, digits, 'P+1');
+    const pp1res = newB1 ? pmGain('P+1', newB1, pm1DefaultB2(newB1), priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2)
+                         : { gain: 0, bestD: 0 };
     const { gain, bestD } = pp1res;
-    if (gain > 0.0005) {
+    if (newB1 && gain > 0.0005) {
       candidates.push({
         method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
         gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', newB1, null, 1, digits),
@@ -10292,7 +10391,7 @@ function buildECMSection(n, e) {
             <div class="prob-grid">
               ${resolveDigits.map(d => {
                 // P(factor of size d exists in this number)
-                const pExists = pFactorExists(d, digits);
+                const pExists = pFactorExistsCalibrated(d, digits);
 
                 // P(your runs find it | it exists) = combined ECM + PM1
                 const ecmFind   = ecmProbForDigit(d, ecmAttempts);
