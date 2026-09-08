@@ -5884,6 +5884,20 @@ async function exportNextRuns() {
   // Say what a time budget actually bought. "spilled" is the runs that were passed
   // over because they did not fit — without it, a budget that stops early looks
   // like the app running out of work rather than out of time.
+  // Call out anything that will tie a machine up for a long stretch. The run is
+  // still there and still ranked on its merits — this only means the length is a
+  // stated fact before the .bat file is written rather than a discovery afterwards.
+  {
+    const LONG = 12 * 3600;
+    const longRuns = top.filter(r => (r.cpuTime || 0) > LONG);
+    if (longRuns.length) {
+      const worst = longRuns.reduce((a, b) => (b.cpuTime > a.cpuTime ? b : a));
+      sum.push('Note: ' + longRuns.length + ' run(s) exceed 12 hours on one core — '
+        + 'longest is E(' + worst.n + ') at ' + fmtCpuTime(worst.cpuTime)
+        + '. They cannot be checkpointed; a time budget excludes them if that matters.');
+    }
+  }
+
   if (budget.kind === 'time') {
     sum.push('Budget: ' + fmtCpuTime(budget.seconds) + ' requested · '
       + fmtCpuTime(filled.seconds) + ' filled ('
@@ -7731,6 +7745,113 @@ function pFactorExistsCalibrated(d, totalDigits) {
 //
 // Counts ENTRIES, not runs, and only unfinished ones: a finished number has no
 // frontier left to advance.
+// Per-run and per-entry statistics for the yield modal.
+//
+// The yield table aggregates by LEVEL, which answers "was this level worth it" and
+// hides everything about individual numbers. These answer the questions that come
+// next: where did the time actually go, which numbers are absorbing it, and which
+// have absorbed it for nothing.
+//
+// MEASURED time where there is one, estimated otherwise, and every row says which.
+// Only 22% of attempts carry a measured `ms` — mixing the two silently would make
+// a table of estimates look like a table of observations.
+function ecmRunStats(mode, limit) {
+  // limit <= 0 means EVERYTHING. The summary below needs totals over the whole
+  // set, and calling this with a cap and then summing the slice reported the cap
+  // back as the answer — "500 entries have found nothing" when the real figure was
+  // 7,728, and a concentration ratio computed over 500 rows instead of 9,998.
+  const capped = limit > 0;
+  const lim = capped ? Math.min(500, limit) : Infinity;
+  const ecmD = loadECM();
+  const byN = new Map();
+  for (const e of allEntries) byN.set(e.n, e);
+
+  // Finds attributable to our own work, per n.
+  const finds = new Map();
+  try {
+    for (const r of loadHistory()) {
+      if (!Array.isArray(r) || r.length < 4) continue;
+      if (r[3] !== 'e' && r[3] !== 'm') continue;
+      finds.set(r[0], (finds.get(r[0]) || 0) + 1);
+    }
+  } catch (e) { logSwallowed('runStats/finds', e); }
+
+  const rows = [];
+  const perEntry = new Map();
+
+  for (const [nStr, atts] of Object.entries(ecmD || {})) {
+    const n = parseInt(nStr);
+    if (!isFinite(n)) continue;
+    const entry = byN.get(n);
+    const digits = entry ? workingDigitsFor(entry).digits : 0;
+    let entrySec = 0, entryCurves = 0, measuredAll = true;
+
+    for (const a of (atts || [])) {
+      if (!a || !a.b1) continue;
+      const cv = parseInt(a.curves) || (a.method === 'ECM' ? 0 : 1);
+      // attemptCpuSeconds is the ONE rule for pricing a recorded attempt —
+      // measured `ms` when there is one, the model otherwise. A guard in the suite
+      // pins that, and caught this function reimplementing it three lines after it
+      // was written.
+      const measured = !!(a.ms > 0);
+      if (!measured) measuredAll = false;
+      let sec = 0;
+      try { sec = attemptCpuSeconds(a, digits); } catch (e) { sec = 0; }
+      entrySec += sec;
+      entryCurves += cv;
+      rows.push({ n, digits, method: a.method, b1: a.b1, curves: cv, sec, measured,
+                  date: a.lastRun || a.date || null });
+    }
+    perEntry.set(n, { n, digits, sec: entrySec, curves: entryCurves,
+                      finds: finds.get(n) || 0, measured: measuredAll });
+  }
+
+  const cut = (arr) => capped ? arr.slice(0, lim) : arr;
+
+  if (mode === 'entry-cpu') {
+    return cut([...perEntry.values()].sort((a, b) => b.sec - a.sec));
+  }
+  if (mode === 'barren') {
+    // Effort that has returned nothing. Not a failure — most ECM finds nothing —
+    // but the concentration is the point: an entry with thousands of curves and no
+    // factor is where a different approach, or stopping, is worth considering.
+    return cut([...perEntry.values()].filter(e => e.finds === 0 && e.curves > 0)
+      .sort((a, b) => b.curves - a.curves));
+  }
+  if (mode === 'curves') {
+    return cut([...perEntry.values()].sort((a, b) => b.curves - a.curves));
+  }
+  // default: longest single runs
+  return cut(rows.sort((a, b) => b.sec - a.sec));
+}
+
+// Headline numbers for the same section: totals the tables above are slices of.
+function ecmRunSummary() {
+  const ecmD = loadECM();
+  let attempts = 0, measured = 0, measuredSec = 0;
+  for (const atts of Object.values(ecmD || {})) {
+    for (const a of (atts || [])) {
+      if (!a || !a.b1) continue;
+      attempts++;
+      if (a.ms > 0) { measured++; measuredSec += a.ms / 1000; }
+    }
+  }
+  // 0 = no cap. These are TOTALS, and a total taken over a truncated list is just
+  // the truncation reported back.
+  const entries = ecmRunStats('entry-cpu', 0);
+  const barren = ecmRunStats('barren', 0);
+  const worked = new Set(Object.keys(ecmD || {}).map(x => parseInt(x))).size;
+  // How concentrated is the effort? The share of all curves sitting in the busiest
+  // 1% of entries — a single number for "is this spread out or piled up".
+  const all = [...entries].sort((a, b) => b.curves - a.curves);
+  const totCurves = all.reduce((s, e) => s + e.curves, 0);
+  const top1 = all.slice(0, Math.max(1, Math.round(all.length * 0.01)))
+                  .reduce((s, e) => s + e.curves, 0);
+  return { attempts, measured, measuredSec, worked,
+           barren: barren.length,
+           concentration: totCurves ? top1 / totCurves : 0 };
+}
+
 function ecmFrontier() {
   const levels = ecmLevels();
   const counts = {};
@@ -9870,22 +9991,21 @@ function recommendNextRun(digits, attempts) {
   // estimateCpuSeconds) for the formula and its derivation.
   if (priorP1)  { priorP1.b1  = snapDownB1(priorP1.b1);  priorP1.b2  = pm1DefaultB2(priorP1.b1); }
   if (priorPp1) { priorPp1.b1 = snapDownB1(priorPp1.b1); priorPp1.b2 = pm1DefaultB2(priorPp1.b1); }
-  // A CEILING ON HOW LONG ONE RECOMMENDED P±1 RUN MAY TAKE.
+  // A P±1 run longer than this is not recommended at all.
   //
-  // The x5 step was measured on a 1,062-digit entry, where it costs 0.3 minutes.
-  // On the numbers actually being worked — E(n) up to E(20000) is 40,000 to 80,000
-  // digits — the same step costs 4.3 hours at 40k, 9.5 at 60k and 16.8 at 80k, and
-  // returns 0.04%/hr for the trouble. The flat B1=1e7 used when there is no prior
-  // is worse still: 38 hours for a first run at 80k digits.
+  // Two rules that look similar and are not. SUBSTITUTING a smaller B1 to fit is
+  // wrong: it answers "what can I afford" when the question was "what is the next
+  // step", and the reply is a different, weaker run the user did not ask about.
+  // DROPPING is right: past a certain length there is no P±1 run here worth
+  // proposing, and saying nothing is the honest form of that.
   //
-  // Nothing in the ranking noticed, because value-per-hour is a RATE. A 17-hour
-  // run and a 17-minute run at the same rate rank identically, and they are not
-  // remotely the same proposition: the long one cannot be checkpointed, cannot be
-  // split, loses everything to a reboot, and cannot fit inside any time budget a
-  // person would set.
+  // P±1 specifically, because its cost is fixed by B1 — you cannot run "half" of
+  // it, and the ladder's rungs are 2.4x to 5x apart, so there is no fine-grained
+  // option between "affordable" and "days". An ECM recommendation is a curve
+  // COUNT, which is adjustable, so the same argument does not apply to it.
   //
-  // 12 hours is the ceiling: a run that starts in the evening is done by morning.
-  // Past that the interruption risk stops being theoretical.
+  // 12 hours: a run started in the evening is done by morning. Past that it cannot
+  // be checkpointed, loses everything to a reboot, and fits no budget anyone sets.
   const PM1_MAX_RUN_SEC = 12 * 3600;
 
   // Largest standard B1 above the prior whose run fits the ceiling.
@@ -9895,30 +10015,28 @@ function recommendNextRun(digits, attempts) {
   // not fit. Returns null when even a single step up is too long, which is the
   // honest answer for the biggest entries: there is no P±1 run worth proposing, and
   // proposing a nine-day one is worse than proposing nothing.
-  const nextStandardB1 = (priorB1, digits, method) => {
-    // Costed as the METHOD being proposed. P+1 is twice the price of P-1 at the
-    // same bound, so a ceiling checked only against P-1 lets every P+1 through at
-    // double the limit — an 18-hour run passing a 12-hour test.
-    const m = method || 'P-1';
-    const fits = (b) => {
-      try { return estimateCpuSeconds(m, b, null, 1, digits) <= PM1_MAX_RUN_SEC; }
-      catch (e) { logSwallowed('nextStandardB1/cost', e); return true; }
-    };
-    // With a prior: at least a 5x step to be worthwhile. Without one: the same 1e7
-    // this used to start from, so a fresh entry is not quietly demoted to the
-    // smallest rung on the ladder. Both are then subject to the ceiling.
-    const target = priorB1 ? priorB1 * 5 : 1e7;
-    // One rung past the table, as before — an entry already at the top B1 still has
-    // somewhere to go. It is subject to the same ceiling as everything else, which
-    // is the part that was missing.
+  // The natural next bound: at least a 5x step, snapped to a standard value.
+  //
+  // NO cost input, deliberately. This answers "where does the escalation go next";
+  // how long that takes is a separate fact for the caller to report. An earlier
+  // version mixed the two — substituting a smaller B1 when the natural step ran
+  // long, and returning nothing when even one rung did — which quietly handed back
+  // a different, weaker recommendation on exactly the entries where the real option
+  // most needs to be visible. A 19-hour escalation is a real choice; whether to
+  // spend 19 hours belongs to whoever runs the machines.
+  //
+  // The time budget already solves this at the point where the budget is known:
+  // "8h" fills with what fits and reports the rest as skipped. A second ceiling
+  // hidden inside the recommender duplicated that and overrode it with a number the
+  // app invented.
+  const nextStandardB1 = (priorB1) => {
+    const target = priorB1 ? priorB1 * 5 : 1e7;   // 1e7 is the long-standing default
+    // One rung past the table — an entry already at the top B1 still has somewhere
+    // to go.
     const ladder = _STANDARD_B1S.concat([_STANDARD_B1S[_STANDARD_B1S.length - 1] * 10]);
     const above = ladder.filter(b => b > (priorB1 || 0));
     if (!above.length) return null;
-    const preferred = above.find(b => b >= target) || above[above.length - 1];
-    if (fits(preferred)) return preferred;
-    // Too long: take the largest that does fit, still above the prior.
-    for (let i = above.length - 1; i >= 0; i--) if (fits(above[i])) return above[i];
-    return null;                          // not even one step up is affordable
+    return above.find(b => b >= target) || above[above.length - 1];
   };
   // Explain WHERE the value is, not just how far the bounds reach.
   //
@@ -9959,27 +10077,31 @@ function recommendNextRun(digits, attempts) {
     // The no-prior default of a flat 1e7 gets the same ceiling — it was the worst
     // case of all, being both unbounded and applied to entries with no P±1 history,
     // which at these sizes is most of them.
-    const newB1 = nextStandardB1(priorP1 ? priorP1.b1 : 0, digits, 'P-1');
+    const newB1 = nextStandardB1(priorP1 ? priorP1.b1 : 0);
     const p1res = newB1 ? pmGain('P-1', newB1, pm1DefaultB2(newB1), priorP1 && priorP1.b1, priorP1 && priorP1.b2)
                         : { gain: 0, bestD: 0 };
     const { gain, bestD } = p1res;
-    if (newB1 && gain > 0.0005) { // skip proposing a near-zero-value escalation
+    const p1cost = newB1 ? estimateCpuSeconds('P-1', newB1, null, 1, digits) : Infinity;
+    if (newB1 && gain > 0.0005 && p1cost <= PM1_MAX_RUN_SEC) {
       candidates.push({
         method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
-        gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P-1', newB1, null, 1, digits),
+        gain: gain.toFixed(2), cpuTime: p1cost,
         reason: pm1Reason('P-1', priorP1, newB1, p1res),
       });
     }
   }
   {
-    const newB1 = nextStandardB1(priorPp1 ? priorPp1.b1 : 0, digits, 'P+1');
+    const newB1 = nextStandardB1(priorPp1 ? priorPp1.b1 : 0);
     const pp1res = newB1 ? pmGain('P+1', newB1, pm1DefaultB2(newB1), priorPp1 && priorPp1.b1, priorPp1 && priorPp1.b2)
                          : { gain: 0, bestD: 0 };
     const { gain, bestD } = pp1res;
-    if (newB1 && gain > 0.0005) {
+    // Costed as P+1, which is twice the price of P-1 at the same bound — a ceiling
+    // checked against P-1 would let every P+1 through at double the limit.
+    const pp1cost = newB1 ? estimateCpuSeconds('P+1', newB1, null, 1, digits) : Infinity;
+    if (newB1 && gain > 0.0005 && pp1cost <= PM1_MAX_RUN_SEC) {
       candidates.push({
         method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
-        gain: gain.toFixed(2), cpuTime: estimateCpuSeconds('P+1', newB1, null, 1, digits),
+        gain: gain.toFixed(2), cpuTime: pp1cost,
         reason: pm1Reason('P+1', priorPp1, newB1, pp1res),
       });
     }
@@ -12162,6 +12284,95 @@ async function showDataIntegrityReport() {
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
+// Which slice of the run statistics the modal is showing. Module-level so the
+// selectors survive a re-render of just that section.
+let _runStatsMode = 'longest';
+let _runStatsLimit = 50;
+
+const RUN_STATS_MODES = [
+  { key: 'longest',   label: 'longest single runs' },
+  { key: 'entry-cpu', label: 'most CPU on one E(n)' },
+  { key: 'curves',    label: 'most curves on one E(n)' },
+  { key: 'barren',    label: 'most curves, nothing found' },
+];
+
+function setRunStats(mode, limit) {
+  if (mode) _runStatsMode = mode;
+  if (limit) _runStatsLimit = parseInt(limit) || 50;
+  const el = document.getElementById('runStatsSection');
+  if (el) el.innerHTML = renderRunStatsSection();
+}
+
+function renderRunStatsSection() {
+  let rows = [], sum = null;
+  try { rows = ecmRunStats(_runStatsMode, _runStatsLimit); sum = ecmRunSummary(); }
+  catch (e) { logSwallowed('renderRunStats', e); return ''; }
+  if (!rows.length) return '<div class="modal-label">RUN STATISTICS</div>'
+    + '<div style="font-size:11px;color:var(--text-muted)">No ECM runs recorded yet.</div>';
+
+  const perRun = _runStatsMode === 'longest';
+  const opts = RUN_STATS_MODES.map(m =>
+    `<option value="${m.key}"${m.key === _runStatsMode ? ' selected' : ''}>${m.label}</option>`).join('');
+  const lims = [10, 25, 50, 100, 250].map(v =>
+    `<option value="${v}"${v === _runStatsLimit ? ' selected' : ''}>top ${v}</option>`).join('');
+
+  const head = perRun
+    ? ['E(n)', 'digits', 'method', 'B1', 'curves', 'time']
+    : ['E(n)', 'digits', 'curves', 'CPU', 'finds'];
+
+  const body = rows.map((r, i) => {
+    const cells = perRun
+      ? [`E(${r.n})`, r.digits ? r.digits.toLocaleString() : '—', r.method, r.b1,
+         r.curves ? r.curves.toLocaleString() : '—', fmtCpuTime(r.sec)]
+      : [`E(${r.n})`, r.digits ? r.digits.toLocaleString() : '—',
+         r.curves.toLocaleString(), fmtCpuTime(r.sec),
+         r.finds ? String(r.finds) : '<span style="color:var(--text-muted)">0</span>'];
+    // Every row says whether its time was MEASURED or modelled. Only 22% of
+    // attempts carry a measured ms, and a table of estimates that looks like a
+    // table of observations is worse than no table.
+    const mark = r.measured
+      ? '<span style="color:var(--green);font-size:9px" title="measured from the run log">m</span>'
+      : '<span style="color:var(--text-muted);font-size:9px" title="estimated — this attempt has no recorded time">e</span>';
+    return `<tr>
+      <td style="padding:2px 6px 2px 0;text-align:right;color:var(--text-muted)">${i + 1}</td>
+      ${cells.map((c, j) => `<td style="padding:2px 8px 2px 0;text-align:${j === 0 ? 'left' : 'right'}">${c}</td>`).join('')}
+      <td style="padding:2px 0">${mark}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="modal-label">RUN STATISTICS</div>
+    <div style="margin-bottom:8px">
+      <select onchange="setRunStats(this.value, 0)" style="font-size:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:2px">${opts}</select>
+      <select onchange="setRunStats('', this.value)" style="font-size:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:2px;margin-left:6px">${lims}</select>
+    </div>
+    <div style="max-height:320px;overflow:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="color:var(--text-muted)">
+          <th style="padding:0 6px 4px 0"></th>
+          ${head.map((h, j) => `<th style="padding:0 8px 4px 0;text-align:${j === 0 ? 'left' : 'right'}">${h}</th>`).join('')}
+          <th></th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-top:8px">
+      <span style="color:var(--green)">m</span> measured from the run log,
+      <span style="color:var(--text-muted)">e</span> estimated —
+      ${sum.measured.toLocaleString()} of ${sum.attempts.toLocaleString()} attempts
+      (${Math.round(100 * sum.measured / Math.max(1, sum.attempts))}%) carry a recorded time,
+      totalling ${fmtCpuTime(sum.measuredSec)}.
+      <br>
+      <strong style="color:var(--text)">${sum.barren.toLocaleString()}</strong> of
+      ${sum.worked.toLocaleString()} entries with ECM work have found nothing — which is
+      normal, most curves find nothing, but the ones near the top of
+      "most curves, nothing found" are where a rethink is cheapest.
+      The busiest 1% of entries hold
+      <strong style="color:var(--text)">${Math.round(100 * sum.concentration)}%</strong>
+      of all curves.
+    </div>`;
+}
+
 function showYieldReport() {
   let y;
   try { y = computeYieldByLevel(); }
@@ -12277,6 +12488,7 @@ function showYieldReport() {
       </div>
     </div>`;
     })()}
+    <div class="modal-section" id="runStatsSection">${renderRunStatsSection()}</div>
     <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
       <strong style="color:var(--text)">Why two column groups.</strong>
       Effort is known for all time — it comes from the run log. Finds are only
