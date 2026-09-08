@@ -7784,11 +7784,17 @@ function ecmRunStats(mode, limit) {
     if (!isFinite(n)) continue;
     const entry = byN.get(n);
     const digits = entry ? workingDigitsFor(entry).digits : 0;
-    let entrySec = 0, entryCurves = 0, measuredAll = true;
+    let entrySec = 0, entryCurves = 0, entryPasses = 0, measuredAll = true;
 
     for (const a of (atts || [])) {
       if (!a || !a.b1) continue;
-      const cv = parseInt(a.curves) || (a.method === 'ECM' ? 0 : 1);
+      // P±1 has no curves — it is a single pass. Counting it as "1 curve" and adding
+      // that to an ECM curve total mixes two units, and shows "1 cv" on a P-1 row
+      // where the yield table correctly shows a dash. The magnitude is negligible
+      // (10,046 P±1 attempts against 596,000 ECM curves) which is exactly why it
+      // would never have been noticed.
+      const isEcm = a.method === 'ECM';
+      const cv = isEcm ? (parseInt(a.curves) || 0) : null;
       // attemptCpuSeconds is the ONE rule for pricing a recorded attempt —
       // measured `ms` when there is one, the model otherwise. A guard in the suite
       // pins that, and caught this function reimplementing it three lines after it
@@ -7798,11 +7804,12 @@ function ecmRunStats(mode, limit) {
       let sec = 0;
       try { sec = attemptCpuSeconds(a, digits); } catch (e) { sec = 0; }
       entrySec += sec;
-      entryCurves += cv;
+      if (isEcm) entryCurves += cv;
+      else entryPasses++;
       rows.push({ n, digits, method: a.method, b1: a.b1, curves: cv, sec, measured,
                   date: a.lastRun || a.date || null });
     }
-    perEntry.set(n, { n, digits, sec: entrySec, curves: entryCurves,
+    perEntry.set(n, { n, digits, sec: entrySec, curves: entryCurves, passes: entryPasses,
                       finds: finds.get(n) || 0, measured: measuredAll });
   }
 
@@ -7815,8 +7822,9 @@ function ecmRunStats(mode, limit) {
     // Effort that has returned nothing. Not a failure — most ECM finds nothing —
     // but the concentration is the point: an entry with thousands of curves and no
     // factor is where a different approach, or stopping, is worth considering.
-    return cut([...perEntry.values()].filter(e => e.finds === 0 && e.curves > 0)
-      .sort((a, b) => b.curves - a.curves));
+    return cut([...perEntry.values()]
+      .filter(e => e.finds === 0 && (e.curves > 0 || e.passes > 0))
+      .sort((a, b) => (b.curves - a.curves) || (b.passes - a.passes)));
   }
   if (mode === 'curves') {
     return cut([...perEntry.values()].sort((a, b) => b.curves - a.curves));
@@ -7847,8 +7855,20 @@ function ecmRunSummary() {
   const totCurves = all.reduce((s, e) => s + e.curves, 0);
   const top1 = all.slice(0, Math.max(1, Math.round(all.length * 0.01)))
                   .reduce((s, e) => s + e.curves, 0);
+  // Counts by provenance, so the footnote can say exactly what the finds column
+  // does and does not include rather than leaving the reader to assume.
+  let sieve = 0, fdb = 0, history = 0;
+  try {
+    for (const r of loadHistory()) {
+      if (!Array.isArray(r) || r.length < 4) continue;
+      history++;
+      if (r[3] === 's') sieve++;
+      else if (r[3] === 'f') fdb++;
+    }
+  } catch (e) { logSwallowed('runSummary/prov', e); }
+
   return { attempts, measured, measuredSec, worked,
-           barren: barren.length,
+           barren: barren.length, sieve, fdb, history,
            concentration: totCurves ? top1 / totCurves : 0 };
 }
 
@@ -12286,14 +12306,14 @@ async function showDataIntegrityReport() {
 
 // Which slice of the run statistics the modal is showing. Module-level so the
 // selectors survive a re-render of just that section.
-let _runStatsMode = 'longest';
+let _runStatsMode = 'entry-cpu';
 let _runStatsLimit = 50;
 
 const RUN_STATS_MODES = [
-  { key: 'longest',   label: 'longest single runs' },
   { key: 'entry-cpu', label: 'most CPU on one E(n)' },
+  { key: 'longest',   label: 'longest single runs' },
   { key: 'curves',    label: 'most curves on one E(n)' },
-  { key: 'barren',    label: 'most curves, nothing found' },
+  { key: 'barren',    label: 'most curves, nothing found by ECM' },
 ];
 
 function setRunStats(mode, limit) {
@@ -12318,14 +12338,17 @@ function renderRunStatsSection() {
 
   const head = perRun
     ? ['E(n)', 'digits', 'method', 'B1', 'curves', 'time']
-    : ['E(n)', 'digits', 'curves', 'CPU', 'finds'];
+    : ['E(n)', 'digits', 'curves', 'P±1', 'CPU', 'ECM finds'];
 
   const body = rows.map((r, i) => {
     const cells = perRun
       ? [`E(${r.n})`, r.digits ? r.digits.toLocaleString() : '—', r.method, r.b1,
-         r.curves ? r.curves.toLocaleString() : '—', fmtCpuTime(r.sec)]
+         // A dash, not "1": P±1 is one pass, not one curve.
+         r.curves == null ? '—' : r.curves.toLocaleString(), fmtCpuTime(r.sec)]
       : [`E(${r.n})`, r.digits ? r.digits.toLocaleString() : '—',
-         r.curves.toLocaleString(), fmtCpuTime(r.sec),
+         r.curves ? r.curves.toLocaleString() : '—',
+         r.passes ? String(r.passes) : '<span style="color:var(--text-muted)">0</span>',
+         fmtCpuTime(r.sec),
          r.finds ? String(r.finds) : '<span style="color:var(--text-muted)">0</span>'];
     // Every row says whether its time was MEASURED or modelled. Only 22% of
     // attempts carry a measured ms, and a table of estimates that looks like a
@@ -12363,10 +12386,19 @@ function renderRunStatsSection() {
       (${Math.round(100 * sum.measured / Math.max(1, sum.attempts))}%) carry a recorded time,
       totalling ${fmtCpuTime(sum.measuredSec)}.
       <br>
+      <strong style="color:var(--text)">ECM finds</strong> counts factors first attributed to
+      your own ECM or P±1 — not the ${sum.sieve.toLocaleString()} found by the sieve, and not
+      the ${sum.fdb.toLocaleString()} FactorDB already had. Attribution keeps the FIRST finder,
+      so submitting a factor and reading it back from FactorDB later does not double-count it
+      or reassign it (checked: 0 duplicate entries across ${sum.history.toLocaleString()}
+      records). The flip side is that a factor FactorDB reported before your ECM reached it
+      stays theirs, so a 0 here means "your ECM found nothing new", not "this number has no
+      known factors".
+      <br>
       <strong style="color:var(--text)">${sum.barren.toLocaleString()}</strong> of
-      ${sum.worked.toLocaleString()} entries with ECM work have found nothing — which is
-      normal, most curves find nothing, but the ones near the top of
-      "most curves, nothing found" are where a rethink is cheapest.
+      ${sum.worked.toLocaleString()} entries with ECM work have found nothing by ECM — which
+      is normal, most curves find nothing, but the ones near the top of that view are where a
+      rethink is cheapest.
       The busiest 1% of entries hold
       <strong style="color:var(--text)">${Math.round(100 * sum.concentration)}%</strong>
       of all curves.
