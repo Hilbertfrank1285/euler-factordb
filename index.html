@@ -3668,6 +3668,18 @@ function ecmB1Efficiency(d, B1) {
 // Probability of finding a d-digit factor with `curves` curves.
 // If b1 is supplied and differs from optimal, scale effective curves down.
 function ecmProbability(digits, curves, b1) {
+  // An unknown target size is NOT full coverage.
+  //
+  // rho(0) = 1 is mathematically right for a zero-digit target, and catastrophic
+  // as an answer here: `digits` is 0 exactly when an entry's value failed to load,
+  // and reporting certainty makes that entry look FINISHED — fully covered at every
+  // level, nothing left to do, worthless to the ranking. It disappears from the
+  // work queue rather than showing as unavailable.
+  //
+  // The call sites all guard with `e.val &&` today. That is one forgotten check
+  // away from silently retiring a slice of the dataset, so the model answers for
+  // itself.
+  if (!(digits > 0)) return 0;
   const Copt = ecmOptimalCurves(digits);
   const eff  = b1 ? ecmB1Efficiency(digits, b1) : 1;
   const effectiveCurves = curves * eff;
@@ -3759,6 +3771,7 @@ function dickmanRho(u) {
 //        Note: P+1 reaches a DIFFERENT half of primes than P-1, so they're
 //        complementary, not redundant.
 function pm1Probability(digits, B1, B2, method = 'P-1') {
+  if (!(digits > 0)) return 0;   // see ecmProbability — unknown size is not coverage
   const lnP  = digits * Math.log(10);
   const lnB1 = Math.log(Math.max(B1, 2));
   const u1   = lnP / lnB1;
@@ -5083,6 +5096,9 @@ function doClearAllLocalData() {
     });
   })();
 
+  // Storage just changed by everything there was, so any cached reading of it is
+  // describing a store that no longer exists.
+  try { invalidateProbeFree(); } catch(e) { logSwallowed('clearLocal/probe', e); }
   addLog('All local data cleared — reloading…', 'warn');
   // Wait for the IDB wipe to actually land before reloading, otherwise the reload
   // can re-hydrate from a store that wasn't finished clearing.
@@ -6442,11 +6458,6 @@ function importEcmFromFiles(files) {
 
 // Backward-compatible single-file entry point (still used by the paste fallback
 // path and anywhere a single File is available).
-function importEcmFromFile(file) {
-  if (!file) return;
-  importEcmFromFiles([file]);
-}
-
 async function processEcmLogText(text, sourceLabel) {
   if (!text) return;
 
@@ -7784,7 +7795,8 @@ function ecmRunStats(mode, limit) {
     if (!isFinite(n)) continue;
     const entry = byN.get(n);
     const digits = entry ? workingDigitsFor(entry).digits : 0;
-    let entrySec = 0, entryCurves = 0, entryPasses = 0, measuredAll = true;
+    let entrySec = 0, entryCurves = 0, entryPasses = 0;
+    const counted = [];
 
     for (const a of (atts || [])) {
       if (!a || !a.b1) continue;
@@ -7800,7 +7812,7 @@ function ecmRunStats(mode, limit) {
       // pins that, and caught this function reimplementing it three lines after it
       // was written.
       const measured = !!(a.ms > 0);
-      if (!measured) measuredAll = false;
+      counted.push(a);
       let sec = 0;
       try { sec = attemptCpuSeconds(a, digits); } catch (e) { sec = 0; }
       entrySec += sec;
@@ -7809,8 +7821,11 @@ function ecmRunStats(mode, limit) {
       rows.push({ n, digits, method: a.method, b1: a.b1, curves: cv, sec, measured,
                   date: a.lastRun || a.date || null });
     }
+    // allMeasured, not a local flag. It already existed and says exactly this; the
+    // hand-rolled version also differed on the empty case, reporting an entry with
+    // no attempts at all as fully measured.
     perEntry.set(n, { n, digits, sec: entrySec, curves: entryCurves, passes: entryPasses,
-                      finds: finds.get(n) || 0, measured: measuredAll });
+                      finds: finds.get(n) || 0, measured: allMeasured(counted) });
   }
 
   const cut = (arr) => capped ? arr.slice(0, lim) : arr;
@@ -8179,6 +8194,10 @@ function probeFreeChars(force) {
   _probeFreeAt = now;
   return free;
 }
+// Called wherever storage changes by enough to make a cached reading wrong. It was
+// defined and never called — the same shape as invalidateYieldCalib, which was a
+// real bug: after clearing everything, a cached "headroom low" reading survives for
+// up to 60 seconds and describes a store that no longer exists.
 function invalidateProbeFree() { _probeFreeCache = null; }
 
 // Warn once per session when headroom is genuinely tight — based on the MEASURED
@@ -8444,11 +8463,19 @@ async function verifyAndAddFactor(n) {
 
     const eulerBig = BigInt(e.val);
 
-    // Compute remaining cofactor = E(n) / (product of all known factors)
-    let remaining = eulerBig;
-    for (const f of (e.factors || [])) {
-      try { remaining = remaining / parseFactorExpr(f).value; } catch { remaining = remaining / BigInt(f); }
-    }
+    // Remaining cofactor, via the SHARED rule.
+    //
+    // This used to divide unconditionally, factor by factor. BigInt division
+    // truncates silently, so one stored factor that does not divide turned the
+    // cofactor into a number unrelated to the entry — and a genuinely good new
+    // factor was then rejected against it with "divides E(n) but not the remaining
+    // cofactor".
+    //
+    // Not hypothetical: 90 entries in the live data hold E(n) itself as one of
+    // their factors, which makes `remaining` exactly 1, so NOTHING could be added
+    // by hand to any of them. An overstated exponent does the same more quietly.
+    // divideOutFactors skips what does not divide and keeps what does.
+    const remaining = divideOutFactors(eulerBig, (e.factors || []).filter(f => f && f !== '1'));
 
     // Verify new factor divides the remaining cofactor (not full E(n))
     if (remaining % factorBig !== 0n) {
@@ -8470,11 +8497,30 @@ async function verifyAndAddFactor(n) {
     const newRemaining = remaining / factorBig;
     if (newRemaining === 1n) e.status = 'full';
 
-    fdbCache[e.val] = { status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors, timestamp: Date.now(), source: 'manual', n };
+    // Record WHO found it. 'm' is the manual source code, defined and documented
+    // and — until now — never written by anything, so a factor added by hand was
+    // invisible to the yield report, the finds column and factorProvenance. It
+    // showed as belonging to nobody.
+    try { recordDiscovery(n, factorStr, 'm'); } catch (err) { logSwallowed('manualAdd/prov', err); }
+
+    // MERGE into the cache record, do not replace it.
+    //
+    // The old literal dropped `fdbHas` and `fdbId`. fdbHas is what FactorDB itself
+    // reported holding, and it is what stops the submission export sending FactorDB
+    // its own factors back — so adding one factor by hand silently re-armed exactly
+    // the bug §14 exists to prevent. fdbId is the cheap re-check handle for numbers
+    // too big to query by value.
+    const prev = fdbCache[e.val] || {};
+    fdbCache[e.val] = { ...prev,
+      status: e.status === 'full' ? 'FF' : 'CF',
+      factors: e.factors, timestamp: Date.now(), source: 'manual', n };
     fdbFactors[e.val] = { factors: e.factors };
     saveFDBCache(fdbCache);
 
-    const s = loadFdbUnknownSet(); s.delete(n); saveFdbUnknownSet(s);
+    // FactorDB is not undetermined about this number any more — and this is the one
+    // rule for saying so, rather than a third hand-rolled set edit.
+    removeFdbUnknown(n);
+    e._fdbUnknown = false;
 
     const newRemMsg = newRemaining > 1n
       ? ' — remaining cofactor: ' + String(newRemaining).length + ' digits'
@@ -10170,7 +10216,15 @@ function computeDifficulty(digits, attempts) {
 
   // Weighted coverage: smaller factors are more likely to exist → weight more
   // Weight for d-digit range: proportional to 1/d (smaller = more likely)
-  const ecmRange = [20,25,30,35,40,45,50,55,60,65];
+  // ecmLevels(), not a hardcoded array. This was the FOURTH site to spell the
+  // ladder out and start it at 20 — §Fix 1 unified three of them and missed this
+  // one, because the guard checked that ecmLevels() was correct rather than that
+  // anything used it.
+  //
+  // The cost was real: 500 curves at t10 plus 500 at t15 credited exactly ZERO
+  // coverage, so every entry whose work is at the low levels — 4,574 of them by
+  // the frontier count — had its difficulty overstated.
+  const ecmRange = ecmLevels();
   let weightedCoverage = 0, totalWeight = 0;
   for (const d of ecmRange) {
     const weight  = 1 / d;               // smaller factors more likely
@@ -10186,7 +10240,9 @@ function computeDifficulty(digits, attempts) {
   const pm1Attempts = (attempts || []).filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
   let pm1Coverage = 0;
   if (pm1Attempts.length) {
-    const pm1Range = [20,25,30,35,40];
+    // Same floor problem. P±1's practical reach tops out lower than ECM's, so the
+    // 40-digit ceiling stays — but the bottom comes from the shared ladder.
+    const pm1Range = ecmLevels().filter(d => d <= 40);
     let wCov = 0, wTot = 0;
     for (const d of pm1Range) {
       const w = 1 / d;
@@ -10233,45 +10289,66 @@ function difficultyLabel(score) {
 // divided out. Returns { big, str, digits } or null. Handles prime-power factors
 // ("5^2"). This is the number ECM should actually run on — dividing out known
 // factors means GMP-ECM stops re-finding them and works on a smaller modulus.
+// Divide a value by every factor it actually has, and return what is left.
+//
+// ONE implementation, because there were two: getCofactor and getCofactorDigits
+// each carried their own copy of this loop, already drifted in structure. The two
+// have genuinely different contracts — one is exact, the other a bounded bit-length
+// estimate — but the DIVISION is the same rule in both, so a fix to the fallback in
+// one would have silently left the other wrong.
+//
+// Multiplies all factors into one product first, then divides once: BigInt division
+// cost scales with the size of the dividend, so one division of a 50,000-digit
+// number beats N of them. When that product does NOT divide — an overstated
+// exponent, a duplicate, a factor that is simply wrong — it falls back to dividing
+// one factor at a time, so every GOOD factor still comes out. Skipping that would
+// report the whole value as the cofactor and distort difficulty and every
+// recommendation downstream.
+function _parseFactorTerm(f) {
+  const mm = /^(\d+)\^(\d+)$/.exec(String(f));
+  return { base: mm ? mm[1] : String(f), exp: mm ? parseInt(mm[2]) : 1 };
+}
+
+// The product of a factor list, skipping anything unparseable.
+//
+// Shared because getCofactorDigits builds the same product to decide whether the
+// cheap single division applies. The FALLBACK was already shared — it delegates to
+// getCofactor — so this loop was the last copy, and a change to how "5^2" is read
+// would otherwise have had to be made in two places.
+function factorProduct(factors) {
+  let product = 1n;
+  for (const f of factors) {
+    const { base, exp } = _parseFactorTerm(f);
+    let bBig;
+    try { bBig = BigInt(base); } catch { continue; }
+    product *= bBig ** BigInt(exp);
+  }
+  return product;
+}
+
+function divideOutFactors(vBig, factors) {
+  const parse = _parseFactorTerm;
+  const product = factorProduct(factors);
+  if (product !== 0n && product !== 1n && vBig % product === 0n) return vBig / product;
+  if (product === 1n) return vBig;
+  let out = vBig;
+  for (const f of factors) {
+    const { base, exp } = parse(f);
+    let bBig;
+    try { bBig = BigInt(base); } catch { continue; }
+    for (let i = 0; i < exp; i++) {
+      if (bBig > 1n && out % bBig === 0n) out /= bBig;
+    }
+  }
+  return out;
+}
+
 function getCofactor(e) {
   if (!e || !e.val || e.status === 'full') return null;
   let vBig;
   try { vBig = BigInt(e.val); } catch { return null; }
   const factors = (e.factors || []).filter(f => f && f !== '1');
-  // Multiply all known factors into ONE product first, then do a SINGLE division of
-  // the (huge) value by that product — instead of dividing the huge value by each
-  // factor separately. Multiplying small factors together is cheap; BigInt division
-  // cost scales with the size of the DIVIDEND, so doing it once instead of N times
-  // (once per factor) avoids paying that cost N times over for entries with many
-  // accumulated factors.
-  let product = 1n;
-  for (const f of factors) {
-    const mm = /^(\d+)\^(\d+)$/.exec(String(f));
-    const base = mm ? mm[1] : String(f);
-    const exp  = mm ? parseInt(mm[2]) : 1;
-    let bBig;
-    try { bBig = BigInt(base); } catch { continue; }
-    product *= bBig ** BigInt(exp);
-  }
-  if (product !== 0n && product !== 1n && vBig % product === 0n) {
-    vBig /= product;
-  } else if (product !== 1n) {
-    // Combined product does NOT divide — some factor in the list is wrong or
-    // overstated (e.g. a duplicate entry, or "5^2" recorded when only one 5
-    // divides). Fall back to per-factor division so every GOOD factor still gets
-    // removed instead of silently skipping division entirely (which would report
-    // the full value as the cofactor and distort difficulty/recommendations).
-    for (const f of factors) {
-      const mm = /^(\d+)\^(\d+)$/.exec(String(f));
-      const base = mm ? mm[1] : String(f);
-      const exp  = mm ? parseInt(mm[2]) : 1;
-      let bBig;
-      try { bBig = BigInt(base); } catch { continue; }
-      for (let i = 0; i < exp; i++) {
-        if (bBig > 1n && vBig % bBig === 0n) vBig /= bBig;
-      }
-    }
-  }
+  vBig = divideOutFactors(vBig, factors);
   const str = vBig.toString();
   return { big: vBig, str, digits: str.length };
 }
@@ -10349,15 +10426,7 @@ function getCofactorDigits(e) {
   // near a boundary where the ±1 uncertainty could actually change the outcome.
   let vBig;
   try { vBig = BigInt(e.val); } catch { return e.val.length; }
-  let product = 1n;
-  for (const f of factors) {
-    const mm = /^(\d+)\^(\d+)$/.exec(String(f));
-    const base = mm ? mm[1] : String(f);
-    const exp  = mm ? parseInt(mm[2]) : 1;
-    let bBig;
-    try { bBig = BigInt(base); } catch { continue; }
-    product *= bBig ** BigInt(exp);
-  }
+  const product = factorProduct(factors);   // shared — see factorProduct
   let cof = vBig;
   if (product !== 0n && product !== 1n && vBig % product === 0n) {
     cof = vBig / product;
@@ -10414,7 +10483,7 @@ function buildECMSection(n, e) {
 
   // Probability table for cofactor
   if (digits) {
-    const targetDigits = [10,15,20,25,30,35,40,45,50,55,60,65];
+    const targetDigits = ecmLevels();   // shared ladder — never spelled out
     const checkDigits  = targetDigits.filter(d => d < digits);
     if (checkDigits.length) {
       const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
@@ -10516,7 +10585,7 @@ function buildECMSection(n, e) {
         // P(k) ≈ (1/k) × (1 - 1/k) × ... ≈ ln(k+1)/ln(n) - ln(k)/ln(n) = ln((k+1)/k)/ln(n)
         // For a 5-digit range [d, d+5): sum from k=d to d+4 of ln((k+1)/k)/ln(n)
         // = ln((d+5)/d) / ln(n)   (telescoping)
-        const resolveDigits = [10,15,20,25,30,35,40,45,50,55,60,65].filter(d => d <= halfDigits);
+        const resolveDigits = ecmLevels().filter(d => d <= halfDigits);
         if (resolveDigits.length) {
           probHtml = `<div style="margin-bottom:12px">
             <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
@@ -10590,7 +10659,7 @@ function buildECMSection(n, e) {
             const curves  = parseInt(a.curves) || 1;
             // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
             const I_val = a.I ? parseFloat(a.I) : 0;
-            const showDigits = [10,15,20,25,30,35,40,45,50,55,60,65].filter(d => d < digits);
+            const showDigits = ecmLevels().filter(d => d < digits);
             if (showDigits.length === 0) showDigits.push(targetD);
             const parts = showDigits.map(d => {
               const p = I_val > 0
@@ -10605,7 +10674,7 @@ function buildECMSection(n, e) {
             const b2num = (a.b2 ? parseB1(a.b2) : null);
             // Show probability for each relevant digit size (20d, 25d, 30d...)
             // P-1 is run once — no curves multiplier
-            const targetD = [10,15,20,25,30,35,40,45,50,55,60,65];
+            const targetD = ecmLevels();
             const probParts = targetD.filter(d => d < digits).map(d => {
               const p   = pm1Probability(d, b1num, b2num, a.method);
               const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
@@ -10927,14 +10996,20 @@ function applyBulkECM() {
   for (const e of targets) {
     const key = String(e.n);
     if (!ecmData[key]) ecmData[key] = [];
-    // Skip if identical attempt already logged (same method+b1+b2+curves+date)
-    // Normalise B1/B2 to numeric for dedup (3e6 === 3000000)
-    function normNum(s) { return s ? String(parseFloat(String(s).replace(/[eE]/,'e'))) : ''; }
-    const sig = attempt.method + '_' + normNum(attempt.b1) + '_' + normNum(attempt.b2) + '_' + (attempt.curves||'');
-    const already = ecmData[key].some(a =>
-      (a.method+'_'+normNum(a.b1)+'_'+normNum(a.b2)+'_'+(a.curves||'')) === sig
-    );
-    if (!already) ecmData[key].push({ ...attempt });
+    // Push, then NORMALISE — the same rule every other path uses.
+    //
+    // This had its own dedup, and it was wrong twice over. Its normNum used bare
+    // parseFloat, so "250k" became 250 and "11.0M" became 11: logging a bulk
+    // attempt at 250k when 250000 was already recorded produced a SECOND row for
+    // the same work. And its key was method+B1+B2+curves, while the rest of the
+    // project identifies an attempt by method+B1 alone — so bulk-logging 100 curves
+    // and then 200 at the same bound made two rows, which double-counts the curves
+    // in the yield report and is exactly what `euler.py verify` flags as a
+    // duplicate attempt.
+    //
+    // normalizeEcmAttempts keys on method|parseB1(b1) and merges curves by MAX,
+    // which is the right reading of two reports of the same bound.
+    ecmData[key] = normalizeEcmAttempts([...ecmData[key], { ...attempt }]);
   }
   saveECM(ecmData);
 
@@ -12718,8 +12793,31 @@ async function fetchEulerValues() {
   const loaded  = results.filter(Boolean).length;
   console.log('Loaded ' + Object.keys(eulerValues).length + ' Euler values total (' + loaded + '/' + chunks.length + ' chunks)');
 
+  // A PARTIAL failure has to be said out loud.
+  //
+  // This only ever reported `loaded === 0`. One chunk failing out of forty-five
+  // left no warning at all, and the consequences are entirely silent: every entry
+  // in that range reads as "value not loaded", the factor cache load skips those
+  // records (which is what trips _fdbCacheLoadIncomplete and blocks saving), the
+  // recommender passes over them, and adding a factor by hand refuses. All of it
+  // looks like the entries are simply uninteresting.
+  //
+  // Naming the RANGE matters more than the count: "chunks 12 and 13 failed" means
+  // nothing, "E(11402)–E(12200) did not load" is immediately checkable.
+  const failed = chunks.filter((f, i) => !results[i]);
   if (loaded === 0) {
     setStatus('⚠ Could not load Euler values — continuing without them', 'warn');
+    addLog('No Euler values loaded — every entry will read as unavailable', 'warn');
+  } else if (failed.length) {
+    const spans = failed.map(f => {
+      const m = /euler_values_(\d+)_(\d+)\.json/.exec(f);
+      return m ? 'E(' + m[1] + ')–E(' + m[2] + ')' : f;
+    });
+    const msg = failed.length + ' of ' + chunks.length + ' value chunk(s) failed to load: '
+      + spans.slice(0, 3).join(', ') + (spans.length > 3 ? ' and ' + (spans.length - 3) + ' more' : '');
+    setStatus('⚠ ' + msg, 'warn');
+    addLog(msg + ' — entries in those ranges will read as unavailable, and saving the '
+      + 'factor cache is blocked while values are missing. Reload to retry.', 'warn');
   }
 }
 
