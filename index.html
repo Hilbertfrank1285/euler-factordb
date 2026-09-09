@@ -2150,7 +2150,16 @@ function _encodeFactor(f) {
   const hit = _encodeFactorMemo.get(s);
   if (hit !== undefined) return hit;
   let out;
-  if (!/^\d+$/.test(s)) out = s;                        // not a plain decimal
+  // ESCAPE a literal leading '~'. It is the marker meaning "base36 follows", and
+  // passing such a value through unchanged means the decoder reads it as base36
+  // and returns a completely different number: "~abc" came back as 13368, "~" as
+  // 0. Factors are decimal in every path that produces them, so this is not
+  // reachable from good data — but the failure mode is a factor silently becoming
+  // another factor, and the way it becomes reachable is a decode that failed
+  // somewhere upstream leaving an encoded value in a factor list. An unescaped
+  // sentinel is the classic version of this bug.
+  if (typeof s === 'string' && s[0] === '~') out = '~' + s;   // one '~' escapes it
+  else if (!/^\d+$/.test(s)) out = s;                   // not a plain decimal
   else if (s.length > FACTOR_ENCODE_MAX_DIGITS) out = s; // too costly to convert
   else {
     try { out = '~' + BigInt(s).toString(36); }
@@ -2161,6 +2170,7 @@ function _encodeFactor(f) {
 }
 function _decodeFactor(f) {
   if (typeof f !== 'string' || f[0] !== '~') return f; // old format, or already decimal
+  if (f[1] === '~') return f.slice(1);                 // escaped literal — see _encodeFactor
   try {
     let n = 0n;
     for (let i = 1; i < f.length; i++) {
@@ -4334,7 +4344,29 @@ function buildSyncPayload() {
 function mergeFactorRecords(local, remote, valStr) {
   const lTs = Number(local && local.timestamp) || 0;
   const rTs = Number(remote && remote.timestamp) || 0;
-  const remoteNewer = rTs > lTs;
+  // TIE-BREAK deterministically, exactly as mergeHistory does.
+  //
+  // `rTs > lTs` alone means a tie falls to LOCAL — and local is a different record
+  // on each machine, so A keeps A's `source` and B keeps B's, every merge preserves
+  // the choice, and they disagree permanently. `source` is not cosmetic: 'fdb'
+  // means FactorDB already holds everything we do, and it is what makes the
+  // submission export SKIP an entry. Two machines disagreeing about it means one
+  // withholds submissions the other sends.
+  //
+  // The winner on a tie is arbitrary; agreeing on it is not.
+  //
+  // Ordered by a CANONICAL serialisation — keys sorted. A plain JSON.stringify is
+  // insertion-order dependent, and a record that has been through the slim
+  // encode/decode round trip has its keys in a different order from one built in
+  // memory. So the two machines compared different strings and picked different
+  // winners: the record merge converged when called directly and diverged through
+  // the sync payload. (That is the same trap that made an earlier probe report 161
+  // of 250 pairs divergent when every value was identical.)
+  const canon = (r) => {
+    if (!r || typeof r !== 'object') return JSON.stringify(r || null);
+    return JSON.stringify(Object.keys(r).sort().map(k => [k, r[k]]));
+  };
+  const remoteNewer = rTs > lTs || (rTs === lTs && canon(remote) < canon(local));
   const newer = remoteNewer ? remote : local;
   const older = remoteNewer ? local : remote;
 
