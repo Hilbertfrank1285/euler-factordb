@@ -4238,6 +4238,19 @@ function serializeSyncPayload(p) {
 }
 
 function buildSyncPayload() {
+  // Any pending save is written FIRST, for the same reason loadFDBCache does it.
+  //
+  // This reads the PERSISTED store directly with kvGet, bypassing loadFDBCache and
+  // therefore its flush. With saveFDBCache debounced, a payload built while a write
+  // is in flight carries the PREVIOUS version of the cache — and this payload is
+  // what gets pushed to GitHub and pulled by the other machines.
+  //
+  // githubPush flushes too, and today it is the only caller, so nothing was
+  // actually shipping stale. The flush belongs HERE because that is the guarantee
+  // that survives a second caller being added; the one at the call site is then
+  // belt and braces rather than the thing holding it up.
+  try { flushFDBCache(); } catch (e) { logSwallowed('buildSyncPayload/flush', e); }
+
   const slim = JSON.parse(kvGet(STORAGE_KEY) || '{}');
   const full = {};
   for (const [nStr, v] of Object.entries(slim)) {
@@ -4652,12 +4665,28 @@ async function githubPull(skipRender) {
     // If nothing actually changed, restore whatever dirty state existed before the
     // pull — preserving genuine pending local edits while not manufacturing new ones.
     const dirtyBefore = _dirty;
+    // FLUSH FIRST, or the comparison measures the wrong thing.
+    //
+    // saveFDBCache is debounced, so a save from work that just finished may not be
+    // on disk yet. snapBefore would then read the OLD bytes, mergeSyncPayload would
+    // flush that pending write while loading the local cache, and snapAfter would
+    // see it land — reporting "something changed" when the remote contributed
+    // nothing. The dirty flag is never restored and a push is scheduled, which is
+    // exactly what this snapshot exists to prevent.
+    //
+    // kvSet's own debounce is not a problem: kvGet reads the pending map first, so
+    // a kvSet is visible to a kvGet immediately. Only the application-level FDB
+    // cache debounce sits outside that.
+    try { flushFDBCache(); } catch (e) { logSwallowed('githubPull/flush', e); }
     const snapBefore = (kvGet(STORAGE_KEY)||'') + '\u0001' + (kvGet(CHANGELOG_KEY)||'') + '\u0001' + (kvGet(ECM_KEY)||'');
     // Skip the GitHub API base64 decode — raw URL returns plain JSON
     // A pull means the remote may have advanced past whatever we last pushed, so
     // any SHA we cached is no longer trustworthy — force the next push to re-fetch.
     _lastPushedSha = null;
     mergeSyncPayload(payload);
+    // And again after, so a deferred write from the merge itself is counted rather
+    // than landing after the comparison and being missed.
+    try { flushFDBCache(); } catch (e) { logSwallowed('githubPull/flush2', e); }
     const snapAfter = (kvGet(STORAGE_KEY)||'') + '\u0001' + (kvGet(CHANGELOG_KEY)||'') + '\u0001' + (kvGet(ECM_KEY)||'');
     if (snapAfter === snapBefore) { _dirty = dirtyBefore; updateDirtyIndicator(); }
     if (!skipRender) {
@@ -5344,6 +5373,19 @@ function exportFDBSubmission() {
     // Sorted: dedupeCompositeFactors does not preserve the stored order, and a
     // submission log that jumps 2029 → 13 → 4057 is hard to read against the entry.
     expanded.sort((a, b) => (a.length - b.length) || (a < b ? -1 : a > b ? 1 : 0));
+    // The emptiness check has to happen AFTER expansion, not before.
+    //
+    // `ours` is guarded above, but expansion can empty a non-empty list: "5^0"
+    // expands to nothing. The line then reads "<value>=" with no factors, which
+    // euler.py submit skips as unparseable — so the entry silently never gets
+    // submitted — while the export's own summary counted it as ONE factor, because
+    // ''.split('*') is [''].
+    //
+    // Cross-checked against the parser rather than assumed: it reports "line 1:
+    // unparseable — skipped" for such a line, and verify() separately refuses any
+    // factor that is not a decimal number, so nothing malformed reaches FactorDB.
+    // What was wrong was the app claiming to have submitted something it had not.
+    if (!expanded.length) { skippedAllFdb++; continue; }
     lines.push(e.val + '=' + expanded.join('*'));
     count++;
     exportedNs.push(e.n);
@@ -5378,7 +5420,11 @@ function exportFDBSubmission() {
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
-  const totalFactors = lines.reduce((t, l) => t + l.split('=')[1].split('*').length, 0);
+  // Filter(Boolean): ''.split('*') is [''], so an empty factor list counted as one.
+  // Those lines cannot occur any more, but a count that overstates by construction
+  // is the kind of thing that quietly comes back.
+  const totalFactors = lines.reduce((t, l) =>
+    t + l.split('=')[1].split('*').filter(Boolean).length, 0);
   alert(msg + '\n\n'
     + totalFactors.toLocaleString() + ' factor(s) to post'
     + (withheldFactors ? ', with ' + withheldFactors.toLocaleString()
@@ -6516,7 +6562,17 @@ async function processEcmLogText(text, sourceLabel) {
   // line is filtered out of the compact import file.
   const reRunComment = /#\s*run\s+(.+?)\s+E\((\d+)\)\s+\d+d\s*-\s*(ECM|P-1|P\+1)\b/;
   const reStepTime = /Step \d took (\d+)ms/; // real measured time, for the CPU-time summary stat
-  const reFacA  = /Found (prime|probable prime|composite) factor of \d+ digits:\s*(\d+)/;
+  // \s+ around the digit count, not a single space.
+  //
+  // GMP-ECM prints it with %2u, so a count below 10 is right-aligned into two
+  // characters and the line reads "of  3 digits" with TWO spaces. The old pattern
+  // required exactly one, so it missed every factor of fewer than ten digits.
+  //
+  // That did not lose the factor — the "Factor found in step N" line above it still
+  // matched — but this is the line carrying the prime/composite CLASSIFICATION, and
+  // the fallback records composite:false. So a composite factor under ten digits
+  // was imported as a PRIME.
+  const reFacA  = /Found (prime|probable prime|composite) factor of\s+\d+\s+digits:\s*(\d+)/;
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
   const reStep  = /Step \d took/; // evidence stage 1 (or later) actually ran, not just startup
   const reStep2 = /Step 2 took/;  // ECM/P±1's stage 2 completed — see pendingSigma below
@@ -7193,6 +7249,32 @@ function applyFdbResult(data, n, numberStr) {
 
   // Merge: everything we had + anything new from FDB, then collapse prime powers
   let merged = sortFactorsAsc(dedupeCompositeFactors(collapseFactorPowers([...priorOwn, ...fdbPrimes])));
+
+  // CLAMP EXPONENTS AT THE DOOR.
+  //
+  // The value is right here, so "does p^k actually divide it" is answerable now.
+  // Without this, a source reporting 839^2 when only one 839 divides has that
+  // stored verbatim: mergeFactorRecords clamps on sync and the integrity FIX
+  // clamps on demand, but nothing clamped on the way IN. The bad exponent then
+  // sits in the store until somebody runs a repair, and meanwhile the submission
+  // export expands it to 839*839 and offers FactorDB a factorisation we can
+  // already prove wrong.
+  //
+  // Found by round-tripping a file written by `euler.py check` back through this
+  // function — the two programs agree on the format, and this is what the app did
+  // with a bad exponent inside it.
+  if (numberStr && merged.length) {
+    try {
+      const cl = clampExponentsToValue(merged, numberStr);
+      if (cl && cl.factors && (cl.clamped || cl.dropped)) {
+        addLog('E(' + n + '): ' + (cl.clamped ? cl.clamped + ' exponent(s) reduced' : '')
+          + (cl.clamped && cl.dropped ? ', ' : '')
+          + (cl.dropped ? cl.dropped + ' factor(s) dropped' : '')
+          + ' on import — they do not divide the value', 'warn');
+        merged = sortFactorsAsc(cl.factors);
+      }
+    } catch (err) { logSwallowed('applyFdbResult/clamp', err); }
+  }
 
   // ── a cofactor that arrived earlier is still a cofactor ──────────────────
   // The stripping above only cleans what FACTORDB just sent. `priorOwn` is what
