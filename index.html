@@ -5316,10 +5316,22 @@ function exportFDBSubmission() {
     // must be exportable — the old 10000 cap wrongly dropped them.)
     if (e.val.length > 1000000) { skippedTooBig++; continue; }
 
-    // Skip entries fully covered by FactorDB (source 'fdb').
-    // Entries with ANY of our own factors stay tagged 'import' and ARE exported.
+    // Skip entries where FactorDB already has everything WE have — decided per
+    // factor, not from the entry's `source` tag.
+    //
+    // This used to skip the whole entry whenever `source === 'fdb'`, on the premise
+    // that an entry holding any of our own factors stays tagged 'import'. It does
+    // not: `source` records only the MOST RECENT writer, so an ECM find (source
+    // 'import') followed by any FactorDB re-check (source back to 'fdb') made the
+    // entry unexportable and our factor unsendable, however many curves it cost.
+    //
+    // 1,909 entries in the live data are in exactly that state — skipped whole
+    // while holding discoveries of our own.
+    //
+    // factorsFdbLacks answers per factor, using fdbHas, then provenance, then the
+    // source tag only as a last resort. An entry is skipped when it leaves nothing.
     const cached = fdbCache[e.val];
-    if (cached && cached.source === 'fdb') { skippedFdb++; continue; }
+    if (!factorsFdbLacks(e).length) { skippedFdb++; continue; }
 
     // Verify every factor against E(n) BEFORE writing a submission line. These go
     // to a public database, so a wrong line is worse than a missing one — and this
@@ -6214,11 +6226,18 @@ function fdbCheckListSets() {
   const threshold = confirmedQueryDigits();
   const over = allEntries.filter(e => e.val && e.val.length > threshold);
   const sentList = loadSubmitted();
-  const ownFactorsFdbLacks = (e) => {
-    if (!(e.factors || []).filter(f => f && f !== '1').length) return false;
-    const cached = fdbCache[e.val];
-    return !(cached && cached.source === 'fdb');
-  };
+  // factorsFdbLacks, not a local copy of an older, cruder version of it.
+  //
+  // This read "we have something FactorDB lacks IFF the record did not come from
+  // FactorDB" — ignoring both fdbHas and provenance. It therefore disagreed with
+  // the shared rule on exactly the interesting entries: one FactorDB sourced, with
+  // fdbHas naming what it holds, where our own ECM found something more. The
+  // shared rule says that extra factor is ours to send; this said the entry had
+  // nothing, and left it out of the check list.
+  //
+  // The neighbouring aheadOfFdbTargets (a dozen lines up) already used the shared
+  // rule, so the two lists disagreed about the same entries.
+  const ownFactorsFdbLacks = (e) => factorsFdbLacks(e).length > 0;
   const bytes = (list) => list.reduce((s, e) => s + e.val.length, 0);
   const byN = (a, b) => a.n - b.n;
   const all       = over.filter(e => e.status !== 'full').sort(byN);
