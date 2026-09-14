@@ -5359,9 +5359,26 @@ function exportFDBSubmission() {
     withheldFactors += factors.length - ours.length;
     if (!ours.length) { skippedAllFdb++; continue; }
 
+    // CLAMP BEFORE EXPANDING.
+    //
+    // Expansion turns 5^3 into 5*5*5, so a stored exponent that does not divide
+    // becomes a line claiming the number has more copies of a prime than it does —
+    // "E(n)=71*71*839" when only one 71 divides. euler.py verify refuses the
+    // surplus now, but the app should not be sending it: the script is the last
+    // gate, not the first, and a file full of claims that get refused wastes the
+    // run and reads like a fault in the submitter.
+    //
+    // Imports are clamped at the door, so new bad exponents cannot arrive. Anything
+    // stored BEFORE that still sits in the file and reaches here.
+    let submitFactors = ours;
+    try {
+      const cl = clampExponentsToValue(ours, e.val);
+      if (cl && cl.factors) submitFactors = cl.factors;
+    } catch (err) { logSwallowed('exportSubmission/clamp', err); }
+
     // Expand expressions like 5^3 → 5*5*5
     const expanded = [];
-    for (const f of ours) {
+    for (const f of submitFactors) {
       const m = /^(\d+)\^(\d+)$/.exec(f);
       if (m) {
         const reps = parseInt(m[2]);
@@ -7025,8 +7042,19 @@ function recordEcmFactor(entry, factorStr) {
   } catch { /* keep current status */ }
 
   // Persist via fdbCache (the synced store), marked as our own import.
+  //
+  // MERGE, do not replace. The old literal dropped `fdbHas` and `fdbId` — the same
+  // fault fixed in verifyAndAddFactor, present here too because both were written
+  // before those fields existed and only one got retrofitted.
+  //
+  // `fdbHas` is what FactorDB itself reported holding, and it is what stops the
+  // submission export offering FactorDB its own factors back. So finding a factor
+  // by ECM — the thing this whole app is for — silently re-armed the bug §14 exists
+  // to prevent, on exactly the entries where new work had just been done.
   const cacheStatus = status === 'full' ? 'FF' : 'CF';
-  fdbCache[entry.val] = { status: cacheStatus, factors: merged, timestamp: Date.now(), source: 'import', n };
+  const prevRec = fdbCache[entry.val] || {};
+  fdbCache[entry.val] = { ...prevRec,
+    status: cacheStatus, factors: merged, timestamp: Date.now(), source: 'import', n };
   fdbFactors[entry.val] = { factors: merged };
   saveFDBCache(fdbCache);
 
@@ -7625,7 +7653,7 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
         const failEntry = entryByN(target.n);
         if (failEntry && failEntry.status === 'unknown') {
           failEntry.status = 'fdb-unknown';
-          fdbCache[target.number] = { status: 'U', timestamp: Date.now(), n: target.n };
+          markCacheUnknown(target.number, target.n);
           saveFDBCache(fdbCache);
           addFdbUnknown(target.n);
         }
@@ -8417,7 +8445,7 @@ async function quickCheckFDB(n, btn) {
   } catch(err) {
     if (e.status === 'unknown') {
       e.status = 'fdb-unknown';
-      fdbCache[e.val] = { status: 'U', timestamp: Date.now(), n };
+      markCacheUnknown(e.val, n);
       saveFDBCache(fdbCache);
       addFdbUnknown(n);
       applyFilters(); renderStats();
@@ -8661,13 +8689,31 @@ async function verifyAndAddFactor(n) {
 
 
 
+// Mark a cached record as "FactorDB does not know this number", WITHOUT discarding
+// what we already learned about it.
+//
+// Five sites wrote `{ status: 'U', timestamp, n }` as a whole record. That keeps
+// the factors (saveFDBCache recovers those from the in-memory index) but loses
+// `fdbHas`, `fdbId` and `source`.
+//
+// `fdbHas` is the expensive one: it is what FactorDB itself reported holding, and
+// it is what makes the submission export WITHHOLD those factors. Dropping it means
+// the next export offers FactorDB its own factors back — the bug §14 exists to
+// prevent, re-armed by a status update. `fdbId` is the cheap re-check handle for
+// numbers too large to query by value, and is just as gone.
+function markCacheUnknown(key, n) {
+  if (!key) return;
+  const prev = fdbCache[key] || {};
+  fdbCache[key] = { ...prev, status: 'U', timestamp: Date.now(), n };
+}
+
 function markAsFdbUnknown(n) {
   const entry = entryByN(n);
   if (!entry || !entry.val) return;
   // Store U status in fdbCache with current timestamp
-  fdbCache[entry.val] = { status: 'U', timestamp: Date.now(), n };
+  markCacheUnknown(entry.val, n);
   if (entry.cofactor && /^\d+$/.test(entry.cofactor)) {
-    fdbCache[entry.cofactor] = { status: 'U', timestamp: Date.now(), n };
+    markCacheUnknown(entry.cofactor, n);
   }
   saveFDBCache(fdbCache);
   entry.status = 'fdb-unknown';
@@ -9001,8 +9047,26 @@ function factorsFdbLacks(e) {
   const fdbKnown = new Set(((cached && cached.fdbHas) || []).map(f => String(f).split('^')[0]));
   return factors.filter(f => {
     const base = String(f).split('^')[0];
-    if (fdbKnown.has(base)) return false;
-    return factorProvenance(e.n, f) !== 'f';
+    if (fdbKnown.has(base)) return false;         // FactorDB said it holds this
+    const prov = factorProvenance(e.n, f);
+    if (prov === 'f') return false;               // history says it came from there
+    // Third fallback, for records that predate both of the above.
+    //
+    // fdbHas is absent from ALL 9,397 live records holding factors, and 4,094 of
+    // them are source:'fdb' with no provenance entry either — populated wholly from
+    // a FactorDB response before any of this tracking existed. Offering those back
+    // is exactly what §14 exists to prevent, and neither earlier check can see it.
+    //
+    // Safe against withholding a genuine find: anything WE discover gets an 'e' or
+    // 's' provenance record at the moment of discovery, so it has a provenance and
+    // never reaches this line. Only factors with no recorded origin, on an entry
+    // whose record came from FactorDB, are treated as FactorDB's.
+    // Only when fdbHas is ABSENT. If it is present it is authoritative — FactorDB
+    // told us exactly what it holds, so a factor missing from that list is one it
+    // needs, and applying the source fallback there would withhold everything and
+    // make the field useless.
+    if (!prov && cached && cached.source === 'fdb' && !cached.fdbHas) return false;
+    return true;
   });
 }
 
@@ -9732,7 +9796,7 @@ async function modalCheckFull(n) {
     // Any query failure → fdb-unknown
     if (e && (e.status === 'unknown')) {
       e.status = 'fdb-unknown';
-      if (e.val) { fdbCache[e.val] = { status: 'U', timestamp: Date.now(), n }; saveFDBCache(fdbCache); }
+      if (e.val) { markCacheUnknown(e.val, n); saveFDBCache(fdbCache); }
       addFdbUnknown(n);
       renderGrid(); renderStats();
       const bd2 = document.getElementById('modalBackdrop');
@@ -12296,7 +12360,12 @@ function applySieveFindings() {
       // 'fdb' when it does not costs a factor that is never offered at all.
       rec.source = 'sieve';
     }
-    else fdbCache[e.val] = { status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors, timestamp: Date.now(), source: 'sieve', n: f.n };
+    // Merge, like every other write into this store — a replacing write drops
+    // fdbHas and fdbId, and a sieve find is exactly when the entry has recently
+    // been talked about with FactorDB.
+    else fdbCache[e.val] = { ...(fdbCache[e.val] || {}),
+      status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors,
+      timestamp: Date.now(), source: 'sieve', n: f.n };
   }
   saveFDBCache(fdbCache);
   markDirty();
