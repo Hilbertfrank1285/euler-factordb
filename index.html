@@ -588,7 +588,16 @@
   <!-- One Check button, not six. It keeps id="pollBtn" because runPollQueue falls
        back to that element for its spinner when a starter's own button is absent —
        which, now that the other five are gone, is every time. -->
-  <button class="poll-btn" id="pollBtn" onclick="startCheck()"
+  <!-- The three buttons below are HIDDEN unless a custom proxy is configured.
+       A browser cannot call FactorDB directly (no CORS headers), so every in-app
+       query goes through a public proxy, and the public proxies no longer answer.
+       A button that never works is worse than no button: it invites retries, and
+       until recently each failure wrote "FactorDB does not know this number" onto
+       the entry. Use `euler.py check`, which is a plain HTTP client with no proxy
+       and no origin policy in the way.
+       showFdbButtons() reveals them the moment a custom proxy is set, so the
+       capability is intact for anyone who has somewhere to host one. -->
+  <button class="poll-btn" id="pollBtn" onclick="startCheck()" style="display:none"
     title="Check entries against FactorDB — asks which: all, partially factored, no known factors, nothing known, never checked, FDB undetermined, or old records">
     <span class="poll-icon">↻</span><span class="spinner">◌</span> Check…
   </button>
@@ -597,10 +606,14 @@
     <span class="poll-icon">↻</span><span class="spinner">◌</span> Check submitted (<span class="submitted-count">0</span>)
   </button>
   <button class="poll-btn" id="testRoutesBtn" onclick="diagnoseRoutes()"
-    style="background:var(--surface2)"
+    style="background:var(--surface2);display:none"
     title="Ask FactorDB for the number 5 down each route and report which ones answer.&#10;&#10;Run this when a check fails: &quot;All query routes failed&quot; names neither the route nor&#10;the reason, and the three fail for different causes — a proxy down, a proxy rate-&#10;limiting, or the direct route blocked by the browser's origin policy, which it&#10;always is. Nothing here depends on the size of the number.">
     ⚕ Test routes
   </button>
+  <span id="fdbOfflineNote" style="font-size:11px;color:var(--text-muted);padding:0 6px">
+    FactorDB queries run through <code>euler.py check</code> — a browser cannot call it
+    directly. Set a custom proxy in settings to enable them here.
+  </span>
 
   <span class="bar-sep"></span>
 
@@ -1689,6 +1702,48 @@ function migrateBogusCofactorFactors() {
   // next load rather than leaving part of the database unrepaired forever.
   if (!ranOut) localStorage.setItem('eulerFDB_bogusCofactorFix_v2', '1');
   else addLog('Data repair paused at its time budget — will continue on next load', '');
+}
+
+// One-time: clear "FactorDB undetermined" marks that a network failure wrote.
+//
+// Until the fdbDeclinedToAnswer fix, ANY failed check marked the entry — a timeout,
+// an aborted fetch, a dead CORS proxy. That records a verdict about the NUMBER from
+// a failure of the TRANSPORT, and the status then reads "We asked — FactorDB has no
+// factorisation for this", which is simply untrue: we never got an answer.
+//
+// TARGETED, not a blanket clear. A genuine refusal is FactorDB seeing the request
+// and declining it, which in practice means the number was too large for the
+// endpoint. So this clears marks only on entries SMALL enough that FactorDB should
+// have answered — leaving any legitimate refusal in place. On the live data every
+// one of the 2,650 marks is below that threshold, which is itself the evidence that
+// they are transport failures rather than verdicts.
+//
+// Entries are NOT excluded from checking by this mark, so nothing is unblocked by
+// running it. What it fixes is the data saying something false.
+function migrateFalseFdbUnknown() {
+  if (localStorage.getItem('eulerFDB_falseUnknown_v1')) return;
+  let cleared = 0;
+  try {
+    const limit = confirmedQueryDigits();
+    const s = loadFdbUnknownSet();
+    if (s.size) {
+      for (const n of [...s]) {
+        const e = entryByN(n);
+        if (!e || !e.val) continue;
+        if (e.val.length > limit) continue;      // plausibly a real refusal — leave it
+        s.delete(n);
+        if (e.status === 'fdb-unknown') e.status = 'unknown';
+        e._fdbUnknown = false;
+        cleared++;
+      }
+      if (cleared) { saveFdbUnknownSet(s); markDirty(); }
+    }
+    localStorage.setItem('eulerFDB_falseUnknown_v1', '1');
+  } catch (e) { logSwallowed('migrate/falseUnknown', e); return; }
+  if (cleared) {
+    addLog(cleared + ' "FactorDB undetermined" mark(s) cleared — they were written by '
+      + 'failed queries, not by FactorDB declining. Those entries can be checked again.', 'ok');
+  }
 }
 
 function migrateSigmaHashes() {
@@ -2921,6 +2976,9 @@ function saveCustomProxy(t) {
     const v = (t || '').trim();
     if (v) localStorage.setItem(CUSTOM_PROXY_KEY, v);
     else localStorage.removeItem(CUSTOM_PROXY_KEY);
+    // Setting or clearing a proxy changes whether the FactorDB buttons can work,
+    // so reveal or hide them straight away rather than waiting for a reload.
+    try { showFdbButtons(); updateSubmittedBtn(); } catch (e) {}
   } catch (e) { logSwallowed('saveCustomProxy', e); }
 }
 
@@ -2939,6 +2997,62 @@ function saveCustomProxy(t) {
 //
 // The candidates below are NOT verified from here. ⚕ Test routes is how you find
 // out which of them work today, in one click, which is the point of having it.
+// Does this error mean FactorDB DECLINED to answer, or that we never reached it?
+//
+// Only the first justifies marking an entry "FactorDB undetermined". A timeout, an
+// abort, a dead CORS proxy or a network drop mean we learned NOTHING about the
+// number — recording that as a fact about FactorDB is simply false, and the mark
+// then excludes the entry from future checks, so one bad afternoon retires it
+// permanently.
+//
+// 2,650 entries in the live data carry this mark and every one is below the size
+// threshold, i.e. every one should have been answerable. They are proxy failures
+// written down as facts.
+function fdbDeclinedToAnswer(err) {
+  const m = (err && err.message) || '';
+  // 'too large' and 'Non-numeric' come from FactorDB itself: it saw the request
+  // and refused it. Everything else is transport.
+  return m.includes('too large') || m.includes('Non-numeric');
+}
+
+// Show the FactorDB buttons only when a route that can actually work is available.
+//
+// Without a custom proxy every route is a public CORS proxy, and those no longer
+// answer — so the buttons are dead. Presenting a dead control is its own bug: it
+// wastes the user's time, and it kept writing "FactorDB does not know this number"
+// onto entries whose only fault was that a proxy was down (2,650 of them).
+//
+// Not deleted, because the custom proxy is a route the user controls: set one and
+// the buttons come back. Everyone else uses `euler.py check`, which needs no proxy.
+function showFdbButtons() {
+  const on = !!loadCustomProxy();
+  // pollSubmittedBtn goes through the same queryFactorDB path, so it is exactly as
+  // dead — it was being recommended as the safety net after a submission run.
+  for (const id of ['pollBtn', 'testRoutesBtn', 'pollSubmittedBtn']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  }
+  const note = document.getElementById('fdbOfflineNote');
+  if (note) {
+    note.style.display = on ? 'none' : '';
+    // Carry the pending count into the note. Hiding the button must not hide the
+    // WORK: an existing test insists the count stays visible so oversized entries
+    // are not forgotten, and it is right — what was wrong was showing the count on
+    // a control that cannot act on it.
+    if (!on) {
+      let pending = 0;
+      try { pending = Object.keys(loadSubmitted()).length; } catch (e) {}
+      note.innerHTML = (pending
+          ? '<strong style="color:var(--text)">' + pending + '</strong> submitted '
+            + 'entr' + (pending === 1 ? 'y' : 'ies') + ' await verification. '
+          : '')
+        + 'FactorDB queries run through <code>euler.py check</code> — a browser cannot '
+        + 'call it directly. Set a custom proxy in settings to enable them here.';
+    }
+  }
+  return on;
+}
+
 function fdbRoutes(apiUrl) {
   const enc = encodeURIComponent(apiUrl);
   const out = [];
@@ -3437,6 +3551,28 @@ function isFdbUndetermined(entry, rec) {
 
 // Drop a number from the fdb-unknown set. Called when FactorDB answers, so the
 // set stops accumulating markers that its own cache records contradict.
+// Clear every "FactorDB undetermined" mark so those entries are checked again.
+//
+// The mark used to be written on ANY failed check, including a timeout or a dead
+// CORS proxy — 2,650 entries carry it and every one is below the size threshold, so
+// every one should have been answerable. The mark also excludes them from future
+// checks, so without a way to clear it a bad afternoon retires them for good.
+//
+// Returns how many were cleared. Deliberately does not touch the cache records'
+// status: a later successful check overwrites that with the truth.
+function clearAllFdbUnknown() {
+  const s = loadFdbUnknownSet();
+  const n = s.size;
+  if (!n) return 0;
+  saveFdbUnknownSet(new Set());
+  for (const e of allEntries) {
+    if (e.status === 'fdb-unknown') e.status = 'unknown';
+    e._fdbUnknown = false;
+  }
+  markDirty();
+  return n;
+}
+
 function removeFdbUnknown(n) {
   try {
     const s = loadFdbUnknownSet();
@@ -5281,7 +5417,11 @@ function updateSubmittedBtn() {
   // Visible while anything is pending, so oversized entries are not forgotten —
   // but the count is what this button will actually do. A count that includes
   // entries it cannot check never goes down, and invites clicking it again.
-  btn.style.display = pending ? '' : 'none';
+  // …and only when a route that works is configured. Without one this button goes
+  // through the same dead proxies as every other in-app query, so a pending count
+  // beside a button that cannot act on it is just a standing invitation to click.
+  btn.style.display = (pending && loadCustomProxy()) ? '' : 'none';
+  try { showFdbButtons(); } catch (e) {}   // keeps the note's count in step
   const label = btn.querySelector('.submitted-count');
   if (label) label.textContent = oversized ? targets.length + '/' + pending : String(targets.length);
   btn.title = oversized
@@ -7665,12 +7805,15 @@ async function runPollQueue(targets, isManual = false, activeBtn = null, forceU 
       // Only count as error if it's a genuine query failure (not a JS bug in processing)
       const isQueryError = err instanceof TypeError || err.message?.includes('fetch') ||
         err.message?.includes('Failed') || err.message?.includes('HTTP') ||
-        err.message?.includes('timeout') || err.message?.includes('abort') ||
         err.message?.includes('Non-numeric') || err.message?.includes('too large');
       if (isQueryError) {
         errors++;
+        // Counting the error is right for any query failure; MARKING the entry is
+        // not. isQueryError deliberately includes TypeError, 'fetch', 'Failed' and
+        // 'HTTP' — every one of those is transport, and none is a statement about
+        // whether FactorDB knows the number.
         const failEntry = entryByN(target.n);
-        if (failEntry && failEntry.status === 'unknown') {
+        if (failEntry && failEntry.status === 'unknown' && fdbDeclinedToAnswer(err)) {
           failEntry.status = 'fdb-unknown';
           markCacheUnknown(target.number, target.n);
           saveFDBCache(fdbCache);
@@ -8462,7 +8605,9 @@ async function quickCheckFDB(n, btn) {
     renderStats();
     scheduleECMPush();
   } catch(err) {
-    if (e.status === 'unknown') {
+    // Only when FactorDB actually declined. A transport failure is not evidence
+    // about the number — see fdbDeclinedToAnswer.
+    if (e.status === 'unknown' && fdbDeclinedToAnswer(err)) {
       e.status = 'fdb-unknown';
       markCacheUnknown(e.val, n);
       saveFDBCache(fdbCache);
@@ -9812,8 +9957,9 @@ async function modalCheckFull(n) {
     const backdrop = document.getElementById('modalBackdrop');
     if (backdrop && backdrop.classList.contains('open')) openModal(n);
   } catch(err) {
-    // Any query failure → fdb-unknown
-    if (e && (e.status === 'unknown')) {
+    // Only a REFUSAL by FactorDB, not any query failure. A dead proxy or a dropped
+    // connection tells us nothing about the number — see fdbDeclinedToAnswer.
+    if (e && e.status === 'unknown' && fdbDeclinedToAnswer(err)) {
       e.status = 'fdb-unknown';
       if (e.val) { markCacheUnknown(e.val, n); saveFDBCache(fdbCache); }
       addFdbUnknown(n);
@@ -13075,6 +13221,7 @@ setTimeout(async () => {
     fdbCache    = loadFDBCache();
     try { migrateRedundantComposites(); } catch(e) { logSwallowed('migrate/redundantComposites', e); }  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
     try { migrateSigmaHashes(); } catch(e) { logSwallowed('migrate/sigmaHashes', e); }  // one-time raw-sigma→hash compaction (storage size fix)
+    try { migrateFalseFdbUnknown(); } catch(e) { logSwallowed('migrate/falseUnknown', e); }  // one-time: marks written by network failures, not by FactorDB
     try { migrateBogusCofactorFactors(); } catch(e) { logSwallowed('migrate/bogusCofactor', e); }  // undo the CF cofactor-as-prime bug
     // The seed-import feature was one-time-only and has been removed now that both
     // seeds are in. Its tracking key would otherwise linger indefinitely; the flag
