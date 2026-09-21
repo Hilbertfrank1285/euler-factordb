@@ -585,35 +585,10 @@
       style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
   </div>
 
-  <!-- One Check button, not six. It keeps id="pollBtn" because runPollQueue falls
-       back to that element for its spinner when a starter's own button is absent —
-       which, now that the other five are gone, is every time. -->
-  <!-- The three buttons below are HIDDEN unless a custom proxy is configured.
-       A browser cannot call FactorDB directly (no CORS headers), so every in-app
-       query goes through a public proxy, and the public proxies no longer answer.
-       A button that never works is worse than no button: it invites retries, and
-       until recently each failure wrote "FactorDB does not know this number" onto
-       the entry. Use `euler.py check`, which is a plain HTTP client with no proxy
-       and no origin policy in the way.
-       showFdbButtons() reveals them the moment a custom proxy is set, so the
-       capability is intact for anyone who has somewhere to host one. -->
-  <button class="poll-btn" id="pollBtn" onclick="startCheck()" style="display:none"
-    title="Check entries against FactorDB — asks which: all, partially factored, no known factors, nothing known, never checked, FDB undetermined, or old records">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check…
-  </button>
-  <button class="poll-btn" id="pollSubmittedBtn" onclick="startSubmittedPoll()" style="display:none;background:var(--surface2)"
-    title="Re-check every entry from your last FactorDB submission in one pass. Entries clear themselves once FactorDB confirms them.">
-    <span class="poll-icon">↻</span><span class="spinner">◌</span> Check submitted (<span class="submitted-count">0</span>)
-  </button>
-  <button class="poll-btn" id="testRoutesBtn" onclick="diagnoseRoutes()"
-    style="background:var(--surface2);display:none"
-    title="Ask FactorDB for the number 5 down each route and report which ones answer.&#10;&#10;Run this when a check fails: &quot;All query routes failed&quot; names neither the route nor&#10;the reason, and the three fail for different causes — a proxy down, a proxy rate-&#10;limiting, or the direct route blocked by the browser's origin policy, which it&#10;always is. Nothing here depends on the size of the number.">
-    ⚕ Test routes
-  </button>
-  <span id="fdbOfflineNote" style="font-size:11px;color:var(--text-muted);padding:0 6px">
-    FactorDB queries run through <code>euler.py check</code> — a browser cannot call it
-    directly. Set a custom proxy in settings to enable them here.
-  </span>
+  <!-- The in-app FactorDB check was removed. A browser cannot call FactorDB
+       directly (no CORS headers), so every query went through public proxies and
+       those stopped answering — dead UI that still wrote a false verdict on each
+       attempt. Checking runs through `euler.py check`. -->
 
   <span class="bar-sep"></span>
 
@@ -2701,25 +2676,6 @@ function replayFDBCache() {
 // Which are "unknown" entries with a known absolute value small enough to query?
 const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 
-function getUnknownTargets() {
-  // Pure unknowns only — entries never queried on FactorDB
-  return allEntries
-    .filter(e => e.status === 'unknown' && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }));
-}
-
-function allTargets(includeFull, source) {
-  // Fully factored entries are skipped by default — there is normally nothing left
-  // to learn about them. They ARE worth including on request, though: "full" is no
-  // longer taken on FactorDB's word (the factors must multiply back to E(n)), so
-  // re-checking one can now DISPROVE a wrong full and correct it, which is exactly
-  // what the entries flagged "marked full but factors fall short" need.
-  return (source || allEntries)
-    .filter(e => (includeFull || e.status !== 'full') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-}
-
 // The remaining check scopes, extracted from the six poll starters that used to
 // have a button each. They live here rather than inline so the single Check prompt
 // can COUNT each scope with the same rule that will then run it — a count computed
@@ -2730,32 +2686,8 @@ function allTargets(includeFull, source) {
 // An entry can hold factors while still labelled 'composite' or 'fdb-unknown' (a
 // stale status), and those must be re-checkable here too, otherwise the bulk sweep
 // silently skips them while the modal recheck handles them fine.
-function partialTargets(cap) {
-  const out = allEntries
-    .filter(e => e.status !== 'full' && e.val && e.n > 2
-                 && (e.factors || []).filter(f => f && f !== '1').length > 0)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-  return cap ? out.slice(0, cap) : out;
-}
-
 // Composite = FactorDB confirmed no known factors. 'attempted' means the same
 // thing plus local ECM history, so it belongs in the same sweep.
-function compositeTargets() {
-  return allEntries
-    .filter(e => (e.status === 'composite' || e.status === 'attempted') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-}
-
-function fdbUnknownTargets(cap) {
-  const out = allEntries
-    .filter(e => e.status === 'fdb-unknown' && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-  return cap ? out.slice(0, cap) : out;
-}
-
 // Both of the above at once: entries we know nothing about, whether because we
 // have never asked FactorDB or because we asked and it had nothing.
 //
@@ -2814,49 +2746,8 @@ function aheadOfFdbTargets(cap) {
   return { targets: cap ? out.slice(0, cap) : out, oversized, limit };
 }
 
-function startAheadOfFdbPoll() {
-  if (polling) return;
-  const cap = requestCap();
-  const { targets, oversized, limit } = aheadOfFdbTargets(cap);
-  if (!targets.length) {
-    setStatus(oversized
-      ? 'All ' + oversized + ' entries ahead of FactorDB are above the ' + limit.toLocaleString()
-        + 'd query limit — use the offline check list'
-      : 'No entries are ahead of FactorDB', 'warn');
-    return;
-  }
-  addLog('Re-checking ' + targets.length + ' entries that hold factors FactorDB lacks'
-    + (oversized ? ' (' + oversized + ' too large to query)' : '') + ' (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, false, false);
-}
-
-function nothingKnownTargets(cap) {
-  const out = allEntries
-    .filter(e => (e.status === 'unknown' || e.status === 'fdb-unknown') && e.val && e.n > 2)
-    .map(e => ({ n: e.n, number: e.val }))
-    .filter(t => t.number);
-  return cap ? out.slice(0, cap) : out;
-}
-
 // Never checked, or checked longer ago than `days`. Queries the COFACTOR for a
 // partial entry — no point re-asking about factors we already hold.
-function staleTargets(days) {
-  const cutoff = Date.now() - Math.max(1, days) * 86400000;
-  return allEntries
-    .filter(e => {
-      if (e.status === 'full') return false;
-      if (!e.val || e.n <= 2) return false;
-      const info = getFdbCheckInfo(e);
-      return !info || info.timestamp < cutoff;
-    })
-    .map(e => {
-      const queryNum = (e.status === 'partial' && e.cofactor && /^\d+$/.test(e.cofactor))
-        ? e.cofactor : e.val;
-      return { n: e.n, number: queryNum };
-    })
-    .filter(t => t.number);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // FACTORDB API  (via a CORS proxy or same-origin; FactorDB supports CORS)
 // We use a simple fetch with no API key required.
@@ -2968,20 +2859,6 @@ const FDB_ROUTE_DELAY_MS = 600;   // between route attempts within one number (w
 const FDB_ROUTE_KEY = 'eulerFDB_route_v1';
 const CUSTOM_PROXY_KEY = 'eulerFDB_customProxy_v1';
 
-function loadCustomProxy() {
-  try { return (localStorage.getItem(CUSTOM_PROXY_KEY) || '').trim(); } catch (e) { return ''; }
-}
-function saveCustomProxy(t) {
-  try {
-    const v = (t || '').trim();
-    if (v) localStorage.setItem(CUSTOM_PROXY_KEY, v);
-    else localStorage.removeItem(CUSTOM_PROXY_KEY);
-    // Setting or clearing a proxy changes whether the FactorDB buttons can work,
-    // so reveal or hide them straight away rather than waiting for a reload.
-    try { showFdbButtons(); updateSubmittedBtn(); } catch (e) {}
-  } catch (e) { logSwallowed('saveCustomProxy', e); }
-}
-
 // Every route to FactorDB, in preference order. ONE list.
 //
 // The query path and the route diagnostic each had their own copy, which is the
@@ -3024,45 +2901,13 @@ function fdbDeclinedToAnswer(err) {
 //
 // Not deleted, because the custom proxy is a route the user controls: set one and
 // the buttons come back. Everyone else uses `euler.py check`, which needs no proxy.
-function showFdbButtons() {
-  const on = !!loadCustomProxy();
-  // pollSubmittedBtn goes through the same queryFactorDB path, so it is exactly as
-  // dead — it was being recommended as the safety net after a submission run.
-  for (const id of ['pollBtn', 'testRoutesBtn', 'pollSubmittedBtn']) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = on ? '' : 'none';
-  }
-  const note = document.getElementById('fdbOfflineNote');
-  if (note) {
-    note.style.display = on ? 'none' : '';
-    // Carry the pending count into the note. Hiding the button must not hide the
-    // WORK: an existing test insists the count stays visible so oversized entries
-    // are not forgotten, and it is right — what was wrong was showing the count on
-    // a control that cannot act on it.
-    if (!on) {
-      let pending = 0;
-      try { pending = Object.keys(loadSubmitted()).length; } catch (e) {}
-      note.innerHTML = (pending
-          ? '<strong style="color:var(--text)">' + pending + '</strong> submitted '
-            + 'entr' + (pending === 1 ? 'y' : 'ies') + ' await verification. '
-          : '')
-        + 'FactorDB queries run through <code>euler.py check</code> — a browser cannot '
-        + 'call it directly. Set a custom proxy in settings to enable them here.';
-    }
-  }
-  return on;
-}
-
 function fdbRoutes(apiUrl) {
   const enc = encodeURIComponent(apiUrl);
   const out = [];
-  const custom = loadCustomProxy();
-  if (custom) {
-    // {url} marks where the encoded target goes; without it the target is appended,
-    // which is the shape most of these proxies use.
-    out.push({ key: 'custom',
-               url: custom.includes('{url}') ? custom.replace('{url}', enc) : custom + enc });
-  }
+  // No custom-proxy route. Its setter went with the in-app check, so the key could
+  // never be written and the branch could never fire — a preference with no way to
+  // express it. The remaining routes serve tryResolveCompositeViaFDB, which is the
+  // only caller left.
   out.push(
     { key: 'corsproxy',   url: `https://corsproxy.io/?url=${enc}` },
     { key: 'allorigins',  url: `https://api.allorigins.win/raw?url=${enc}` },
@@ -3096,8 +2941,6 @@ function noteFdbFailure() {
 }
 function noteFdbSuccess() { _fdbConsecutiveFails = 0; _fdbBreakerTripped = false; }
 function fdbBreakerOpen() { return _fdbBreakerTripped; }
-function resetFdbBreaker() { _fdbConsecutiveFails = 0; _fdbBreakerTripped = false; }
-
 async function queryFactorDB(numberStr, knownId) {
   if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
 
@@ -3341,84 +3184,6 @@ async function queryFactorDB(numberStr, knownId) {
 // the direct route is blocked by the browser's origin policy essentially always.
 // Without this the only way to tell them apart is the network tab.
 const ROUTE_PROBE_TIMEOUT_MS = 5000;
-
-async function diagnoseRoutes() {
-  const probe = '5';                       // E(4). Small, real, and certainly known.
-  const api = `https://factordb.com/api?query=${probe}`;
-  const routes = fdbRoutes(api);
-  const lines = [];
-  let anyOk = false;
-  for (const r of routes) {
-    const t0 = Date.now();
-    try {
-      // 5s, not 15. This is a one-digit query: anything healthy answers in well
-      // under a second, and a route that needs longer is unusable for a run of
-      // hundreds anyway. At 15s a five-route probe spent over a minute confirming
-      // what the first second already showed.
-      const resp = await fetchWithTimeout(r.url, ROUTE_PROBE_TIMEOUT_MS);
-      const ms = Date.now() - t0;
-      if (!resp.ok) { lines.push('  ' + r.key.padEnd(11) + ' HTTP ' + resp.status + '  (' + ms + 'ms)'); continue; }
-      // Parsed in its own try. A proxy that is UP but returning its own error page,
-      // a captcha or a rate-limit notice is a different diagnosis from one that is
-      // unreachable — and letting a JSON parser message escape here would report
-      // the difference as "Unexpected token '<'", which helps nobody.
-      const text = await resp.text();
-      let result = null;
-      try {
-        const data = JSON.parse(text);
-        result = data.contents ? JSON.parse(data.contents) : data;
-      } catch (parseErr) { result = null; }
-      if (result && result.status) {
-        anyOk = true;
-        lines.push('  ' + r.key.padEnd(11) + ' OK — FactorDB says ' + result.status + '  (' + ms + 'ms)');
-      } else {
-        lines.push('  ' + r.key.padEnd(11) + ' answered, but not with a FactorDB result  (' + ms + 'ms)');
-      }
-    } catch (e) {
-      const ms = Date.now() - t0;
-      const why = (e && e.name === 'AbortError') ? 'timed out'
-                : /NetworkError|Failed to fetch|load failed/i.test(String(e && e.message)) ? 'unreachable or blocked'
-                : (e && e.message) || 'failed';
-      lines.push('  ' + r.key.padEnd(11) + ' ' + why + '  (' + ms + 'ms)');
-    }
-  }
-  // Offer the custom slot when nothing worked. Public CORS proxies come and go —
-  // corsproxy.io started demanding an API key and allorigins began timing out, both
-  // without notice — so being able to point at a working one is the difference
-  // between a bad week and a dead feature.
-  if (!anyOk) {
-    const cur = loadCustomProxy();
-    const entered = prompt(
-      'No route reached FactorDB.\n\n'
-      + 'If you know a CORS proxy that works, paste it here and it will be tried FIRST\n'
-      + 'from now on. Use {url} to mark where the encoded FactorDB URL goes; without\n'
-      + 'it the URL is appended, which is what most of these expect.\n\n'
-      + '  https://my-proxy.example/?url={url}\n'
-      + '  https://my-proxy.example/fetch/\n\n'
-      + 'Leave blank to clear it and use the built-in list.',
-      cur);
-    if (entered !== null) {
-      saveCustomProxy(entered);
-      addLog(entered.trim() ? 'Custom proxy set — it will be tried first'
-                            : 'Custom proxy cleared', '');
-    }
-  }
-
-  const verdict = anyOk
-    ? 'At least one route works, so checking should function. If a run still fails '
-      + 'on big numbers it IS a size limit; on small ones it is intermittent.'
-    : 'NOTHING got through. FactorDB itself may be fine — the two proxies this app '
-      + 'depends on are third-party and free, and both being down at once is the '
-      + 'common cause. The direct route cannot work from a browser at all, because '
-      + 'FactorDB sends no CORS header.\n\n'
-      + 'euler.py check needs no proxy and is unaffected — use it until a route '
-      + 'comes back, or check a number by hand on factordb.com.';
-  alert('Route test — querying FactorDB for the number 5\n\n'
-    + lines.join('\n') + '\n\n' + verdict);
-  addLog('Route test: ' + (anyOk ? 'at least one route works' : 'every route failed'),
-    anyOk ? 'ok' : 'warn');
-  return anyOk;
-}
 
 // Query FactorDB for a standalone composite number that isn't itself an E(n)
 // entry — e.g. a composite ECM/GMP-ECM reported as a factor, which our own
@@ -4015,13 +3780,6 @@ function renderLog() {
 }
 
 
-function renderChangelog() {
-  // Changelog UI panel was removed; the data layer still records entries for
-  // results.json sync, but there's nothing to render. Guard against missing DOM.
-  const el = document.getElementById('changelogEntries');
-  if (!el) return;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // GITHUB SYNC
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4048,7 +3806,6 @@ function saveGHSettings() {
   // Repo/branch may have changed — a SHA cached from a different file is
   // meaningless, so drop it and let the next push fetch a fresh one.
   _lastPushedSha = null;
-  updateGHStatus();
 }
 
 function loadGHSettingsToUI() {
@@ -4058,20 +3815,6 @@ function loadGHSettingsToUI() {
   set('ghRepo',   s.repo);
   set('ghBranch', s.branch || 'main');
   set('ghToken',  s.token);
-  updateGHStatus();
-}
-
-function updateGHStatus() {
-  const s = loadGHSettings();
-  const el = document.getElementById('githubStatus');
-  if (!el) return;
-  if (!s.user || !s.repo || !s.token) {
-    el.className = 'github-status';
-    el.textContent = 'Auto-pull active (public) — configure ⚙ to push your results';
-  } else {
-    el.className = 'github-status ok';
-    el.textContent = `${s.user}/${s.repo} @ ${s.branch||'main'} — push enabled`;
-  }
 }
 
 async function fetchLastUpdateTime() {
@@ -4829,7 +4572,6 @@ async function githubPull(skipRender) {
       allEntries = buildEntries();
       replayFDBCache();
       applyFilters();
-      renderChangelog();
     }
     addLog('GitHub pull complete — data merged', 'ok');
     // Refresh the header timestamp from the actual GitHub commit (most accurate)
@@ -5009,18 +4751,6 @@ async function githubPush() {
 }
 
 // Auto-push after a successful poll
-async function maybeAutoPush() {
-  const s = loadGHSettings();
-  if (s.user && s.repo && s.token) {
-    try {
-      await githubPush();
-    } catch(e) {
-      // githubPush handles its own errors and shows the warning banner
-      addLog('Auto-push failed: ' + e.message, 'err');
-    }
-  }
-}
-
 // Auto-pull on page load if configured
 async function maybeAutoPull(skipRender) {
   // Pull is always public — no token needed
@@ -5372,65 +5102,6 @@ function submittedTargets() {
   }
   return { targets: out, oversized, limit };
 }
-async function startSubmittedPoll() {
-  if (polling) return;
-  const before = reconcileSubmitted();   // clear anything already confirmed
-  const { targets, oversized, limit } = submittedTargets();
-
-  // Saying "nothing to check" while entries are still pending would be a lie, and
-  // the useful half of the answer is where they DO get checked.
-  const offlineNote = '\n\n' + oversized + ' pending entr' + (oversized === 1 ? 'y is' : 'ies are')
-    + ' above ' + limit.toLocaleString() + ' digits, which the browser cannot query — '
-    + 'the number travels in the URL and the request line is capped at 64 KiB.\n\n'
-    + 'Use "Export FDB check list", run euler.py check, then "Import FDB results". '
-    + 'That confirms them and clears them from this list too.';
-
-  if (!targets.length) {
-    alert(oversized
-      ? 'Nothing here for the browser to check.' + offlineNote
-      : before.cleared
-        ? before.cleared + ' submitted entr(y/ies) already confirmed by FactorDB — nothing left to check.'
-        : 'No pending submissions. Export a submission file first, paste it into FactorDB, then come back here.');
-    updateSubmittedBtn();
-    return;
-  }
-  addLog('Checking ' + targets.length + ' submitted entries against FactorDB'
-    + (oversized ? ' (' + oversized + ' too large for the browser — see euler.py check)' : ''), '');
-  await runPollQueue(targets, true, document.getElementById('pollSubmittedBtn'), true, true);
-  const after = reconcileSubmitted();
-  updateSubmittedBtn();
-  // after.remaining counts everything still pending, including the oversized ones
-  // this pass never touched — so landed has to be measured against what was queued.
-  const stillPendingHere = submittedTargets().targets.length;
-  const landed = targets.length - stillPendingHere;
-  alert('Checked ' + targets.length + ' submitted entr' + (targets.length === 1 ? 'y' : 'ies') + '.\n\n'
-    + landed + ' now confirmed on FactorDB and cleared from the pending list.\n'
-    + stillPendingHere + ' still pending — FactorDB can take a while to process a submission, '
-    + 'so re-checking later usually resolves the rest.'
-    + (oversized ? offlineNote : ''));
-}
-function updateSubmittedBtn() {
-  const btn = document.getElementById('pollSubmittedBtn');
-  if (!btn) return;
-  const pending = Object.keys(loadSubmitted()).length;
-  const { targets, oversized, limit } = submittedTargets();
-  // Visible while anything is pending, so oversized entries are not forgotten —
-  // but the count is what this button will actually do. A count that includes
-  // entries it cannot check never goes down, and invites clicking it again.
-  // …and only when a route that works is configured. Without one this button goes
-  // through the same dead proxies as every other in-app query, so a pending count
-  // beside a button that cannot act on it is just a standing invitation to click.
-  btn.style.display = (pending && loadCustomProxy()) ? '' : 'none';
-  try { showFdbButtons(); } catch (e) {}   // keeps the note's count in step
-  const label = btn.querySelector('.submitted-count');
-  if (label) label.textContent = oversized ? targets.length + '/' + pending : String(targets.length);
-  btn.title = oversized
-    ? targets.length + ' of ' + pending + ' pending submissions are within the '
-      + limit.toLocaleString() + '-digit browser limit. The other ' + oversized
-      + ' need euler.py check — see "Export FDB check list".'
-    : 'Re-check the ' + targets.length + ' pending submission(s) against FactorDB';
-}
-
 function exportFDBSubmission() {
   if (Object.keys(eulerValues).length === 0) {
     alert('Euler values still loading — please wait and try again.');
@@ -5579,7 +5250,6 @@ function exportFDBSubmission() {
   URL.revokeObjectURL(url);
 
   const pending = markSubmitted(exportedNs);
-  updateSubmittedBtn();
   let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
   if (skippedBadFactors) msg += ' · ' + skippedBadFactors + ' SKIPPED (factors do not divide E(n) — run the data integrity check)';
   if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
@@ -6424,7 +6094,10 @@ function exportFDBCheckList() {
   // costs more than the extra keypress saves.
   // Every Check-button scope, offline. Same keys, same meanings — a scope you can
   // check in the browser now has an equivalent you can run without one.
-  const scoped = fdbScopeEntries(parseInt(localStorage.getItem(STALE_DAYS_KEY)) || 31);
+  // A fixed 31 days. This used to read a setting, but the UI that wrote it went
+  // with the in-app check, so the read could only ever return the default — a
+  // storage lookup pretending to be configurable.
+  const scoped = fdbScopeEntries(STALE_SCOPE_DAYS);
   const bytesOf = (list) => list.reduce((n, e) => n + e.val.length, 0);
   const scopeOpt = (key, match, label) => ({
     key, list: scoped[key], bytes: bytesOf(scoped[key]), match,
@@ -7313,14 +6986,6 @@ function toggleLog() {
 // ─────────────────────────────────────────────────────────────────────────────
 // POLLING ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
-function needsDailyCheck(numStr, forceU = false) {
-  const cached = fdbCache[numStr];
-  if (!cached) return true;
-  // 'U' (Unknown) = FDB hasn't processed it yet — always re-check on manual poll
-  if (cached.status === 'U' && forceU) return true;
-  return (Date.now() - cached.timestamp) > AUTO_INTERVAL;
-}
-
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Sleeps but resolves early if cancelRequested is set
@@ -7680,241 +7345,6 @@ function applyFdbResult(data, n, numberStr) {
     statusChanged,
     priorEntryStatus,
   };
-}
-
-async function runPollQueue(targets, isManual = false, activeBtn = null, forceU = false, noCap = false) {
-  if (polling) return;
-  polling = true;
-
-  try {
-  // Disable the check buttons; animate the one that was clicked. There are two of
-  // them now — Check and Check submitted — where there used to be seven.
-  const mainBtn      = document.getElementById('pollBtn');
-  const submittedBtn = document.getElementById('pollSubmittedBtn');
-  // activeBtn is null for every starter reached through the Check prompt, since
-  // their individual buttons no longer exist; mainBtn is the one to animate.
-  const btn = activeBtn || mainBtn;
-  [mainBtn, submittedBtn].forEach(b => { if (b) b.disabled = true; });
-  if (btn) btn.classList.add('polling');
-
-  const progress   = document.getElementById('pollProgress');
-  const progressIn = document.getElementById('pollProgressInner');
-  progress.classList.add('active');
-
-  const queue = targets.filter(t => isManual || needsDailyCheck(t.number, forceU));
-  const total = noCap ? queue.length : Math.min(queue.length, MAX_PER_SESSION);
-  // Set when the circuit breaker aborts the run, so the completion message reports
-  // STOPPED rather than Done.
-  let breakerStopped = false;
-
-  setStatus(`Checking ${total} entr${total===1?'y':'ies'} via FactorDB — safe to switch tabs`);
-  // Update title to show progress when tab is in background
-  const origTitle = document.title;
-  const titleInterval = setInterval(() => {
-    if (!polling) { clearInterval(titleInterval); document.title = origTitle; return; }
-    document.title = `[${done}/${total}] Polling FDB…`;
-  }, 2000);
-  document.getElementById('queueInfo').style.display = 'flex';
-  const qcEl = document.getElementById('queueCount');
-  if (qcEl) qcEl.textContent = total;
-  const cancelBtnEl = document.getElementById('cancelBtn');
-  if (cancelBtnEl) { cancelBtnEl.style.display = 'flex'; cancelBtnEl.disabled = false; cancelBtnEl.textContent = '⊘ Cancel'; }
-
-  addLog(`Poll started — ${total} targets`, '');
-
-  let done = 0, updated = 0, errors = 0;
-  let factorsAdded = 0;        // total new prime factors discovered
-  let nowFull = 0, nowPartial = 0, nowComposite = 0, nowFdbUnknown = 0; // status transitions
-
-  // Snapshot entry statuses + factor counts before poll
-  for (const e of allEntries) { e._statusBeforePoll = e.status; e._priorFactorCount = (e.factors || []).length; }
-
-  cancelRequested = false;
-  for (const target of (noCap ? queue : queue.slice(0, MAX_PER_SESSION))) {
-    if (cancelRequested) {
-      const notChecked = total - done;
-      addLog(`Poll cancelled — ${updated} updated · ${errors} errors · ${done} checked · ${notChecked} not checked`, 'warn');
-      break;
-    }
-    const qc = document.getElementById('queueCount'); if (qc) qc.textContent = total - done;
-    if (progressIn) progressIn.style.width = `${Math.round((done / total) * 100)}%`;
-    setStatus(`Checking E(${target.n}) [${target.number.length}d, ${timeoutForNumber(target.number)/1000}s timeout] — ${done + 1} of ${total}…`);
-
-    // Highlight the card being fetched
-    const fetchingCard = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
-    if (fetchingCard) {
-      fetchingCard.classList.add('fetching');
-      // (no auto-scroll — the page no longer jumps to follow the checking row)
-    }
-
-    try {
-      const data = await queryFactorDB(target.number);
-      const r = applyFdbResult(data, target.n, target.number);
-      const status = r.status;
-      const primeFactors = r.factors;
-      const entry = entryByN(target.n);
-
-      // Log what FDB returned
-      addLog(`E(${target.n}) → FDB: ${fdbStatusLabel(status)}, ${primeFactors.length} factor(s)${primeFactors.length ? ': '+primeFactors.slice(0,3).join(' × ')+(primeFactors.length>3?' …':'') : ''}`, status==='C'||status==='U' ? 'warn' : 'ok');
-
-      // Changelog for meaningful transitions
-      if (r.statusChanged && r.entryStatus === 'full') {
-        addChangelogEntry(target.n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(status) + ')');
-      } else if (status === 'CF' && r.factorsAddedToEntry > 0) {
-        addChangelogEntry(target.n, 'updated', 'FDB CF: ' + primeFactors.length + ' factor(s)');
-      }
-
-      // Tally detailed stats per entry
-      const entryNow = entryByN(target.n);
-      if (entryNow) {
-        // If the snapshot fields are missing (e.g. allEntries got rebuilt mid-poll
-        // by a concurrent import/pull, replacing entry objects), default to "no
-        // change" rather than letting undefined look like a transition — the safe
-        // direction is to undercount, not to spuriously flag every entry checked
-        // after the rebuild as newly full/partial/etc.
-        const priorStatusKnown = entryNow._statusBeforePoll !== undefined;
-        const priorCountKnown  = entryNow._priorFactorCount !== undefined;
-        const newFactorCount = (entryNow.factors || []).length;
-        const priorCount     = priorCountKnown ? entryNow._priorFactorCount : newFactorCount;
-        if (newFactorCount > priorCount) factorsAdded += (newFactorCount - priorCount);
-        // Status transitions (only count if actually changed)
-        const priorStatus = priorStatusKnown ? entryNow._statusBeforePoll : entryNow.status;
-        if (priorStatus !== entryNow.status) {
-          if (entryNow.status === 'full')        nowFull++;
-          else if (entryNow.status === 'partial')   nowPartial++;
-          else if (entryNow.status === 'composite') nowComposite++;
-          else if (entryNow.status === 'fdb-unknown') nowFdbUnknown++;
-        }
-      }
-      // "Updated" = a MEANINGFUL change only: entry status transition OR new factors added.
-      // A refreshed FDB timestamp or unchanged re-query does NOT count.
-      const priorStatusForChange = entryNow && (entryNow._statusBeforePoll !== undefined ? entryNow._statusBeforePoll : entryNow.status);
-      const priorCountForChange  = entryNow && (entryNow._priorFactorCount !== undefined ? entryNow._priorFactorCount : (entryNow.factors || []).length);
-      const statusTransitioned = entryNow && priorStatusForChange !== entryNow.status;
-      const gotNewFactors      = entryNow && (entryNow.factors || []).length > priorCountForChange;
-      const changed = statusTransitioned || gotNewFactors;
-      if (changed) {
-        updated++;
-        // Flash the card
-        const cardEl = document.querySelector(`.card[onclick="openModal(${target.n})"]`);
-        if (cardEl) { cardEl.classList.remove('just-updated'); void cardEl.offsetWidth; cardEl.classList.add('just-updated'); }
-      } else {
-        // unchanged — skip logging to keep the log clean
-      }
-    } catch(err) {
-      // Only count as error if it's a genuine query failure (not a JS bug in processing)
-      const isQueryError = err instanceof TypeError || err.message?.includes('fetch') ||
-        err.message?.includes('Failed') || err.message?.includes('HTTP') ||
-        err.message?.includes('Non-numeric') || err.message?.includes('too large');
-      if (isQueryError) {
-        errors++;
-        // Counting the error is right for any query failure; MARKING the entry is
-        // not. isQueryError deliberately includes TypeError, 'fetch', 'Failed' and
-        // 'HTTP' — every one of those is transport, and none is a statement about
-        // whether FactorDB knows the number.
-        const failEntry = entryByN(target.n);
-        if (failEntry && failEntry.status === 'unknown' && fdbDeclinedToAnswer(err)) {
-          failEntry.status = 'fdb-unknown';
-          markCacheUnknown(target.number, target.n);
-          saveFDBCache(fdbCache);
-          addFdbUnknown(target.n);
-        }
-      } else {
-        // JS processing error — still count as updated if entry changed
-        updated++;
-        console.error('Processing error for E(' + target.n + '):', err);
-      }
-      addLog(`E(${target.n}) ${isQueryError ? 'query failed' : 'processing error'}: ${err.message || err}`, 'warn');
-    }
-
-    // Remove fetching highlight
-    if (fetchingCard) fetchingCard.classList.remove('fetching');
-
-    done++;
-
-    // Abandon the whole run once the breaker trips. Continuing would mean thousands
-    // more requests to a server that has already refused everything recently.
-    if (fdbBreakerOpen()) {
-      breakerStopped = true;
-      break;
-    }
-
-    // Rate limit: wait between requests (cancellable)
-    if (done < total && !cancelRequested) await cancellableSleep(REQUEST_DELAY_MS);
-  }
-
-  // Write out whatever the run accumulated, rather than leaving the last few
-  // numbers riding on a timer.
-  try { flushFDBCache(); } catch(e) { logSwallowed('poll/flush', e); }
-
-  progressIn.style.width = '100%';
-  await sleep(400);
-  progress.classList.remove('active');
-  progressIn.style.width = '0%';
-
-  const leftover = queue.length - total;
-
-  // Build detailed breakdown
-  const details = [];
-  if (factorsAdded > 0)   details.push(`${factorsAdded} factor${factorsAdded===1?'':'s'} added`);
-  if (nowFull > 0)        details.push(`${nowFull} → fully factored`);
-  if (nowPartial > 0)     details.push(`${nowPartial} → partial`);
-  if (nowComposite > 0)   details.push(`${nowComposite} → no factors`);
-  if (nowFdbUnknown > 0)  details.push(`${nowFdbUnknown} → FDB undetermined`);
-  const detailStr = details.length ? ' (' + details.join(', ') + ')' : '';
-
-  // A run halted by the breaker must NOT report as "Done". The completion path used
-  // to overwrite the stop message with a bland success line, so a run that aborted
-  // after 8 numbers of 5,000 looked indistinguishable from one that finished — the
-  // one situation where the user most needs to know something is wrong.
-  let msg = breakerStopped
-    ? `STOPPED — FactorDB not responding (${FDB_BREAKER_LIMIT} failures in a row). ${done}/${total} checked, ${total - done} not attempted`
-    : cancelRequested
-      ? `Cancelled — ${done} checked, ${updated} updated${detailStr} · ${errors} errors · ${total - done} not checked`
-      : `Done — ${done} checked, ${updated} updated${detailStr}${errors ? ' · ' + errors + ' errors' : ''}`;
-  if (!breakerStopped && !cancelRequested && leftover > 0) msg += ` · ${leftover} skipped (cap)`;
-
-  setStatus(msg, breakerStopped ? 'err' : (updated > 0 ? 'ok' : ''));
-  addLog(msg, breakerStopped ? 'err' : (updated > 0 ? 'ok' : ''));
-  if (breakerStopped) {
-    // Unmissable, deliberately: silently stopping is how someone re-runs a poll
-    // against a struggling server without realising.
-    alert('Stopped contacting FactorDB.\n\n'
-      + FDB_BREAKER_LIMIT + ' queries in a row failed, so it appears to be down or refusing requests.\n\n'
-      + '  checked before stopping : ' + done + '\n'
-      + '  not attempted           : ' + (total - done) + '\n\n'
-      + 'Nothing further was sent. Wait for FactorDB to recover, then run the check '
-      + 'again — it will resume from where the data left off.');
-  }
-  if (updated > 0 && !breakerStopped) maybeAutoPush();
-
-  const qi = document.getElementById('queueInfo'); if (qi) qi.style.display = 'none';
-  const cb = document.getElementById('cancelBtn'); if (cb) cb.style.display = 'none';
-  btn.classList.remove('polling');
-  if (mainBtn) mainBtn.disabled = false;
-  const _sub = document.getElementById('pollSubmittedBtn'); if (_sub) _sub.disabled = false;
-  polling = false;
-  cancelRequested = false;
-  clearInterval(titleInterval);
-  document.title = origTitle;
-
-  localStorage.setItem(COOLDOWN_KEY, Date.now());
-  applyFilters();
-  } catch (err) {
-    console.error('runPollQueue error:', err);
-    addLog('Poll stopped due to an unexpected error: ' + (err && err.message || err), 'warn');
-  } finally {
-    // Safety net: guarantee the poll UI never gets stuck disabled forever, even if
-    // something above threw before reaching the normal cleanup path. Re-queries
-    // elements fresh rather than depending on try-scoped variables, so this can't
-    // itself fail due to a scoping issue.
-    polling = false;
-    cancelRequested = false;
-    ['pollBtn','pollSubmittedBtn']
-      .forEach(id => { const b = document.getElementById(id); if (b) { b.disabled = false; b.classList.remove('polling'); } });
-    const qi2 = document.getElementById('queueInfo'); if (qi2) qi2.style.display = 'none';
-    const cb2 = document.getElementById('cancelBtn'); if (cb2) cb2.style.display = 'none';
-  }
 }
 
 let _storageWarningShown = false;
@@ -8588,38 +8018,6 @@ function setStatus(msg, cls = '') {
   el.className = 'factordb-status' + (cls ? ` ${cls}` : '');
 }
 
-async function quickCheckFDB(n, btn) {
-  // A deliberate single-entry click is the natural way to test whether FactorDB is
-  // back. Clear the breaker so it is allowed — the cost is one number's requests,
-  // and if it fails the breaker simply re-arms.
-  resetFdbBreaker();
-  if (polling) return;
-  const e = entryByN(n);
-  if (!e || !e.val) return;
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
-  try {
-    const data = await queryFactorDB(e.val, (fdbCache[e.val] || {}).fdbId);
-    const r = applyFdbResult(data, n, e.val);   // canonical handler
-    addLog('E(' + n + ') ↻ ' + fdbStatusLabel(r.status), 'ok');
-    applyFilters();
-    renderStats();
-    scheduleECMPush();
-  } catch(err) {
-    // Only when FactorDB actually declined. A transport failure is not evidence
-    // about the number — see fdbDeclinedToAnswer.
-    if (e.status === 'unknown' && fdbDeclinedToAnswer(err)) {
-      e.status = 'fdb-unknown';
-      markCacheUnknown(e.val, n);
-      saveFDBCache(fdbCache);
-      addFdbUnknown(n);
-      applyFilters(); renderStats();
-    }
-    addLog('E(' + n + ') query failed → fdb-unknown: ' + err.message, 'warn');
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '↻'; }
-  }
-}
-
 // Evaluate expressions: digits, base^exp, base*mult
 // Returns { value: BigInt, display: string }
 function parseFactorExpr(s) {
@@ -8865,41 +8263,12 @@ async function verifyAndAddFactor(n) {
 // the next export offers FactorDB its own factors back — the bug §14 exists to
 // prevent, re-armed by a status update. `fdbId` is the cheap re-check handle for
 // numbers too large to query by value, and is just as gone.
-function markCacheUnknown(key, n) {
-  if (!key) return;
-  const prev = fdbCache[key] || {};
-  fdbCache[key] = { ...prev, status: 'U', timestamp: Date.now(), n };
-}
-
-function markAsFdbUnknown(n) {
-  const entry = entryByN(n);
-  if (!entry || !entry.val) return;
-  // Store U status in fdbCache with current timestamp
-  markCacheUnknown(entry.val, n);
-  if (entry.cofactor && /^\d+$/.test(entry.cofactor)) {
-    markCacheUnknown(entry.cofactor, n);
-  }
-  saveFDBCache(fdbCache);
-  entry.status = 'fdb-unknown';
-  addFdbUnknown(n); // persist in dedicated set — survives chunk load failures
-  addLog('E(' + n + ') manually marked as FDB undetermined', 'warn');
-  applyFilters();
-  renderStats();
-  // Refresh the modal
-  const backdrop = document.getElementById('modalBackdrop');
-  if (backdrop && backdrop.classList.contains('open')) openModal(n);
-  scheduleECMPush();
-}
-
 // Remembered between runs — a standing preference about what counts as stale,
 // not a per-run decision. Was an input box in the toolbar before the six check
 // buttons became one.
-const STALE_DAYS_KEY = 'eulerFDB_staleDays_v1';
-function loadStaleDays() {
-  const v = parseInt(localStorage.getItem(STALE_DAYS_KEY) || '');
-  return (isFinite(v) && v > 0) ? v : 31;
-}
-
+// How old a FactorDB record must be for the "stale" export scope. Fixed: the
+// setting that used to vary it was part of the in-app check.
+const STALE_SCOPE_DAYS = 31;
 // ONE Check button. It used to be six, plus a number input, which put the rarest
 // scopes at the same weight as the common one and made the toolbar hard to read.
 //
@@ -8912,122 +8281,6 @@ function loadStaleDays() {
 //
 // Counts come from the same target functions the starters use, so what the prompt
 // says and what the run does cannot drift apart.
-function startCheck() {
-  if (polling) { alert('Wait for the current poll to finish.'); return; }
-  const cap = requestCap();
-  const filterActive = Array.isArray(filtered) && filtered.length && filtered.length < allEntries.length;
-  const source = filterActive ? filtered : allEntries;
-  const staleDays = loadStaleDays();
-
-  // Computed once: the ahead-of-FDB set is size-gated, and the label has to say so
-  // or an entry silently missing from a run looks like a bug rather than a limit.
-  const aheadInfo = aheadOfFdbTargets(0);
-  const aheadLabel = 'ahead of FactorDB — we hold factors it lacks'
-    + (aheadInfo.oversized
-        ? ' (' + aheadInfo.oversized.toLocaleString() + ' too large)' : '');
-
-  const scopes = [
-    { key: 'all',       match: /^(all|a|1)$/i,
-      label: filterActive ? 'everything in the current view' : 'every unfinished entry',
-      count: allTargets(false, source).length,
-      run: () => startManualPoll() },
-    { key: 'partial',   match: /^(partial|p|2)$/i,
-      label: 'partially factored — entries that already have factors',
-      count: partialTargets(0).length,
-      run: () => startPartialPoll() },
-    { key: 'composite', match: /^(composite|comp|none|no|c|3)$/i,
-      label: 'no known factors — FactorDB says composite',
-      count: compositeTargets().length,
-      run: () => startCompositePoll() },
-    // The one to reach for. The two below it are the same entries split by WHY we
-    // know nothing, which matters for the ECM export's priority weight and almost
-    // never for deciding what to check next.
-    { key: 'nothing',   match: /^(nothing|nothingknown|both|4)$/i,
-      label: 'nothing known at all — the two below, together',
-      count: nothingKnownTargets(0).length,
-      run: () => startNothingKnownPoll() },
-    { key: 'never',     match: /^(never|unchecked|u|unknown|5)$/i,
-      label: '  · never checked — we have not asked FactorDB',
-      count: getUnknownTargets().length,
-      run: () => startUnknownPoll() },
-    { key: 'fdb',       match: /^(fdb|f|undetermined|6)$/i,
-      label: '  · FDB undetermined — we asked, FactorDB has no factorisation',
-      count: fdbUnknownTargets(0).length,
-      run: () => startFdbUnknownPoll() },
-    { key: 'old',       match: /^(old|o|stale|s|7)$/i,
-      label: 'old records — not checked in ' + staleDays + ' days',
-      count: staleTargets(staleDays).length,
-      run: (days) => startStalePoll(days) },
-    // Listed last so the digit shortcuts stay in display order — "7" was already
-    // "old" and renumbering it would silently redirect anyone used to typing it.
-    { key: 'ahead',     match: /^(ahead|a-fdb|new|8)$/i,
-      label: aheadLabel,
-      count: aheadInfo.targets.length,
-      run: () => startAheadOfFdbPoll() },
-  ];
-
-  // Separators, not padding.
-  //
-  // pad() truncated anything past its width, so the longer labels were cut
-  // mid-word and the count ran straight into them — "…entries that already have
-  // facto9,394". And prompt() renders in a proportional font, so column alignment
-  // by spaces was never going to work in the first place. A visible separator
-  // reads correctly in any font and cannot swallow the text.
-  const body = scopes.map(s =>
-    '  "' + s.key + '" · ' + (s.count ? s.count.toLocaleString() : '—') + ' · ' + s.label
-  ).join('\n');
-
-  const ans = prompt(
-    'Check which entries against FactorDB?\n\n' + body + '\n\n'
-    + (filterActive
-        ? 'A filter is active, so "all" means the ' + source.length.toLocaleString()
-          + ' entries on screen. The other scopes ignore it.\n\n'
-        : '')
-    + 'Request cap is ' + cap.toLocaleString() + ' — change it in the toolbar.',
-    'all');
-  if (ans === null) return;
-  const chosen = scopes.find(s => s.match.test(ans.trim()));
-  if (!chosen) { alert('Did not recognise "' + ans + '". Nothing has been checked.'); return; }
-  if (!chosen.count) {
-    alert('Nothing to check under "' + chosen.key + '" — ' + chosen.label + '.');
-    return;
-  }
-
-  if (chosen.key === 'old') {
-    const dRaw = prompt(
-      'Re-check entries not seen by FactorDB in how many days?\n\n'
-      + 'Currently ' + staleTargets(staleDays).length.toLocaleString()
-      + ' entries qualify at ' + staleDays + ' days.',
-      String(staleDays));
-    if (dRaw === null) return;
-    const days = Math.max(1, Math.floor(Number(dRaw)));
-    if (!isFinite(days)) { alert('That is not a number of days.'); return; }
-    localStorage.setItem(STALE_DAYS_KEY, String(days));
-    const n = staleTargets(days).length;
-    if (!n) { alert('Nothing has gone ' + days + ' days without a check.'); return; }
-    chosen.run(days);
-    return;
-  }
-  chosen.run();
-}
-
-function startStalePoll(daysArg) {
-  if (polling) return;
-  // The day count now comes from the Check prompt. The old inline input is gone,
-  // but reading it as a fallback costs nothing and keeps this callable either way.
-  const days = Math.max(1, daysArg
-    || parseInt(document.getElementById('staleDaysInput')?.value)
-    || loadStaleDays());
-  const targets = staleTargets(days);
-
-  if (!targets.length) {
-    setStatus(`No entries with FDB check older than ${days} days`, 'warn');
-    return;
-  }
-  addLog(`Checking ${targets.length} stale entries (>${days}d old)`, '');
-  runPollQueue(targets, true, null, true);
-}
-
 // How many numbers one run may check. The toolbar box, floored at 1.
 //
 // This expression existed six times, identically, in every poll starter — and a
@@ -9039,148 +8292,6 @@ function startStalePoll(daysArg) {
 // The floor matters. parseInt('') and parseInt('abc') are NaN, parseInt('0') is 0,
 // and a negative is possible by typing one — each would make a run do nothing at
 // all while looking like it was working.
-function requestCap(raw) {
-  const v = raw !== undefined
-    ? raw
-    : (typeof document !== 'undefined'
-        ? document.getElementById('maxRequestsInput')?.value
-        : undefined);
-  return Math.max(1, parseInt(v) || 500);
-}
-
-function startPartialPoll() {
-  if (polling) return;
-  const cap = requestCap();
-  const targets = partialTargets(cap);
-  if (!targets.length) {
-    setStatus('No partially factored entries to check', 'warn');
-    return;
-  }
-  addLog('Checking ' + targets.length + ' entries with known factors (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, false, true);
-}
-
-function startFdbUnknownPoll() {
-  if (polling) return;
-  const cap = requestCap();
-  const targets = fdbUnknownTargets(cap);
-  if (!targets.length) {
-    setStatus('No FDB-unknown entries to re-check', 'warn');
-    return;
-  }
-  addLog('Re-checking ' + targets.length + ' FDB-unknown entries (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, false, false);
-}
-
-function startCompositePoll() {
-  if (polling) return;
-  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
-  const wait = MANUAL_COOLDOWN - (Date.now() - last);
-  if (wait > 0) {
-    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
-    return;
-  }
-  const targets = compositeTargets();
-  if (targets.length === 0) {
-    setStatus('No "no known factors" entries to check', 'warn');
-    return;
-  }
-  addLog(`Checking ${targets.length} no-known-factors entries`, '');
-  runPollQueue(targets, true, null, true);
-}
-
-function startNothingKnownPoll() {
-  if (polling) return;
-  // Takes the cooldown, like the other sweeps that can queue thousands of numbers,
-  // and the request cap, because this is the widest of the three "nothing known"
-  // scopes. startFdbUnknownPoll skips the cooldown since re-checking a handful of
-  // undetermined entries is cheap; that is not true here.
-  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
-  const wait = MANUAL_COOLDOWN - (Date.now() - last);
-  if (wait > 0) {
-    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
-    return;
-  }
-  const cap = requestCap();
-  const targets = nothingKnownTargets(cap);
-  if (!targets.length) {
-    setStatus('Nothing unchecked or undetermined to check', 'warn');
-    return;
-  }
-  addLog('Checking ' + targets.length + ' entries with nothing known (cap: ' + cap + ')', '');
-  runPollQueue(targets, true, null, true);
-}
-
-function startUnknownPoll() {
-  if (polling) return;
-  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
-  const wait = MANUAL_COOLDOWN - (Date.now() - last);
-  if (wait > 0) {
-    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining`, 'warn');
-    return;
-  }
-  // All unknown/composite entries — user explicitly wants to check these
-  // regardless of prior cache status (re-checks previously queried ones too)
-  const targets = getUnknownTargets();
-  if (targets.length === 0) {
-    setStatus('No unknown entries to check', 'warn');
-    addLog('Check unknowns: no targets', 'warn');
-    return;
-  }
-  addLog(`Checking ${targets.length} unknown/unchecked entries`, '');
-  runPollQueue(targets, true, null, true);
-}
-
-function startManualPoll() {
-  // A deliberate re-run is the natural way to test whether FactorDB has recovered,
-  // so clear the breaker. If it is still down it re-arms after 8 numbers.
-  resetFdbBreaker();
-  if (polling) return;
-  const last = parseInt(localStorage.getItem(COOLDOWN_KEY) || '0');
-  const wait = MANUAL_COOLDOWN - (Date.now() - last);
-  if (wait > 0) {
-    setStatus(`⚠ Cooldown: ${Math.ceil(wait/1000)}s remaining before next manual check`, 'warn');
-    addLog(`Manual poll blocked — cooldown ${Math.ceil(wait/1000)}s`, 'warn');
-    return;
-  }
-  const cap = requestCap();
-  // Check what is on screen. Previously this always used the FULL entry list and
-  // then took the first `cap` of it — so with a filter applied (say E(14700)-E(14800))
-  // and the default cap of 500, it checked E(0) onwards and never reached the range
-  // being looked at. Nothing appeared to happen, while re-checking a single tile
-  // worked fine, because that tile was the only thing actually being queried.
-  const filterActive = Array.isArray(filtered) && filtered.length && filtered.length < allEntries.length;
-  const source = filterActive ? filtered : allEntries;
-  const fullCount = source.filter(e => e.status === 'full' && e.val && e.n > 2).length;
-  // Offered rather than assumed: including them can multiply the request count, and
-  // FactorDB is a free service. Worth it when entries are wrongly marked full,
-  // since a re-check can now disprove that; wasteful otherwise.
-  let includeFull = false;
-  if (fullCount) {
-    includeFull = confirm('Include the ' + fullCount.toLocaleString() + ' fully-factored entries as well?\n\n'
-      + 'OK    — re-verify everything (catches entries wrongly marked full)\n'
-      + 'Cancel — skip them and check only unfinished entries');
-  }
-  const all = allTargets(includeFull, source);
-  const targets = all.slice(0, cap);
-  if (!targets.length) {
-    setStatus(filterActive ? 'Nothing to check in the current view' : 'No entries to check (all fully factored?)', 'warn');
-    return;
-  }
-  // Say plainly when the cap is hiding work, rather than silently checking a
-  // prefix and appearing to do nothing for the entries actually being looked at.
-  if (all.length > cap) {
-    if (!confirm(all.length.toLocaleString() + ' entr' + (all.length === 1 ? 'y' : 'ies')
-        + ' match' + (filterActive ? ' the current filter' : '') + ', but the request cap is '
-        + cap.toLocaleString() + '.\n\nOnly the first ' + cap.toLocaleString()
-        + ' will be checked. Raise "max requests" to cover the rest.\n\nContinue?')) return;
-  }
-  addLog('Check all — ' + targets.length + ' entries'
-    + (filterActive ? ' from the current filter (' + source.length.toLocaleString() + ' shown)' : '')
-    + ' (cap: ' + cap + ')' + (includeFull ? ', including fully factored' : ''), '');
-  runPollQueue(targets, true, document.getElementById('pollBtn'), true, true);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -9459,10 +8570,6 @@ function renderGrid() {
       : '';
 
     return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative" data-n="${e.n}">
-      <button onclick="event.stopPropagation();quickCheckFDB(${e.n},this)"
-        title="Query FactorDB"
-        style="position:absolute;top:5px;right:5px;padding:2px 6px;font-size:9px;background:var(--surface2);border:1px solid var(--border2);color:var(--text-muted);cursor:pointer;border-radius:2px;z-index:1"
-        ${polling?'disabled':''}>↻</button>
       <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
       <div class="card-label">E(${e.n})</div>
       ${badge}${attemptBadge}${aheadBadge}
@@ -9671,8 +8778,6 @@ function renderStats() {
       + '\ntrying to write, since browsers don\'t expose the limit.';
   } catch(_) { _sTip = 'localStorage usage'; }
   const storageHtml = `<span class="stat-item" style="color:${_sColor}" title="${_sTip.replace(/"/g,'&quot;')}">▤ <strong>${(_su.chars/1024/1024).toFixed(1)}MB</strong> <span style="opacity:.6">${_freeLabel}</span></span>`;
-
-  try { updateSubmittedBtn(); } catch(e) { logSwallowed('renderStats/submittedBtn', e); }
 
   document.getElementById('statsBar').innerHTML = `
     <span class="stat-item" style="color:var(--green)"><strong>${full}</strong> full</span>
@@ -9902,7 +9007,6 @@ function openModal(n) {
         it into a checked result.
       </div>
       ` : `
-      <button class="fdb-check-btn" onclick="modalCheckFull(${n})" ${polling?'disabled':''}>↻ Recheck FactorDB for |E(${n})|<span style="font-size:9px;opacity:0.7;margin-left:6px">(${e.val.length}d · up to ${e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120}s)</span></button>
       `}
       <div id="fdbQueryStatus_${n}" style="font-size:11px;color:var(--yellow);margin-top:6px;min-height:16px;padding:4px 0"></div>
     </div>` : ''}
@@ -9925,64 +9029,6 @@ function openModal(n) {
 }
 
 // One-off modal check for cofactor
-
-async function modalCheckFull(n) {
-  // A deliberate single-entry click is the natural way to test whether FactorDB is
-  // back. Clear the breaker so it is allowed — the cost is one number's requests,
-  // and if it fails the breaker simply re-arms.
-  resetFdbBreaker();
-  const e = entryByN(n);
-  if (!e || !e.val) return;
-
-  // Show loading state on the button
-  const btn = document.querySelector(`button[onclick="modalCheckFull(${n})"]`);
-  const timeout = timeoutForNumber(e.val);
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = `↻ Querying FactorDB… (up to ${Math.round(timeout/1000)}s)`;
-  }
-  // Also show status in the modal
-  const statusEl = document.getElementById('fdbQueryStatus_' + n);
-  if (statusEl) statusEl.textContent = `Querying FactorDB for ${e.val.length}-digit number — timeout ${Math.round(timeout/1000)}s…`;
-
-  try {
-    const data = await queryFactorDB(e.val, (fdbCache[e.val] || {}).fdbId);
-    const r = applyFdbResult(data, n, e.val);   // canonical handler
-    if (r.statusChanged && r.entryStatus === 'full') {
-      addChangelogEntry(n, 'promoted', 'Full value resolved via FactorDB (' + fdbStatusLabel(r.status) + ')');
-    }
-    addLog(`E(${n}) queried → ${fdbStatusLabel(r.status)}`, 'ok');
-    applyFilters();
-    renderStats();
-    const backdrop = document.getElementById('modalBackdrop');
-    if (backdrop && backdrop.classList.contains('open')) openModal(n);
-  } catch(err) {
-    // Only a REFUSAL by FactorDB, not any query failure. A dead proxy or a dropped
-    // connection tells us nothing about the number — see fdbDeclinedToAnswer.
-    if (e && e.status === 'unknown' && fdbDeclinedToAnswer(err)) {
-      e.status = 'fdb-unknown';
-      if (e.val) { markCacheUnknown(e.val, n); saveFDBCache(fdbCache); }
-      addFdbUnknown(n);
-      renderGrid(); renderStats();
-      const bd2 = document.getElementById('modalBackdrop');
-      if (bd2 && bd2.classList.contains('open')) openModal(n);
-    }
-    addLog(`E(${n}) query failed → fdb-unknown: ${err.message}`, 'warn');
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '↻ Query FactorDB for |E(' + n + ')| (retry)';
-    }
-    const errEl = document.getElementById('fdbQueryStatus_' + n);
-    if (errEl) {
-      const isLarge = e && e.val && e.val.length > currentQueryCap();
-      errEl.innerHTML = '<span style="color:var(--red)">⚠ ' + err.message + '</span>'
-        + (isLarge
-          ? ' <button onclick="markAsFdbUnknown(' + n + ')" style="margin-left:8px;padding:2px 8px;font-size:10px;background:var(--surface2);border:1px solid #9999cc;color:#9999cc;cursor:pointer">Mark as FDB undetermined</button>'
-          : '');
-      errEl.setAttribute('data-persistent', '1');
-    }
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ECM / FACTORING ATTEMPT TRACKER
@@ -13176,7 +12222,6 @@ try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e);
 try { fetchLastUpdateTime(); } catch(e) { console.warn('fetchLastUpdateTime failed:', e.message); }
 
 try { renderLog(); } catch(e) { console.warn('renderLog failed:', e.message); }
-try { renderChangelog(); } catch(e) { console.warn('renderChangelog failed:', e.message); }
 try { allEntries = buildEntries(); } catch(e) { console.error('buildEntries', e); }
 // Don't replay FDB cache here — eulerValues not loaded yet, no vals to match against
 try { applyFilters(); } catch(e) { console.error('applyFilters', e); }
@@ -13249,7 +12294,6 @@ setTimeout(async () => {
       }
     }
     applyFilters();                    // render grid with promoted entries
-    renderChangelog();                 // refresh changelog with merged data
     renderStats();                     // refresh stats counts
 
     console.log('localStorage breakdown:', getStorageBreakdown());
