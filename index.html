@@ -6085,11 +6085,30 @@ async function exportNextRuns() {
   if (FDB_WEIGHT !== 1) {
     sum.push('★ = nothing known about it (no factors of ours, or FactorDB has none)'
       + ' · weighted ×' + FDB_WEIGHT);
-    sum.push('RANKED = value × weight — the number the ordering below is by');
   }
-  const RULE = FDB_WEIGHT !== 1 ? 110 : 97;
+  if (GOAL_COMPLETE) {
+    sum.push('finish = if this run finds a factor, the chance what remains is PRIME '
+      + '— i.e. that the find completes the number');
+  }
+  // Two steps, shown separately, because they are different KINDS of number.
+  //
+  //   rate   = value × finish  — a genuine rate: expected completions per hour.
+  //   ranked = rate × weight   — a preference score, not a probability.
+  //
+  // Folding the weight into one column labelled %/hr quietly turns a measurable
+  // quantity into an opinion wearing the same units. Splitting them means the
+  // honest number stays readable and the ordering is still explained.
+  if (GOAL_COMPLETE) {
+    sum.push('rate = value × finish — expected completions per hour, a real rate');
+  }
+  if (FDB_WEIGHT !== 1) {
+    sum.push('RANKED = ' + (GOAL_COMPLETE ? 'rate' : 'value')
+      + ' × weight — a preference score, not a probability. The ordering below is by it.');
+  }
+  const RULE = 97 + (FDB_WEIGHT !== 1 ? 13 : 0) + (GOAL_COMPLETE ? 19 : 0);
   sum.push('─'.repeat(RULE));
-  sum.push('  #   E(n)      digits  method  B1         curves   ~time      t/curve      +odds     value'
+  sum.push('  #   E(n)     cofdig  method  B1         curves   ~time      t/curve      +odds     value'
+    + (GOAL_COMPLETE ? '   finish       rate' : '')
     + (FDB_WEIGHT !== 1 ? '    ★     ranked' : ''));
   sum.push('─'.repeat(RULE));
   top.forEach((r, i) => {
@@ -6115,11 +6134,40 @@ async function exportNextRuns() {
     const effHr = r.cpuTime ? (r.gain / (r.cpuTime / 3600)) : 0;
     const fmtRate = (x) => x >= 0.01 ? x.toFixed(2) + '%/hr' : (x * 24).toFixed(2) + '%/d';
     const val = fmtRate(effHr).padStart(9);
-    // Same expression the sort used, so the column and the order cannot disagree.
-    const adj = r.fdbUnknown ? effHr * FDB_WEIGHT : effHr;
-    const extra = FDB_WEIGHT !== 1
-      ? '  ' + (r.fdbUnknown ? '★' : ' ').padStart(3) + '  ' + fmtRate(adj).padStart(9)
+    // The SAME expression the sort used, every factor of it. When these drift the
+    // file becomes actively misleading: rows in an order the columns do not explain.
+    const finishOdds = GOAL_COMPLETE
+      ? completionOdds(r.digits || 0, r.targetDigits || 0,
+                       Math.max(confidentlyCleared(parseInt(r.rawCurves || r.curves) || 0,
+                                                   r.rawB1 || 0),
+                                sieveDepthDigits(r.n)))
+      : 1;
+    // The honest rate first: odds-per-hour times the chance a find finishes it.
+    const rateHr = effHr * finishOdds;
+    // Then the preference score the sort actually used. Same expression, every
+    // factor of it — when these drift the file shows rows in an order its own
+    // columns do not explain, which is exactly what happened before.
+    const adj = r.fdbUnknown ? rateHr * FDB_WEIGHT : rateHr;
+    // A probability, shown as one — small enough that %/hr formatting would read as
+    // a rate, which it is not.
+    // Plain decimals across four orders of magnitude. Exponential notation in a
+    // percent column reads as noise — "6e-2%" is 0.06%, and nobody parses that at a
+    // glance — and the whole point of this column is to be seen at a glance.
+    const fmtPct = (x) => {
+      const v = x * 100;
+      if (v >= 10)   return v.toFixed(0) + '%';
+      if (v >= 1)    return v.toFixed(1) + '%';
+      if (v >= 0.01) return v.toFixed(2) + '%';
+      return v > 0 ? '<0.01%' : '0%';
+    };
+    const fin = GOAL_COMPLETE
+      ? '  ' + fmtPct(finishOdds).padStart(7) + '  ' + fmtRate(rateHr).padStart(9)
       : '';
+    const star = FDB_WEIGHT !== 1
+      ? '  ' + (r.fdbUnknown ? '★' : ' ').padStart(3) : '';
+    const rank = (FDB_WEIGHT !== 1 || GOAL_COMPLETE)
+      ? '  ' + fmtRate(adj).padStart(9) : '';
+    const extra = fin + star + rank;
     sum.push(`${idx}   ${en} ${dig}  ${m}  ${b1}  ${cv}  ${tm}  ${pc}  ${gn}  ${val}${extra}`);
   });
   sum.push('─'.repeat(RULE));
