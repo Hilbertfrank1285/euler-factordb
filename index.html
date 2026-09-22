@@ -10851,6 +10851,35 @@ async function runDataIntegrityCheck(onProgress) {
   const deadline = Date.now() + INTEGRITY_BUDGET_MS;
   const CHUNK = 200;
 
+  // ── cheap pass first, over EVERY entry ───────────────────────────────────
+  //
+  // The main loop below walks allEntries in order and stops at the deadline, and
+  // the entries are ordered by n — so the largest are last and a time-limited scan
+  // never reaches them. That is precisely where this fault lives: 90 live entries
+  // hold E(n) itself in their factor list, and every one is a 57,000-digit monster
+  // at the tail of the list.
+  //
+  // Worse, the wholeValue check below only fires when the entry has ONE factor. A
+  // lone factor equal to E(n) is a claim that E(n) is prime, which FactorDB may
+  // legitimately confirm. With SIBLINGS it is never legitimate — E(n) cannot both
+  // be prime and have other factors — and that case had no check at all.
+  //
+  // This is a string comparison per factor. It costs nothing, so it runs to
+  // completion before the budget is spent on BigInt division and primality tests.
+  const wholeValueSeen = new Set();
+  for (const e of allEntries) {
+    if (!e || !e.val || e.status === 'full') continue;
+    const fs = (e.factors || []).filter(f => f && f !== '1');
+    if (fs.length < 2) continue;                     // the lone case is handled below
+    for (const f of fs) {
+      if (String(f).split('^')[0] === e.val) {
+        issues.wholeValue.push({ n: e.n, digits: e.val.length, withSiblings: true });
+        wholeValueSeen.add(e.n);      // the main loop checks this too; report once
+        break;
+      }
+    }
+  }
+
   for (let i = 0; i < allEntries.length; i++) {
     if (i % CHUNK === 0) {
       if (Date.now() > deadline) { timedOut = true; break; }
@@ -10936,7 +10965,10 @@ async function runDataIntegrityCheck(onProgress) {
             issues.wholeValue.push({ n: e.n, digits: bStr.length });
           }
         }
-      } else if (base === val && e.status !== 'full') {
+      } else if (base === val && e.status !== 'full' && !wholeValueSeen.has(e.n)) {
+        // The cheap pass above already covers this case for EVERY entry. This arm
+        // stays for entries it skipped, and defers to it so nothing is reported
+        // twice.
         issues.wholeValue.push({ n: e.n, digits: bStr.length });
       }
 
