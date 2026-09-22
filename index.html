@@ -6042,7 +6042,18 @@ async function exportNextRuns() {
   // ── Summary file (human-readable) ───────────────────────────────────────────
   const sum = [];
   sum.push('BEST-VALUE RECOMMENDED RUNS — top ' + top.length + ' (of ' + runs.length + ' candidates)');
-  sum.push('Generated ' + dateStr + ' · ranked by value (odds gained per unit time)');
+  // STATE THE OBJECTIVE. Both rankings produced an identical header, so a summary
+  // could not be told apart from one ranked the other way — and the first real
+  // completion-ranked export was indistinguishable from a default one, leaving no
+  // way to tell whether the option had taken effect.
+  sum.push('Generated ' + dateStr + ' · ranked by '
+    + (GOAL_COMPLETE
+        ? 'CHANCE OF COMPLETING the number (odds a find finishes it, per unit time)'
+        : 'value (odds gained per unit time)'));
+  if (GOAL_COMPLETE) {
+    sum.push('Completion ranking: small cofactors dominate, because a factor of a '
+      + '40,000-digit cofactor leaves 40,000 digits behind.');
+  }
   sum.push('Estimated total time: ' + fmtCpuTime(totalSec) + ' on one core');
   // Say what a time budget actually bought. "spilled" is the runs that were passed
   // over because they did not fit — without it, a budget that stops early looks
