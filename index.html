@@ -484,10 +484,8 @@
     font-size: 11px;
   }
   .github-label { color: var(--text-muted); font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .github-status { color: var(--text-dim); flex: 1; min-width: 200px; }
-  .github-status.ok   { color: var(--green); }
-  .github-status.err  { color: var(--red); }
-  .github-status.busy { color: var(--yellow); }
+  /* .github-status rules removed with the element that wore them — nothing can
+     carry the class now that setGHStatus reports via the log and a toast. */
   .github-btn {
     background: var(--surface2); border: 1px solid var(--border2); color: var(--text-dim);
     font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 4px 10px;
@@ -4047,9 +4045,11 @@ async function pushECMFile() {
 
 function setGHStatus(msg, cls = '') {
   try {
-    const el = document.getElementById('githubStatus');
-    if (el) { el.textContent = msg; el.className = 'github-status' + (cls ? ' '+cls : ''); }
-    // Always log GitHub status to activity log (the status element may not exist)
+    // There is no status ELEMENT any more — the toolbar that held it is gone — so
+    // this reports through the two channels that still exist. The lookup that used
+    // to sit here could never succeed: `el` was always null and the branch behind
+    // it never ran, which is dead code a reference count cannot see because the
+    // function around it is very much alive.
     addLog('GitHub: ' + msg, cls === 'err' ? 'err' : cls === 'ok' ? 'ok' : '');
     if (cls === 'err') console.error('GitHub:', msg);
     // Show a visible toast
@@ -5385,6 +5385,92 @@ function fillRunBudget(ranked, budget) {
   return { runs: out, seconds: used, spilled };
 }
 
+// Step-by-step instructions for running the exported scripts on another machine.
+//
+// Built from the SAME values the scripts were built from — the real file names and
+// the real core count — so it can be pasted rather than adapted. A generic note has
+// to be translated every time, and that is where the mistakes come from.
+function serverNotes(isSh, cores, ext) {
+  const n = cores.reduce((a, b) => a + b, 0);
+  // Single-core exports use the plain names; anything more is per machine/core.
+  const single = n === 1;
+  const numbersGlob = single ? 'ecm_numbers.txt' : 'ecm_numbers_m1_c*.txt';
+  const workerGlob  = single ? 'ecm_runs' + ext  : 'ecm_worker_m1_c*' + ext;
+  const resultsGlob = single ? 'ecm_import.txt'  : 'ecm_import_m1_c*.txt';
+  const files = cores.length === 1 && n === 1 ? 2 : n * 2;
+  if (!isSh) {
+    return [
+      'RUNNING THESE ON ANOTHER WINDOWS MACHINE',
+      '========================================',
+      '',
+      '1. Copy ' + numbersGlob + ' and ' + workerGlob + ' to the target machine',
+      '   (' + files + ' files). Any shared folder or USB stick will do.',
+      '',
+      '2. Install GMP-ECM if it is not there. There is no package manager, so take a',
+      '   build from https://gitlab.inria.fr/zimmerma/ecm and put ecm.exe beside the',
+      '   scripts, or anywhere on PATH.',
+      '',
+      '3. Start one worker per core, each in its own window:',
+      ...Array.from({ length: n }, (_, i) => '     start "" ' + workerGlob.replace('*', String(i + 1))),
+      '',
+      '4. When they finish, copy ' + resultsGlob + ' back and use',
+      '   "Import ECM results" in the app. It takes all of them at once.',
+      '',
+      'Do NOT re-run these scripts to resume. Import the results first, then Export',
+      'ECM again — the app recomputes what is still worth doing and the next list',
+      'will be shorter.',
+    ].join('\r\n') + '\r\n';
+  }
+  return [
+    'RUNNING THESE ON A LINUX SERVER OVER SSH',
+    '========================================',
+    '',
+    'Copy the files up. scp comes with ssh, so if you can log in you can do this —',
+    'no upload site needed:',
+    '',
+    '    scp ' + numbersGlob + ' ' + workerGlob + ' you@server:~/ecm/',
+    '',
+    'Then, on the server:',
+    '',
+    '    ssh you@server',
+    '    cd ~/ecm',
+    '',
+    '    # A minimal Debian/Ubuntu has neither of these:',
+    '    sudo apt-get update && sudo apt-get install -y gmp-ecm',
+    '',
+    '    ls ' + numbersGlob + ' ' + workerGlob + ' | wc -l      # expect ' + files,
+    '',
+    '    # Start one worker per core. setsid + </dev/null is what makes them',
+    '    # survive you logging out; a plain & does not.',
+    '    for i in $(seq 1 ' + n + '); do',
+    '      setsid bash ' + workerGlob.replace('*', '$i') + ' > worker_c$i.log 2>&1 </dev/null &',
+    '    done',
+    '',
+    '    pgrep -c ecm                      # expect ' + n,
+    '',
+    'Then disconnect. To check on it later:',
+    '',
+    '    pgrep -c ecm                      # how many are still running',
+    '    grep -ch Found ' + resultsGlob + '     # factors found so far',
+    '    free -h                           # see below',
+    '',
+    'If free -h shows swap in use, stop a couple of workers. ' + n + ' concurrent',
+    'stage-2 runs on large cofactors can outgrow a small box, and swapping costs',
+    'more than the extra cores gain. On a shared-core VPS, ' + n + ' workers may not',
+    'give ' + n + 'x throughput either.',
+    '',
+    'When they are done, bring the results back the same way:',
+    '',
+    '    scp you@server:~/ecm/' + resultsGlob + ' .',
+    '',
+    'Then use "Import ECM results" in the app — it takes all of them at once.',
+    '',
+    'Do NOT re-run these scripts to resume. Import the results first, then Export',
+    'ECM again — the app recomputes what is still worth doing and the next list',
+    'will be shorter.',
+  ].join('\n') + '\n';
+}
+
 async function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
@@ -5903,6 +5989,21 @@ async function exportNextRuns() {
   }
   const summaryText = sum.join('\n') + '\n';
   filesToDownload.push({ name: 'ecm_runs_summary.txt', text: summaryText });
+
+  // ── How to actually run this somewhere else ─────────────────────────────────
+  //
+  // The scripts land in a Downloads folder and the machine that will run them is
+  // usually a headless box reached over SSH. Everything below was worked out the
+  // hard way once — which files to copy, that a minimal Debian has neither gmp-ecm
+  // nor curl, that `setsid … </dev/null &` is what survives logout, that eight
+  // concurrent stage-2 runs can outgrow a small box — and none of it is
+  // discoverable from the scripts themselves.
+  //
+  // Written with the REAL file names and core count, so it can be pasted rather
+  // than adapted. A generic note would have to be translated every time, which is
+  // where mistakes come from.
+  filesToDownload.push({ name: 'RUN_ON_SERVER' + (isSh ? '.txt' : '_WINDOWS.txt'),
+                         text: serverNotes(isSh, coresPerMachine, ext) });
 
   // Download every generated file, staggered — browsers block/drop downloads fired
   // in the same tick.
