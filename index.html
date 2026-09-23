@@ -9423,8 +9423,6 @@ function openModal(n) {
     if (c) {
       unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
     }
-    const qTimeout = e.val ? Math.round(timeoutForNumber(e.val)/1000) : 120;
-    // (Recheck button now lives in the dedicated FactorDB section below — no duplicate here)
   }
 
   const ecmSectionHtml = buildECMSection(n, e);
@@ -9460,26 +9458,35 @@ function openModal(n) {
       </div>
       <div id="factorVerifyMsg_${n}" style="font-size:11px;margin-top:8px;min-height:16px"></div>
     </div>` : ''}
-    ${e.val ? `
+    ${e.val ? (() => {
+      // One message for EVERY size. The browser no longer asks FactorDB anything —
+      // that check was removed, since browsers cannot reach FactorDB directly and
+      // the public proxies stopped answering — so "too long for the browser" wrongly
+      // implied a smaller number could be checked here. euler.py check is the only
+      // route, for all of them.
+      //
+      // The link goes by FactorDB's own ID when it is known: a short URL that always
+      // resolves. Putting the number itself in the URL is what capped the old browser
+      // check — for a 73,000-digit E(n) that is a 73 KB address FactorDB refuses — so
+      // the query form is offered only when the number is short enough to fit.
+      const rec = fdbCache[e.val];
+      const fdbLink = (rec && rec.fdbId)
+        ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbId)
+        : (e.val.length <= currentQueryCap()
+            ? 'https://factordb.com/index.php?query=' + e.val : null);
+      return `
     <div class="modal-section">
       <div class="modal-section-label">FactorDB</div>
-      ${e.val.length > currentQueryCap() ? `
-      <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:8px">
-        This number is ${e.val.length.toLocaleString()} digits — too long for the browser to ask about,
-        which sends the number in the request URL.
-        <strong style="color:var(--text)">euler.py check has no such limit</strong>: it puts the number in the
-        request body instead, so size stops mattering. Use
-        <strong style="color:var(--text)">↑ Export FDB check list</strong>, run the script, then import the
-        results — the answer comes back recorded and verified, the same as any other check.
-        <br><br>
-        You can also <a href="https://factordb.com/index.php?query=${e.val}" target="_blank" style="color:var(--accent)">open it on FactorDB ↗</a>
-        to look, but reading a page is not evidence the app can store: the script is what turns
-        it into a checked result.
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.5">
+        FactorDB is checked with <strong style="color:var(--text)">euler.py check</strong>.
+        Use <strong style="color:var(--text)">↑ Export FDB check list</strong>, run the script,
+        then import the results — they come back recorded and verified.
+        ${fdbLink ? `<br><br><a href="${fdbLink}" target="_blank" style="color:var(--accent)">Open
+        on FactorDB ↗</a> to look. Viewing a page doesn't update the app; importing the
+        script's results does.` : ''}
       </div>
-      ` : `
-      `}
-      <div id="fdbQueryStatus_${n}" style="font-size:11px;color:var(--yellow);margin-top:6px;min-height:16px;padding:4px 0"></div>
-    </div>` : ''}
+    </div>`;
+    })() : ''}
     ${valueHtml}
     <div class="modal-section">
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
@@ -10474,26 +10481,14 @@ function buildECMSection(n, e) {
           .filter(d => d <= halfDigits)
           .filter(d => !(provenDig > 0 && d <= provenDig));
         if (resolveDigits.length) {
-          const sieveNote = provenDig > 0
-            ? `<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">
-                 Trial-divided to <span style="color:var(--green)">10<sup>${Math.round(provenDig)}</sup></span>
-                 — every factor below ${Math.round(provenDig)} digits is ruled out, so those
-                 rows are omitted rather than shown as zero.
-               </div>`
-            : `<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px">
-                 Not yet trial-divided. A sieve pass would rule out the smallest factors
-                 outright, which ECM can only ever make unlikely.
-               </div>`;
-          probHtml = `<div style="margin-bottom:12px">${sieveNote}
+          probHtml = `<div style="margin-bottom:12px">
             <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
               ★ Chance of finding a factor of this size
             </div>
             <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;border-left:2px solid var(--accent);padding-left:8px">
-              Each cell answers: <em style="color:var(--text)">"What is the probability that this ${digits}-digit number has a prime factor of exactly Nd, AND that your factoring runs would have found it?"</em>
-              <br>• <span style="color:var(--text)">exists</span> = how likely a random ${digits}-digit composite has a factor of that size (number theory heuristic)
+              • <span style="color:var(--text)">exists</span> = how likely a random ${digits}-digit composite has a factor of that size (number theory heuristic)
               <br>• <span style="color:var(--text)">find | exists</span> = if that factor exists, how likely your ECM/P-1/P+1 runs catch it
               <br>• <span style="color:var(--accent)">main %</span> = both together — the chance you've found a factor in that digit range
-              <br><span style="color:var(--text-muted)">This is progress, not completion: finding a small factor still leaves a large remaining cofactor that needs further work. Only a factor near ~${halfDigits}d (half the digits) could leave a remainder small enough to plausibly be prime on its own.</span>
               <br><span style="color:var(--text-muted)">Factors larger than ~${halfDigits}d cannot exist as the SMALLEST remaining factor (whatever's left after removing it must be ≥ itself, so the smallest factor is always ≤ √N ≈ 10^${halfDigits} — this holds regardless of how many factors remain in total)</span>
             </div>
             <div class="prob-grid">
@@ -10547,6 +10542,25 @@ function buildECMSection(n, e) {
         <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~7900 core</span></th><th>Date</th><th>Note</th><th></th>
       </tr></thead>
       <tbody>
+        ${(() => {
+          // The sieve as a METHOD, alongside ECM and P±1 — it is one. It used to be a
+          // sentence above the probability grid ("Trial-divided to 10^n — every
+          // factor below n digits is ruled out…"), which put the one PROVEN result
+          // in a paragraph while the probabilistic ones got a table.
+          const sd = sieveDepthDigits(n);
+          if (!(sd > 0)) return '';
+          const k = Math.round(sd);
+          return `<tr title="Trial division to 10^${k}: every factor below ${k} digits is ruled out outright, so those levels are left out of the probabilities above rather than shown as zero.">
+            <td><strong>Sieve</strong></td>
+            <td>10<sup>${k}</sup></td>
+            <td>—</td><td>—</td><td>—</td><td>—</td>
+            <td>trial division</td>
+            <td style="color:var(--green)">none below ${k}d</td>
+            <td>—</td><td>—</td>
+            <td style="color:var(--text-muted)">proven, not probable</td>
+            <td></td>
+          </tr>`;
+        })()}
         ${attempts.map((a, i) => {
           // Per-row: show the digit range this B1 targets + whether it's practical
           let probCell = '';
@@ -10606,7 +10620,14 @@ function buildECMSection(n, e) {
       </tbody>
     </table>`;
   } else {
-    tableHtml = `<div style="font-size:11px;color:var(--text-muted);padding:8px 0">No attempts recorded yet.</div>`;
+    // No ECM or P±1 yet — but a sieve may still have run, and that result must not
+    // vanish just because there is no table to put its row in.
+    const sd = sieveDepthDigits(n);
+    tableHtml = sd > 0
+      ? `<div style="font-size:11px;color:var(--text-muted);padding:8px 0"><strong style="color:var(--text)">Sieve</strong>
+           — trial division to 10<sup>${Math.round(sd)}</sup>: <span style="color:var(--green)">none below
+           ${Math.round(sd)}d</span>, proven. No ECM or P±1 recorded yet.</div>`
+      : `<div style="font-size:11px;color:var(--text-muted);padding:8px 0">No attempts recorded yet.</div>`;
   }
 
   // Methodology footnote — documents the probability model + sources on the card
@@ -10704,9 +10725,10 @@ function buildECMSection(n, e) {
           + '</div>';
       }).join('');
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
-        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— best value first (odds gained per unit time)</span></div>'
+        + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— best value first</span></div>'
         + '<div style="font-size:10px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;border-left:2px solid var(--border2);padding-left:8px">'
-        +   'Two numbers per run, don\'t confuse them: the <span style="color:var(--text)">~63%</span> in the description is how likely the run is to find a factor of that size <em>if one exists</em>. The <span style="color:var(--green)">green %</span> is how much it raises your <span style="color:var(--text)">overall</span> odds of finding a new factor — smaller, because a factor of exactly that size probably isn\'t there. (Finding one factor is real progress, but a large cofactor may still need more work afterward — this isn\'t the odds of finishing the whole factorization.) Runs are ordered by best value (overall odds gained per unit of CPU time).'
+        +   '<span style="color:var(--text)">~63%</span> = chance the run finds a factor of that size, if one exists. '
+        +   '<span style="color:var(--green)">Green %</span> = how much it raises your overall odds — lower, since that factor may not be there.'
         + '</div>'
         + rows
         + '</div>';
@@ -12248,20 +12270,8 @@ function computeCostToFinish(entry, digits, attempts) {
 function costToFinishHtml(entry, digits, attempts) {
   const rows = computeCostToFinish(entry, digits, attempts);
   if (!rows.length) return '';
-  // The first level that is essentially done but cheap to top up is the easy win;
-  // the point where value-per-hour collapses is where to stop.
-  let cliff = null;
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i - 1].perHr && rows[i].perHr && rows[i - 1].perHr > rows[i].perHr * 5) { cliff = rows[i].d; break; }
-  }
-  const total = rows.length ? rows[rows.length - 1].cum90 : 0;
   return `<div style="margin-bottom:12px">
     <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Cost to finish</div>
-    <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--border2);padding-left:8px">
-      What it would take to <em style="color:var(--text)">complete</em> each level, rather than just take the next step.
-      ${cliff ? `Value per hour collapses after <span style="color:var(--text)">t${rows.find(r => r.d === cliff).d - 5}</span> — that is where continuing stops paying.` : ''}
-      Finishing every level to 90% would cost <span style="color:var(--text)">${fmtCpuTime(total)}</span>${total > 365 * 86400 ? ', i.e. ECM will not complete this number — it would need NFS' : ''}.
-    </div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono,monospace)">
       <tr style="color:var(--text-muted);font-size:10px;text-align:right">
         <th style="text-align:left;padding-bottom:4px">LEVEL</th><th style="padding:0 8px 4px">NOW</th>
@@ -12281,7 +12291,7 @@ function costToFinishHtml(entry, digits, attempts) {
               ? ` <span style="color:var(--green);font-size:9px" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level. The model was multiplied by ${r.calibRatio.toFixed(2)} (95% interval ${r.calibLo.toFixed(2)}–${r.calibHi.toFixed(2)}); a ratio above 1 means the model was pessimistic here.">measured ×${r.calibRatio.toFixed(2)}</span>`
               : ` <span style="color:var(--text-muted);font-size:9px" title="Model estimate, not calibrated: ${r.calibVerdict}. Needs ${'${YIELD_CALIB_MIN_FINDS}'} finds at this level before the measurement beats the theory.">model</span>`
           }</td>
-          <td style="padding:2px 8px;color:var(--text-muted)">${(r.have * 100).toFixed(0)}%</td>
+          <td style="padding:2px 8px;color:var(--text-muted)">${(r.have * 100).toFixed(2)}%</td>
           <td style="padding:2px 8px">${r.c90 > 0 ? fmtCpuTime(r.c90) : '—'}</td>
           <td style="padding:2px 8px;color:var(--text-muted)">${r.c99 > 0 ? fmtCpuTime(r.c99) : '—'}</td>
           <td style="padding:2px 0 2px 8px;color:${col}">${r.perHr === null ? '—' : r.perHr.toFixed(3) + '%/hr'}</td>
