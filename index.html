@@ -8119,14 +8119,31 @@ function computeYieldByLevel() {
   // you spent everything on found nothing, the level you spent nothing on found
   // two for free. Neither number was ever right, for any dataset.
   //
-  // Which run found it is not recorded, so this attributes to the highest level
-  // run on that number on or before the find's date — the run that was going when
-  // it happened. Undated runs stay eligible rather than being discarded.
+  // Which run found it is not recorded, so this attributes to the MOST RECENT run
+  // on that number on or before the find's date — the run that was actually going
+  // when it happened.
+  //
+  // It used to take the HIGHEST level ever run instead, and called that "the run
+  // that was going". It is not. Run t45 on an entry in June and t15 in September,
+  // and a September find came from t15 — but the maximum credited it to t45. With
+  // 179 all-time t45 runs, all predating the tracked window, every recent find on
+  // those entries landed on a level with ZERO runs in the window: the report showed
+  // t45 at 0 runs and 8 finds, t40 at 0 and 2, t55 at 0 and 1, and t25 at 6 finds
+  // from 2 runs and 17 minutes.
+  //
+  // Ties on the latest date go to the highest level among them — runs finished the
+  // same day. Undated runs are used only when no dated run qualifies.
   const findLevel = (hn, findDate) => {
     const runs = ecmRunsByN.get(hn) || [];
     if (!runs.length) return null;
-    const eligible = runs.filter(r => !r.date || r.date <= findDate);
-    const pool = eligible.length ? eligible : runs;
+    const dated = runs.filter(r => r.date && r.date <= findDate);
+    if (dated.length) {
+      const latest = dated.reduce((m, r) => (r.date > m ? r.date : m), dated[0].date);
+      return dated.filter(r => r.date === latest)
+                  .reduce((m, r) => Math.max(m, r.lvl), 0);
+    }
+    const undated = runs.filter(r => !r.date);
+    const pool = undated.length ? undated : runs;
     return pool.reduce((m, r) => Math.max(m, r.lvl), pool[0].lvl);
   };
   // Kept as information rather than as the bucketing axis: how big the factors we
