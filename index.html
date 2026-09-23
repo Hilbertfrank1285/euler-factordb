@@ -9458,35 +9458,6 @@ function openModal(n) {
       </div>
       <div id="factorVerifyMsg_${n}" style="font-size:11px;margin-top:8px;min-height:16px"></div>
     </div>` : ''}
-    ${e.val ? (() => {
-      // One message for EVERY size. The browser no longer asks FactorDB anything —
-      // that check was removed, since browsers cannot reach FactorDB directly and
-      // the public proxies stopped answering — so "too long for the browser" wrongly
-      // implied a smaller number could be checked here. euler.py check is the only
-      // route, for all of them.
-      //
-      // The link goes by FactorDB's own ID when it is known: a short URL that always
-      // resolves. Putting the number itself in the URL is what capped the old browser
-      // check — for a 73,000-digit E(n) that is a 73 KB address FactorDB refuses — so
-      // the query form is offered only when the number is short enough to fit.
-      const rec = fdbCache[e.val];
-      const fdbLink = (rec && rec.fdbId)
-        ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbId)
-        : (e.val.length <= currentQueryCap()
-            ? 'https://factordb.com/index.php?query=' + e.val : null);
-      return `
-    <div class="modal-section">
-      <div class="modal-section-label">FactorDB</div>
-      <div style="font-size:11px;color:var(--text-dim);line-height:1.5">
-        FactorDB is checked with <strong style="color:var(--text)">euler.py check</strong>.
-        Use <strong style="color:var(--text)">↑ Export FDB check list</strong>, run the script,
-        then import the results — they come back recorded and verified.
-        ${fdbLink ? `<br><br><a href="${fdbLink}" target="_blank" style="color:var(--accent)">Open
-        on FactorDB ↗</a> to look. Viewing a page doesn't update the app; importing the
-        script's results does.` : ''}
-      </div>
-    </div>`;
-    })() : ''}
     ${valueHtml}
     <div class="modal-section">
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
@@ -10537,88 +10508,83 @@ function buildECMSection(n, e) {
       <span style="opacity:0.3">|</span>
       <span>${attempts.length} attempt${attempts.length===1?'':'s'}</span>
     </div>` +
-    `<table class="ecm-table">
-      <thead><tr>
-        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th><th>Poly</th><th title="-I: B1 multiplier per curve">-I</th><th>Tool</th><th>P(find factor)</th><th>CPU time<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~7900 core</span></th><th>Date</th><th>Note</th><th></th>
-      </tr></thead>
-      <tbody>
-        ${(() => {
-          // The sieve as a METHOD, alongside ECM and P±1 — it is one. It used to be a
-          // sentence above the probability grid ("Trial-divided to 10^n — every
-          // factor below n digits is ruled out…"), which put the one PROVEN result
-          // in a paragraph while the probabilistic ones got a table.
-          const sd = sieveDepthDigits(n);
-          if (!(sd > 0)) return '';
-          const k = Math.round(sd);
-          return `<tr title="Trial division to 10^${k}: every factor below ${k} digits is ruled out outright, so those levels are left out of the probabilities above rather than shown as zero.">
-            <td><strong>Sieve</strong></td>
-            <td>10<sup>${k}</sup></td>
-            <td>—</td><td>—</td><td>—</td><td>—</td>
-            <td>trial division</td>
-            <td style="color:var(--green)">none below ${k}d</td>
-            <td>—</td><td>—</td>
-            <td style="color:var(--text-muted)">proven, not probable</td>
-            <td></td>
-          </tr>`;
-        })()}
-        ${attempts.map((a, i) => {
-          // Per-row: show the digit range this B1 targets + whether it's practical
-          let probCell = '';
-          if (a.method === 'ECM' && a.b1) {
-            const b1val   = parseB1(a.b1);
-            const targetD = b1ToDigits(a.b1);
-            const curves  = parseInt(a.curves) || 1;
-            // Show probability at fixed 5d steps: 15,20,25,30... up to cofactor size
-            const I_val = a.I ? parseFloat(a.I) : 0;
-            const showDigits = ecmLevels().filter(d => d < digits);
-            if (showDigits.length === 0) showDigits.push(targetD);
-            const parts = showDigits.map(d => {
-              const p = I_val > 0
-                ? ecmProbabilityWithI(d, b1val, curves, I_val)
-                : ecmProbability(d, curves, b1val);
-              const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
-              return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
-            });
-            probCell = `<span style="color:var(--text-dim);font-size:10px">targets ~${targetD}d</span> ` + parts.join(' ');
-          } else if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
-            const b1num = parseB1(a.b1);
-            const b2num = (a.b2 ? parseB1(a.b2) : null);
-            // Show probability for each relevant digit size (20d, 25d, 30d...)
-            // P-1 is run once — no curves multiplier
-            const targetD = ecmLevels();
-            const probParts = targetD.filter(d => d < digits).map(d => {
-              const p   = pm1Probability(d, b1num, b2num, a.method);
-              const cls = p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
-              return `<span class="${cls}" style="font-size:10px">${d}d:${fmtPct(p)}</span>`;
-            }).join(' ');
-            const lvl = pm1ToDigits(a.b1, a.b2, a.method);
-            const lvlLabel = lvl === null
-              ? `<span style="color:var(--text-dim);font-size:10px" title="These bounds do not reach 63% odds even for a 10-digit factor">targets &lt;10d</span> `
-              : `<span style="color:var(--text-dim);font-size:10px" title="How far these bounds reach: the digit size at which one run attains 63% of what the method can achieve. For P-1 that is ~63% odds, matching ECM's t-level convention. P+1 only works on the ~half of primes where p+1 is smooth, so it reaches the same size at about half the odds — see the per-digit figures alongside.">targets ~${lvl}d</span> `;
-            probCell = lvlLabel + (probParts || `<span style="font-size:10px;color:var(--text-muted)">—</span>`);
-          }
-          return `<tr>
-            <td>${a.method}</td>
-            <td>${a.b1||'—'}</td>
-            <td>${a.b2||'—'}</td>
-            <td>${a.curves||'—'}</td>
-            <td>${a.poly||'—'}</td>
-            <td style="font-size:10px;color:var(--text-muted)">${a.I||'—'}</td>
-            <td style="font-size:10px;color:var(--text-muted)">${a.tool||'GMP-ECM'}</td>
-            <td title="Probability of finding at least one prime factor of the cofactor with these parameters">${probCell||'—'}</td>
-            <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${(() => {
-              const b1n = parseB1(a.b1);
-              const b2n = (a.b2 ? parseB1(a.b2) : null);
-              const cpuS = attemptCpuSeconds(a, digits);
-              return fmtCpuTime(cpuS);
-            })()}</td>
-            <td>${a.date||'—'}</td>
-            <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note||''}</td>
-            <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`;
+    (() => {
+      // ONE COLUMN PER LEVEL. The probabilities used to sit in a single cell as a run
+      // of text — "10d:10.69% 15d:3.83% 20d:1.34% …" — twelve figures per row, so no
+      // two runs could be compared at the same level. As a grid, reading DOWN a
+      // column shows every run's coverage at, say, t30.
+      //
+      // Header, run rows and the Sieve row are all generated from the same column
+      // decisions below, so they cannot drift out of alignment as columns come and go.
+      const levelCols = ecmLevels().filter(d => d < digits);
+      const showPoly  = attempts.some(a => a.poly);
+      const showI     = attempts.some(a => a.I);
+      const showDate  = attempts.some(a => a.date);
+      const cls  = (p) => p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
+      const pct  = (p) => (p == null) ? '<td style="color:var(--text-muted)">—</td>'
+                                      : `<td class="${cls(p)}" style="font-size:10px">${fmtPct(p)}</td>`;
+      const opt  = (on, html) => on ? html : '';
+
+      // Every run's probability at every level, and the level it targets.
+      const probsFor = (a) => {
+        if (a.method === 'ECM' && a.b1) {
+          const b1v = parseB1(a.b1), cv = parseInt(a.curves) || 1, I = a.I ? parseFloat(a.I) : 0;
+          return { target: b1ToDigits(a.b1) + 'd',
+                   p: levelCols.map(d => I > 0 ? ecmProbabilityWithI(d, b1v, cv, I) : ecmProbability(d, cv, b1v)) };
+        }
+        if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
+          const b1v = parseB1(a.b1), b2v = a.b2 ? parseB1(a.b2) : null;
+          const lvl = pm1ToDigits(a.b1, a.b2, a.method);
+          return { target: lvl === null ? '&lt;10d' : lvl + 'd',
+                   p: levelCols.map(d => pm1Probability(d, b1v, b2v, a.method)) };
+        }
+        return { target: '—', p: levelCols.map(() => null) };
+      };
+
+      const head = `<thead><tr>
+        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th>
+        ${opt(showPoly, '<th>Poly</th>')}${opt(showI, '<th title="-I: B1 multiplier per curve">-I</th>')}
+        <th>Tool</th><th title="The factor size this run is aimed at">Target</th>
+        ${levelCols.map(d => `<th title="Chance this run finds a ${d}-digit factor, if one exists">t${d}</th>`).join('')}
+        <th>CPU<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~7900 core</span></th>
+        ${opt(showDate, '<th>Date</th>')}<th>Note</th><th></th>
+      </tr></thead>`;
+
+      // The sieve as a METHOD, alongside ECM and P±1 — it is one. Levels it has
+      // cleared read "none": proven, where every other cell in the grid is a chance.
+      const sd = sieveDepthDigits(n);
+      const sieveRow = sd > 0 ? (() => {
+        const k = Math.round(sd);
+        return `<tr title="Trial division to 10^${k}: every factor below ${k} digits is ruled out outright.">
+          <td><strong>Sieve</strong></td><td>10<sup>${k}</sup></td><td>—</td><td>—</td>
+          ${opt(showPoly, '<td>—</td>')}${opt(showI, '<td>—</td>')}
+          <td style="font-size:10px;color:var(--text-muted)">trial division</td>
+          <td>&lt;${k}d</td>
+          ${levelCols.map(d => d <= k ? '<td style="color:var(--green);font-size:10px">none</td>'
+                                      : '<td style="color:var(--text-muted)">—</td>').join('')}
+          <td>—</td>${opt(showDate, '<td>—</td>')}
+          <td style="color:var(--text-muted)">proven</td><td></td>
+        </tr>`;
+      })() : '';
+
+      const rows = attempts.map((a, i) => {
+        const pr = probsFor(a);
+        return `<tr>
+          <td>${a.method}</td><td>${a.b1 || '—'}</td><td>${a.b2 || '—'}</td><td>${a.curves || '—'}</td>
+          ${opt(showPoly, `<td>${a.poly || '—'}</td>`)}${opt(showI, `<td style="font-size:10px;color:var(--text-muted)">${a.I || '—'}</td>`)}
+          <td style="font-size:10px;color:var(--text-muted)">${a.tool || 'GMP-ECM'}</td>
+          <td style="font-size:10px;color:var(--text-dim)">${pr.target}</td>
+          ${pr.p.map(pct).join('')}
+          <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${fmtCpuTime(attemptCpuSeconds(a, digits))}</td>
+          ${opt(showDate, `<td>${a.date || '—'}</td>`)}
+          <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note || ''}</td>
+          <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
+        </tr>`;
+      }).join('');
+
+      // Scrolls sideways on its own rather than widening the modal.
+      return `<div style="overflow-x:auto"><table class="ecm-table">${head}<tbody>${sieveRow}${rows}</tbody></table></div>`;
+    })();
   } else {
     // No ECM or P±1 yet — but a sieve may still have run, and that result must not
     // vanish just because there is no table to put its row in.
@@ -10728,7 +10694,7 @@ function buildECMSection(n, e) {
         + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— best value first</span></div>'
         + '<div style="font-size:10px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;border-left:2px solid var(--border2);padding-left:8px">'
         +   '<span style="color:var(--text)">~63%</span> = chance the run finds a factor of that size, if one exists. '
-        +   '<span style="color:var(--green)">Green %</span> = how much it raises your overall odds — lower, since that factor may not be there.'
+        +   '<span style="color:var(--green)">Green %</span> = how much it raises your overall odds.'
         + '</div>'
         + rows
         + '</div>';
