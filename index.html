@@ -5162,6 +5162,7 @@ function doClearAllLocalData() {
 
   // Storage just changed by everything there was, so any cached reading of it is
   // describing a store that no longer exists.
+  _sieveDepthMemo = null;   // the store was just swept; match the other memos rather than rely on the reload
   try { invalidateProbeFree(); } catch(e) { logSwallowed('clearLocal/probe', e); }
   addLog('All local data cleared — reloading…', 'warn');
   // Wait for the IDB wipe to actually land before reloading, otherwise the reload
@@ -5694,6 +5695,23 @@ function completionOdds(cofactorDigits, factorDigits, clearedDigits) {
   return Math.min(1, 1.781072 * t / remaining);
 }
 
+// The number GMP-ECM should factor for this entry, as text it evaluates itself:
+// E(n) alone when nothing is known, otherwise "E(n)/PRODUCT". No big-number
+// arithmetic on E(n) at all — the product of the known factors is small.
+//
+// Falls back to the exact decimal cofactor only on the rare path where the product
+// cannot be formed, so a malformed factor list never produces a wrong expression.
+function ecmInputFor(e) {
+  if (!e || !e.val) return null;
+  const fs = (e.factors || []).filter(f => f && f !== '1');
+  if (!fs.length) return e.val;
+  let product = null;
+  try { product = factorProduct(fs); } catch (_) { product = null; }
+  if (typeof product === 'bigint' && product > 1n) return e.val + '/' + product.toString();
+  const cof = getCofactor(e);
+  return cof ? cof.str : e.val;
+}
+
 async function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
@@ -5884,21 +5902,43 @@ async function exportNextRuns() {
   let ranked = runs;
   if (FDB_WEIGHT === 0) ranked = runs.filter(r => !r.fdbUnknown);
   if (!ranked.length) { alert('Excluding FactorDB-unknown entries leaves no runs to export.'); return; }
-  ranked.sort((a, b) => (eff(b) - eff(a)) || (a.cpuTime - b.cpuTime));
+  // Score each run ONCE, then sort on the stored value. The comparator used to call
+  // eff() on both sides of every comparison — n·log n times, ~570,000 for a full
+  // candidate set — and in completion mode eff() is not cheap: it runs
+  // confidentlyCleared and a sieve-depth lookup. Same scores, same order, a
+  // fraction of the work.
+  for (const r of ranked) r._score = eff(r);
+  ranked.sort((a, b) => (b._score - a._score) || (a.cpuTime - b.cpuTime));
   const filled = fillRunBudget(ranked, budget);
   const top = filled.runs;
   const unknownCount = top.filter(r => r.fdbUnknown).length;
   const totalSec = top.reduce((s, r) => s + (r.cpuTime || 0), 0);
 
-  // Now resolve the exact cofactor VALUE for just the top runs (BigInt division is
-  // expensive, so we do it here — at most CAP entries — not for all candidates).
-  // Cache per entry so multiple runs on the same number divide only once.
+  // What each run hands GMP-ECM, as TEXT that GMP-ECM evaluates itself.
+  //
+  // This used to resolve every cofactor in the browser: parse E(n) into a BigInt,
+  // divide out the known factors, and toString it back to decimal for the file —
+  // ~10 ms per 40,000-digit entry, three-quarters of it in toString. For a
+  // 2,000-5,000 run export that was nearly all of the wait between pressing the
+  // button and getting the files.
+  //
+  // Now the file carries "E(n)/PRODUCT" and GMP-ECM does the division in C on the
+  // machine that runs it. Verified against a real GMP-ECM before shipping:
+  //   * it evaluates the expression and factors the result at the normal rate;
+  //   * an INEXACT division is refused ("Parsing Error: inexact division"), never
+  //     silently rounded — so a corrupt factor fails one run visibly;
+  //   * the log reports the EVALUATED size, so calibration still gets the right
+  //     digit count;
+  //   * the number is piped to ecm as data, never passed on a command line, and is
+  //     only digits and one "/", so neither cmd nor PowerShell can misread it.
+  // The importer, finding a number that is not plain digits, identifies the entry
+  // from the "# run ... E(n) ..." tag each worker writes before its run — the path
+  // built for consoles that garble long lines.
   const cofValCache = new Map();
   for (const r of top) {
     let v = cofValCache.get(r.n);
     if (v === undefined) {
-      const cof = getCofactor(r.entry);
-      v = cof ? cof.str : r.entry.val;
+      v = ecmInputFor(r.entry);
       cofValCache.set(r.n, v);
     }
     r.val = v;
@@ -10168,9 +10208,21 @@ function divideOutFactors(vBig, factors) {
 
 function getCofactor(e) {
   if (!e || !e.val || e.status === 'full') return null;
+  const factors = (e.factors || []).filter(f => f && f !== '1');
+  // No factors: the cofactor IS E(n), which is already the decimal string. The old
+  // path parsed it into a BigInt, divided by nothing, and converted it straight back
+  // to the identical string — ~10 ms per 40,000-digit entry to produce e.val.
+  //
+  // `big` is lazy AND remembered: most callers (the export) want only the string,
+  // and one reads .big twice in a single expression, so a getter that re-parsed on
+  // each access would double the cost for it instead of removing it.
+  if (!factors.length && /^[1-9]\d*$/.test(e.val)) {
+    const v = e.val;
+    let b;
+    return { get big() { return b === undefined ? (b = BigInt(v)) : b; }, str: v, digits: v.length };
+  }
   let vBig;
   try { vBig = BigInt(e.val); } catch { return null; }
-  const factors = (e.factors || []).filter(f => f && f !== '1');
   vBig = divideOutFactors(vBig, factors);
   const str = vBig.toString();
   return { big: vBig, str, digits: str.length };
@@ -12030,12 +12082,21 @@ let _pendingSieve = null;
 // t15 ECM job establishes t9 at 95%.
 const SIEVE_DEPTH_KEY = 'eulerFDB_sieveDepth_v1';
 
+// Memoised. Unmemoised, every call JSON-parsed the whole store — 168 KB once the
+// user's sieve had recorded all 9,865 entries, 0.66 ms per parse. sieveDepthDigits
+// reached it from the completion score, which the export's sort evaluated afresh on
+// EVERY comparison: ~570,000 parses, about six minutes, on one export. Harmless
+// while the store was empty, which is why it went unnoticed until it filled.
+let _sieveDepthMemo = null;
 function loadSieveDepth() {
-  try { return JSON.parse(kvGet(SIEVE_DEPTH_KEY) || '{}') || {}; }
-  catch (e) { logSwallowed('loadSieveDepth', e); return {}; }
+  if (_sieveDepthMemo) return _sieveDepthMemo;
+  try { _sieveDepthMemo = JSON.parse(kvGet(SIEVE_DEPTH_KEY) || '{}') || {}; }
+  catch (e) { logSwallowed('loadSieveDepth', e); _sieveDepthMemo = {}; }
+  return _sieveDepthMemo;
 }
 
 function saveSieveDepth(d) {
+  _sieveDepthMemo = d || {};   // keep the memo in step with what is written
   try { kvSet(SIEVE_DEPTH_KEY, JSON.stringify(d || {})); markDirty(); }
   catch (e) { logSwallowed('saveSieveDepth', e); }
 }
