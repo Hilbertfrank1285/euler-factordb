@@ -4775,8 +4775,14 @@ async function githubPush() {
 
     if (!r.ok) {
       _lastPushedSha = null; // failed — don't leave a possibly-wrong SHA cached
-      const err = await r.json();
-      throw new Error(err.message || 'HTTP ' + r.status);
+      // The body is NOT always JSON. GitHub (or a proxy in front of it) serves an
+      // HTML page on 502/503, and parsing that threw a SyntaxError here — so an
+      // outage surfaced as "Unexpected token < in JSON" instead of "HTTP 502", a
+      // misleading message at exactly the moment a clear one matters. The retry
+      // loop above already tolerated a non-JSON body; this line did not.
+      let detail = '';
+      try { detail = (await r.json()).message || ''; } catch (_) { /* HTML error page */ }
+      throw new Error(detail || ('HTTP ' + r.status + (r.statusText ? ' ' + r.statusText : '')));
     }
     // Remember the SHA GitHub just assigned, so the next push can skip its GET.
     try { const okBody = await r.clone().json(); _lastPushedSha = okBody?.content?.sha || null; }
