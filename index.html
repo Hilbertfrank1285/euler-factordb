@@ -3651,11 +3651,15 @@ function fmtPct(p) {
   return (p * 100).toFixed(2) + '%';
 }
 
+// Curve counts in FULL — "2,350", not "~2k".
+//
+// Rounding to "~2k" hid the figure that matters when deciding whether to run it, and
+// the callers added their own "~" on top, printing "~~2k". It was also a latent
+// hazard: the export's fallback for a missing rawCurves strips non-digits from this
+// string, which turned "~2k" into 2 curves; a full count strips to the right number.
 function fmtCurves(n) {
-  if (n >= 1e9) return '~' + (n/1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return '~' + (n/1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return '~' + (n/1e3).toFixed(0) + 'k';
-  return String(n);
+  const v = Math.round(Number(n) || 0);
+  return v.toLocaleString();
 }
 
 // Dickman's rho function — the probability that a random integer near x has all
@@ -9808,8 +9812,8 @@ function recommendNextRun(digits, attempts, provenDigits) {
       method: 'ECM', b1: fmtB1(b1), b2: null, rawB1: b1, rawB2: null, curves: fmtCurves(addCurves),
       rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
       reason: pBefore < 0.02
-        ? 'Search the ' + d + '-digit level: ~' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists. The natural next step up.'
-        : 'Finish the ' + d + '-digit level: ~' + fmtCurves(haveEff) + ' of ~' + fmtCurves(targetCv) + ' curves done (' + fmtPct(pBefore) + '); +' + fmtCurves(addCurves) + ' more at B1=' + fmtB1(b1) + ' reaches ~63%.',
+        ? 'Search the ' + d + '-digit level: ' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists. The natural next step up.'
+        : 'Finish the ' + d + '-digit level: ' + fmtCurves(haveEff) + ' of ' + fmtCurves(targetCv) + ' curves done (' + fmtPct(pBefore) + '); +' + fmtCurves(addCurves) + ' more at B1=' + fmtB1(b1) + ' reaches ~63%.',
     });
     if (++suggested >= 3) break;                    // never more than 3 ECM steps
   }
@@ -10348,16 +10352,6 @@ function buildECMSection(n, e) {
       const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
 
       // ── ECM grid ──────────────────────────────────────────────────────────
-      const b1ToTargetDigits = b1ToDigits; // shared GMP-ECM table-inversion helper
-
-      const curvesPerDigit = {};
-      for (const a of ecmAttempts) {
-        const td = b1ToTargetDigits(a.b1);
-        const c  = parseInt(a.curves) || 0;
-        for (let d = td - 3; d <= td + 3; d++) {
-          curvesPerDigit[d] = (curvesPerDigit[d] || 0) + c;
-        }
-      }
       const totalECMCurves = ecmAttempts.reduce((s,a) => s + (parseInt(a.curves)||0), 0);
 
       // ── One combined probability table ────────────────────────────────────
@@ -10376,7 +10370,9 @@ function buildECMSection(n, e) {
           <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
             ★ P(at least one method finds an N-digit factor)${totalECMCurves ? ' · ' + totalECMCurves + ' curves' : ''}${pm1Attempts.length ? ' · ' + pm1Attempts.length + ' P±1 run' + (pm1Attempts.length > 1 ? 's' : '') : ''}
           </div>
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--border2);padding-left:8px">
+          <details style="margin-bottom:8px;font-size:10px;color:var(--text-dim)">
+            <summary style="cursor:pointer;color:var(--text-muted)">How these are computed</summary>
+            <div style="line-height:1.5;border-left:2px solid var(--border2);padding-left:8px;margin-top:4px">
             Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your runs would already have caught it?
             Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance at least one method succeeds.
             The complement of this scales every suggested run's gain, so a level near 100% here is one where further work has little left to find.
@@ -10387,7 +10383,8 @@ function buildECMSection(n, e) {
             <span style="color:var(--text)">P-1</span> finds a prime p when p−1 is <span style="color:var(--text)">B1-smooth</span>; stage 2 also catches p where p−1 has one extra prime in (B1,B2]. Uses Dickman's ρ (computed numerically, ~1–3% accurate).
             <span style="color:var(--text)">P+1</span> is the same formula × 0.5 — it works on the complementary half of primes, where p+1 rather than p−1 is smooth.
             Unlike ECM, <span style="color:var(--text)">each P±1 run is a single deterministic test</span>: repeating the same B1/B2 gains nothing, only a higher bound does.
-          </div>
+            </div>
+          </details>
           <div class="prob-grid">
             ${checkDigits.map(d => {
               const ecmP  = ecmAttempts.length ? ecmProbForDigit(d, ecmAttempts) : 0;
@@ -10402,12 +10399,11 @@ function buildECMSection(n, e) {
               const parts = [];
               if (ecmAttempts.length) parts.push('ECM: ' + fmtPct(ecmP));
               if (pm1Attempts.length) parts.push('P±1: ' + fmtPct(pm1P));
-              // Curve counts and the 90% target were the useful part of the old
-              // ECM-only table, kept here rather than lost with it.
-              const curves = curvesPerDigit[d] || 0;
-              const extra  = (!nfs && ecmAttempts.length)
-                ? `<div class="prob-b1">B1≈${fmtB1(optimalB1(d))} · done: ${fmtCurves(curves)} · 90%→${fmtCurves(curvesForProb(d, 0.9))}</div>`
-                : '';
+              // No "B1≈11k · done: 0 · 90%→171" line. It counted only curves run at the
+              // level's IDEAL B1, ignoring every run at another B1 — so a level already
+              // >99.99% covered by higher-B1 runs showed "done: 0" directly beneath the
+              // figure that contradicted it.
+              const extra  = '';
               return `<div class="prob-cell" style="${style}">
                 <div class="prob-d">${d}-digit factor</div>
                 ${pDisp}
