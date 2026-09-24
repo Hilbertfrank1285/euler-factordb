@@ -276,8 +276,6 @@
   .modal-body { padding: 20px 24px 24px; }
   .modal-section { margin-bottom: 20px; }
   .modal-section-label { font-size: 10px; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
-  .sign-row { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
-  .sign-row span { color: var(--text); }
   .status-block { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border2); background: var(--bg); }
   .status-icon { font-size: 18px; }
   .status-text { font-size: 13px; color: var(--text); }
@@ -515,6 +513,13 @@
   .ecm-table th { text-align: left; color: var(--text-muted); font-size: 9px; letter-spacing: 0.8px; text-transform: uppercase; padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: 400; }
   .ecm-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); color: var(--text-dim); vertical-align: top; }
   .ecm-table td:first-child { color: var(--purple); font-weight: 500; }
+  /* The first column stays put while the level columns scroll sideways, so a row's
+     label — ECM, Sieve, Total, Exists — is never scrolled out of view. Every row's
+     first cell is one column wide for this to work: a summary label that spanned
+     six columns would stay pinned at that width and slide over the level columns. */
+  .ecm-table th:first-child, .ecm-table td:first-child {
+    position: sticky; left: 0; z-index: 1; background: var(--surface);
+  }
   .ecm-table tr:hover td { background: var(--surface2); }
   .ecm-table .prob-high   { color: var(--green); }
   .ecm-table .prob-mid    { color: var(--yellow); }
@@ -3659,9 +3664,11 @@ function fmtCurves(n) {
 
 // Dickman's rho function — the probability that a random integer near x has all
 // prime factors ≤ x^(1/u). Used for P-1/P+1 smoothness probability.
-// Computed via the stable recurrence rho(u) = (1/u)∫_{u-1}^{u} rho(t) dt, which
-// avoids the catastrophic cancellation of the "1 - integral" form. Accurate to
-// ~1-3% across u ∈ [1,10] (the old piecewise approximation was off by up to 56%).
+// Uses the stable recurrence rho(u) = (1/u)∫_{u-1}^{u} rho(t) dt, which avoids the
+// catastrophic cancellation of the "1 - integral" form — now solved ONCE into the
+// table below, which measures 0.2-0.9% against published values from rho(3) to
+// rho(10). (The per-u recompute it replaced was ~1-3%, varying non-smoothly with u;
+// an older piecewise approximation was off by up to 56%.)
 const _dickmanCache = new Map();
 // Dickman's rho, from ONE precomputed table.
 //
@@ -9274,9 +9281,42 @@ function goPage(p) {
 function openModal(n) {
   const e = entryByN(n);
   if (!e) return;
-  document.getElementById('modalTitle').textContent = `E(${n})`;
-
   const signWord   = e.sign === -1 ? 'negative' : 'positive';
+  // The sign is one line of fact, so it sits in the header beside the title instead of
+  // taking a whole section with its own heading. n is a number and signWord one of two
+  // fixed words, so building this as HTML is safe.
+  document.getElementById('modalTitle').innerHTML = `E(${n})`
+    + ` <span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:8px">`
+    + `${signWord} · PARI: eulerfrac(${n})</span>`;
+
+  // #5 — one line at the top: the picture before the detail. Coverage and the next
+  // recommended run otherwise sit several sections down. Built from the same inputs
+  // the ECM section uses (loadECM, getCofactorDigits), so the two cannot disagree.
+  const summaryHtml = (() => {
+    if (!e.val || e.status === 'full') return '';
+    const dg = getCofactorDigits(e);
+    if (!dg) return '';
+    const att = loadECM()[String(n)] || [];
+    const sd  = sieveDepthDigits(n);
+    // "Covered to tN": the highest level at the 63% target — one expected find if a
+    // factor of that size exists — or proven empty by the sieve.
+    let covered = 0;
+    try {
+      for (const r of computeCostToFinish(e, dg, att)) {
+        if (r.have >= COST_TARGET_LO || (sd > 0 && r.d <= sd)) covered = Math.max(covered, r.d);
+      }
+    } catch (err) { logSwallowed('modal/summary/coverage', err); }
+    let next = '';
+    try {
+      const rec = (recommendNextRun(dg, att, sd) || [])[0];
+      if (rec) next = rec.method + ' B1=' + rec.b1 + (rec.curves ? ', ' + rec.curves + ' curves' : '');
+    } catch (err) { logSwallowed('modal/summary/next', err); }
+    const parts = [dg.toLocaleString() + '-digit cofactor',
+                   covered ? 'covered to t' + covered : 'no level covered yet'];
+    if (next) parts.push('next: ' + next);
+    return `<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;padding:7px 12px;`
+      + `background:var(--surface2);border-left:3px solid var(--accent)">${parts.join(' · ')}</div>`;
+  })();
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
@@ -9409,10 +9449,29 @@ function openModal(n) {
   // three lines after setting it — so the loading state was dead code that could
   // never render. Only visible once the variable was declared and both writes
   // could be read as one flow.
-  if (e.val) valueHtml = ('<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span></div>'
-    + '<a class="value-box cofactor-link" href="https://factordb.com/index.php?query=' + encodeURIComponent(e.val) + '" target="_blank" rel="noopener" style="position:relative">'
-    + '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>'
-    + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a></div>');
+  // The value opens FactorDB by FactorDB's own ID when the app knows it: a short URL
+  // that always resolves. It used to put the ENTIRE number in the address — for a
+  // 72,613-digit E(n), a 73 KB URL that FactorDB refuses, so clicking the value did
+  // nothing useful on exactly the entries where you most want to look. That length
+  // limit is what capped the old in-browser check. The query form is kept only for a
+  // number short enough to fit; otherwise the box is plain text and says nothing about
+  // clicking.
+  if (e.val) {
+    const rec = fdbCache[e.val];
+    const fdbLink = (rec && rec.fdbId)
+      ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbId)
+      : (e.val.length <= currentQueryCap()
+          ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.val) : null);
+    const copyBtn = '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>';
+    valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value'
+      + (fdbLink ? ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span>' : '')
+      + '</div>'
+      + (fdbLink
+          ? '<a class="value-box cofactor-link" href="' + fdbLink + '" target="_blank" rel="noopener" style="position:relative">'
+            + copyBtn + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a>'
+          : '<div class="value-box" style="position:relative">' + copyBtn + '<strong>' + e.val + '</strong></div>')
+      + '</div>';
+  }
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
@@ -9427,10 +9486,7 @@ function openModal(n) {
   const ecmSectionHtml = buildECMSection(n, e);
 
   document.getElementById('modalBody').innerHTML = `
-    <div class="modal-section">
-      <div class="modal-section-label">Sign</div>
-      <div class="sign-row">E(${n}) is <span>${signWord}</span> · PARI: <span>eulerfrac(${n})</span></div>
-    </div>
+    ${summaryHtml}
     <div class="modal-section">
       <div class="modal-section-label">Factorization Status</div>
       <div class="status-block">
@@ -10350,25 +10406,8 @@ function buildECMSection(n, e) {
       // grid it used to sit above showed 1 − (1 − p_ECM)(1 − p_PM1) — the same figure
       // as the attempts grid's Total row, by the same formula — so it was a duplicate
       // and went. The note now explains that Total row.
-      if (ecmAttempts.length || pm1Attempts.length) {
-        probHtml += `<div style="margin-bottom:12px">
-          <details style="margin-bottom:8px;font-size:10px;color:var(--text-dim)">
-            <summary style="cursor:pointer;color:var(--text-muted)">How these are computed</summary>
-            <div style="line-height:1.5;border-left:2px solid var(--border2);padding-left:8px;margin-top:4px">
-            The <strong style="color:var(--text)">Total</strong> row answers: assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your runs would already have caught it?
-            Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance at least one method succeeds.
-            The complement of this scales every suggested run's gain, so a level near 100% in the Total row is one where further work has little left to find.
-            <br><br>
-            <span style="color:var(--text)">ECM</span> runs random elliptic curves; each is an independent attempt, so more curves means better odds.
-            Uses the empirical GMP-ECM expected-curve table: P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%).
-            <br>
-            <span style="color:var(--text)">P-1</span> finds a prime p when p−1 is <span style="color:var(--text)">B1-smooth</span>; stage 2 also catches p where p−1 has one extra prime in (B1,B2]. Uses Dickman's ρ (computed numerically, ~1–3% accurate).
-            <span style="color:var(--text)">P+1</span> is the same formula × 0.5 — it works on the complementary half of primes, where p+1 rather than p−1 is smooth.
-            Unlike ECM, <span style="color:var(--text)">each P±1 run is a single deterministic test</span>: repeating the same B1/B2 gains nothing, only a higher bound does.
-            </div>
-          </details>
-        </div>`;
-      }
+      // The note that stood here was merged into the single "How these are computed"
+      // footnote after the attempts grid, which it explained.
 
       // The "Coverage and cost by level" table that stood here is now the summary
       // rows beneath the attempts grid — Total, Exists, Found, To 63%, To 95%, Value —
@@ -10390,16 +10429,10 @@ function buildECMSection(n, e) {
   // is exactly where "what would each level cost" matters most. (They used to live in
   // a separate table that appeared regardless.)
   if (attempts.length || digits) {
-    const totalCpuSec = attempts.reduce((sum, a) => {
-      const b1n = parseB1(a.b1);
-      const b2n = (a.b2 ? parseB1(a.b2) : null);
-      return sum + attemptCpuSeconds(a, digits);
-    }, 0);
-    tableHtml = (attempts.length ? `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
-      <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 7900 core</span>
-      <span style="opacity:0.3">|</span>
-      <span>${attempts.length} attempt${attempts.length===1?'':'s'}</span>
-    </div>` : '') +
+    // No "⏱ Total CPU … | N attempts" badge above the grid: the grid's Total row
+    // carries the same CPU figure in its CPU column, and the attempt count is the
+    // rows themselves.
+    tableHtml =
     (() => {
       // ONE COLUMN PER LEVEL. The probabilities used to sit in a single cell as a run
       // of text — "10d:10.69% 15d:3.83% 20d:1.34% …" — twelve figures per row, so no
@@ -10500,7 +10533,7 @@ function buildECMSection(n, e) {
       const totalCpu = attempts.reduce((sum, a) => sum + (attemptCpuSeconds(a, digits) || 0), 0);
       const sumRow = (label, tip, cells, cpu, first) =>
         `<tr${first ? ' style="border-top:2px solid var(--border2)"' : ''}>
-          <td colspan="${labelSpan}" title="${tip}"><strong>${label}</strong></td>
+          <td title="${tip}"${first ? ' style="border-top:2px solid var(--border2)"' : ''}><strong>${label}</strong></td>${'<td></td>'.repeat(labelSpan - 1)}
           ${cells}
           <td style="font-size:10px;color:var(--text-dim)">${cpu || ''}</td>
           ${opt(showDate, '<td></td>')}<td></td><td></td>
@@ -10547,14 +10580,22 @@ function buildECMSection(n, e) {
   }
 
   // Methodology footnote — documents the probability model + sources on the card
+  // ONE methodology note. There were two — one above the attempts grid, one below —
+  // covering the same ground: both gave the ECM formula, both described P-1 through
+  // Dickman's rho, both called P+1 "x 0.5". They also both quoted rho as "~1-3%
+  // accurate", which described the old per-u recompute; the precomputed table that
+  // replaced it measures 0.2-0.9% against published values. Merged, placed after the
+  // grid it explains, and corrected.
   let methodHtml = '';
   if (digits) {
     methodHtml = `<details style="margin-top:12px;font-size:10px;color:var(--text-dim)">
-      <summary style="cursor:pointer;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:9px">How these probabilities are computed</summary>
-      <div style="line-height:1.6;border-left:2px solid var(--border2);padding-left:10px;margin-top:8px">
-        <div style="margin-bottom:6px"><span style="color:var(--text)">ECM</span> — based on the empirical <span style="color:var(--text)">GMP-ECM expected-curve table</span> (Zimmermann et al., default Brent–Suyama polynomial: D(3)…D(30)). Expected curves C_opt(d) to find a d-digit factor: 74 @ 20d, 430 @ 30d, 2350 @ 40d, 7553 @ 50d, 42017 @ 60d. Success after k curves = 1 − e^(−k/C_opt), interpolated in log-space between table points. Optimal B1 is read from the same table; each logged run's B1 is mapped back to the digit level it targets.</div>
-        <div style="margin-bottom:6px"><span style="color:var(--text)">P-1 / P+1</span> — based on <span style="color:var(--text)">Dickman's ρ function</span>, computed numerically via the recurrence ρ(u)=(1/u)∫ρ(t)dt over [u−1,u] (accurate to ~1–3% for u∈[1,10]). Stage 1 = ρ(ln p/ln B1); stage 2 adds the semismooth integral for one prime in (B1,B2]. P+1 = same × 0.5 (complementary half of primes).</div>
-        <div style="color:var(--text-muted)">Caveat: ρ(u) mildly overstates smoothness for small factors, and the table is calibrated to ~63% (one expected hit). Treat all figures as good estimates, not guarantees. Above 65d ECM is impractical — switch to NFS/GNFS.</div>
+      <summary style="cursor:pointer;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-size:9px">How these are computed</summary>
+      <div style="margin-top:8px;line-height:1.7;border-left:2px solid var(--border2);padding-left:10px">
+        <div style="margin-bottom:6px"><span style="color:var(--text)">Total</span> — assuming a factor of that size <em>does</em> exist, the chance your runs have already caught it:
+          <span style="color:var(--text)">1 − (1 − p<sub>ECM</sub>)(1 − p<sub>P±1</sub>)</span>. ECM runs combine by effective curves; P±1 runs by the best one, since each is a single deterministic test. Its complement scales every suggested run's gain, so a level near 100% has little left to find.</div>
+        <div style="margin-bottom:6px"><span style="color:var(--text)">ECM</span> — from the empirical GMP-ECM expected-curve table (Zimmermann et al., default Brent–Suyama polynomial). Expected curves C<sub>opt</sub>(d) to find a d-digit factor: 74 @ 20d, 430 @ 30d, 2,350 @ 40d, 7,553 @ 50d, 42,017 @ 60d. Each curve is independent, so success after k curves = 1 − e<sup>−k/C<sub>opt</sub></sup> (one expected find at k = C<sub>opt</sub>, ≈63%). Each run's B1 is mapped back to the level it targets.</div>
+        <div style="margin-bottom:6px"><span style="color:var(--text)">P-1 / P+1</span> — P-1 finds a prime p when p−1 is B1-smooth; stage 2 also catches one extra prime in (B1, B2]. Probabilities use Dickman's ρ, read from a table precomputed once and interpolated in log space — within 0.2–0.9% of published values from ρ(3) to ρ(10). P+1 is the same × 0.5: it works on the other half of primes, where p+1 is smooth. Repeating the same B1/B2 gains nothing; only a higher bound does.</div>
+        <div style="color:var(--text-muted)">Figures are good estimates, not guarantees: the ECM table is calibrated to one expected find, and ρ mildly overstates smoothness for small factors. Above ~65 digits ECM is impractical — that is NFS/GNFS territory.</div>
       </div>
     </details>`;
   }
