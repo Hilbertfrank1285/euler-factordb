@@ -10425,70 +10425,9 @@ function buildECMSection(n, e) {
         catch(err) { logSwallowed('modal/costToFinish', err); }
       }
 
-      // ── P(fully factored) matrix ────────────────────────────────────────
-      // Shows per digit size: P(factor exists) × P(runs find it | exists) = P(resolved)
-      if (attempts.length && digits) {
-        const halfDigits = Math.floor(digits / 2);
-
-        // P(N has a prime factor of exactly d digits) for a "random" d-digit composite
-        // Approximation: probability ≈ ln(d × ln10) / ln(digits × ln10) × (1/d)
-        // More precisely using the formula for smooth numbers:
-        // fraction of d-digit numbers that are prime ≈ 1/(d×ln10)
-        // and a random n-digit composite has a d-digit factor with prob ≈ ln(10) / ln(n/d)... 
-        // Simplest usable heuristic: P(d-digit factor exists) ≈ (ln10) / (ln(N) / d)
-        // = d × ln10 / ln(N) for each specific d — then normalise
-        // P(N has a prime factor in the d-digit to (d+5)-digit range)
-        // Based on the fact that for a random n-digit number,
-        // the probability of having a prime factor of exactly k digits is:
-        // P(k) ≈ (1/k) × (1 - 1/k) × ... ≈ ln(k+1)/ln(n) - ln(k)/ln(n) = ln((k+1)/k)/ln(n)
-        // For a 5-digit range [d, d+5): sum from k=d to d+4 of ln((k+1)/k)/ln(n)
-        // = ln((d+5)/d) / ln(n)   (telescoping)
-        // Levels a SIEVE has proven empty are not worth a row: the probability is
-        // exactly zero, and showing "0.0%" beside a real estimate invites the
-        // reading that ECM was tried and failed there. Trial division to 10^9
-        // means a 5-digit factor is ABSENT, not unlikely.
-        const provenDig = sieveDepthDigits(n);
-        const resolveDigits = ecmLevels()
-          .filter(d => d <= halfDigits)
-          .filter(d => !(provenDig > 0 && d <= provenDig));
-        if (resolveDigits.length) {
-          probHtml = `<div style="margin-bottom:12px">
-            <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
-              ★ Chance of finding a factor of this size
-            </div>
-            <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;border-left:2px solid var(--accent);padding-left:8px">
-              • <span style="color:var(--text)">exists</span> = how likely a random ${digits}-digit composite has a factor of that size (number theory heuristic)
-              <br>• <span style="color:var(--text)">find | exists</span> = if that factor exists, how likely your ECM/P-1/P+1 runs catch it
-              <br>• <span style="color:var(--accent)">main %</span> = both together — the chance you've found a factor in that digit range
-              <br><span style="color:var(--text-muted)">Factors larger than ~${halfDigits}d cannot exist as the SMALLEST remaining factor (whatever's left after removing it must be ≥ itself, so the smallest factor is always ≤ √N ≈ 10^${halfDigits} — this holds regardless of how many factors remain in total)</span>
-            </div>
-            <div class="prob-grid">
-              ${resolveDigits.map(d => {
-                // P(factor of size d exists in this number)
-                const pExists = pFactorExistsCalibrated(d, digits);
-
-                // P(your runs find it | it exists) = combined ECM + PM1
-                const ecmFind   = ecmProbForDigit(d, ecmAttempts);
-                const pm1Find   = bestPm1Prob(d, pm1Attempts);
-                const totalFind = 1 - (1 - ecmFind) * (1 - pm1Find);
-
-                // Combined: P(exists AND found)
-                const combined = pExists * totalFind;
-                const cls   = combined > 0.1 ? 'prob-high' : combined > 0.02 ? 'prob-mid' : 'prob-low';
-                const nfs   = d > 65;
-                const style = nfs ? 'opacity:0.45' : '';
-
-                return `<div class="prob-cell" style="${style}">
-                  <div class="prob-d">${d}-digit factor</div>
-                  <div class="prob-v ${cls}">${fmtPct(combined)}</div>
-                  <div class="prob-b1">exists: ${fmtPct(pExists)}</div>
-                  <div class="prob-b1">find|exists: ${fmtPct(totalFind)}</div>
-                </div>`;
-              }).join('')}
-            </div>
-          </div>` + probHtml;
-        }
-      }
+      // The per-level probability grid that stood here was merged into the coverage
+      // table: its exists / find|exists / product figures are now the EXISTS, NOW and
+      // FOUND columns there, computed by the identical formulas.
 
       if (!ecmAttempts.length && !pm1Attempts.length) {
         probHtml = `<div style="font-size:11px;color:var(--text-muted);padding:8px 0;margin-bottom:10px">No attempts logged yet — add ECM or P-1/P+1 runs below to see probabilities.</div>`;
@@ -10668,7 +10607,9 @@ function buildECMSection(n, e) {
 
   // What to run next recommendation
   if (digits) {
-    const recs = recommendNextRun(digits, attempts);
+    // With the sieve depth, like the export's call — without it the modal could
+    // recommend a level the sieve had already proven empty.
+    const recs = recommendNextRun(digits, attempts, sieveDepthDigits(n));
     if (recs && recs.length) {
       const rows = recs.map((rec, i) => {
         const cpuStr = rec.cpuTime ? '<span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + '</span>' : '';
@@ -10688,6 +10629,21 @@ function buildECMSection(n, e) {
           + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of finding a new factor'
           +   (effStr ? ' <span style="color:var(--text-muted)">· value: ' + effStr + '</span>' : '')
           + '</div>'
+          // FINISH ODDS: if this run finds a factor, the chance what remains is prime —
+          // i.e. that the find completes the number. The completion ranking's key
+          // figure, which until now lived only in the export. For a huge cofactor it
+          // reads ~0% and says so plainly: that entry is about contributing factors,
+          // not finishing.
+          + (() => {
+              const cleared = Math.max(
+                confidentlyCleared(parseInt(rec.rawCurves || rec.curves) || 0, rec.rawB1 || 0),
+                sieveDepthDigits(n));
+              const fin = completionOdds(digits, rec.targetDigits || 0, cleared);
+              return '<div style="font-size:10px;color:var(--text-dim);margin-top:1px" '
+                + 'title="If this run finds a factor, the chance that what remains is prime — so the find completes the number.">'
+                + 'if it finds one: <span style="color:' + (fin >= 0.1 ? 'var(--green)' : fin >= 0.01 ? 'var(--yellow)' : 'var(--text-muted)') + '">'
+                + fmtPct(fin) + '</span> chance that completes E(' + n + ')</div>';
+            })()
           + '</div>';
       }).join('');
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
@@ -12234,13 +12190,22 @@ function computeCostToFinish(entry, digits, attempts) {
 }
 
 function costToFinishHtml(entry, digits, attempts) {
-  const rows = computeCostToFinish(entry, digits, attempts);
+  // Levels a SIEVE has proven empty are left out rather than shown as 0%: a zero
+  // beside real estimates reads as "ECM tried there and failed", when the truth is
+  // that nothing of that size can be there. Carried over from the probability grid
+  // this table absorbed. (The Sieve row in the attempts grid marks them "none".)
+  const proven = entry && entry.n ? sieveDepthDigits(entry.n) : 0;
+  const rows = computeCostToFinish(entry, digits, attempts)
+    .filter(r => !(proven > 0 && r.d <= proven));
   if (!rows.length) return '';
   return `<div style="margin-bottom:12px">
-    <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Cost to finish</div>
+    <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Coverage and cost by level</div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono,monospace)">
       <tr style="color:var(--text-muted);font-size:10px;text-align:right">
-        <th style="text-align:left;padding-bottom:4px">LEVEL</th><th style="padding:0 8px 4px">NOW</th>
+        <th style="text-align:left;padding-bottom:4px">LEVEL</th>
+        <th style="padding:0 8px 4px" title="If a factor of this size exists, the chance your runs have already found it">NOW</th>
+        <th style="padding:0 8px 4px" title="How likely a number this size has a factor this size at all">EXISTS</th>
+        <th style="padding:0 8px 4px" title="Both together: the chance you have actually found a factor of this size">FOUND</th>
         <th style="padding:0 8px 4px">TO 90%</th><th style="padding:0 8px 4px">TO 99%</th><th style="padding:0 0 4px 8px">VALUE</th>
       </tr>
       ${rows.map(r => {
@@ -12258,6 +12223,8 @@ function costToFinishHtml(entry, digits, attempts) {
               : ` <span style="color:var(--text-muted);font-size:9px" title="Model estimate, not calibrated: ${r.calibVerdict}. Needs ${'${YIELD_CALIB_MIN_FINDS}'} finds at this level before the measurement beats the theory.">model</span>`
           }</td>
           <td style="padding:2px 8px;color:var(--text-muted)">${(r.have * 100).toFixed(2)}%</td>
+          <td style="padding:2px 8px;color:var(--text-muted)">${fmtPct(r.pe)}</td>
+          <td style="padding:2px 8px;color:${r.pe * r.have > 0.1 ? 'var(--green)' : r.pe * r.have > 0.02 ? 'var(--yellow)' : 'var(--text-dim)'}">${fmtPct(r.pe * r.have)}</td>
           <td style="padding:2px 8px">${r.c90 > 0 ? fmtCpuTime(r.c90) : '—'}</td>
           <td style="padding:2px 8px;color:var(--text-muted)">${r.c99 > 0 ? fmtCpuTime(r.c99) : '—'}</td>
           <td style="padding:2px 0 2px 8px;color:${col}">${r.perHr === null ? '—' : r.perHr.toFixed(3) + '%/hr'}</td>
