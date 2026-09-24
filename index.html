@@ -529,11 +529,6 @@
   .ecm-submit:hover { background: var(--accent); color: #000; }
   .ecm-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 0 4px; }
   .ecm-delete:hover { color: var(--red); }
-  .prob-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin-top: 8px; }
-  .prob-cell { background: var(--bg); border: 1px solid var(--border); padding: 6px 8px; text-align: center; }
-  .prob-cell .prob-d { font-size: 10px; color: var(--text-muted); }
-  .prob-cell .prob-v { font-size: 13px; font-weight: 500; margin-top: 2px; }
-  .prob-cell .prob-b1 { font-size: 9px; color: var(--text-muted); margin-top: 2px; }
 
 </style>
 </head>
@@ -10351,31 +10346,18 @@ function buildECMSection(n, e) {
       const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
       const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
 
-      // ── ECM grid ──────────────────────────────────────────────────────────
-      const totalECMCurves = ecmAttempts.reduce((s,a) => s + (parseInt(a.curves)||0), 0);
-
-      // ── One combined probability table ────────────────────────────────────
-      // There used to be three tables here: combined, ECM-only and P-1-only. The two
-      // single-method ones were redundant — the combined table already shows each
-      // method's contribution per row, and the recommendation engine now scales every
-      // suggested run's gain by exactly this table's COMPLEMENT (the chance a factor
-      // of that size is still undiscovered by either method). So this is the number
-      // that actually drives decisions; the other two were detail nobody acted on.
-      //
-      // Renders whenever EITHER method has attempts, treating the absent one as zero.
-      // The old combined table required BOTH, which would have left an ECM-only entry
-      // with no table at all once the single-method ones were removed.
+      // Only the collapsible "How these are computed" note remains here. The per-level
+      // grid it used to sit above showed 1 − (1 − p_ECM)(1 − p_PM1) — the same figure
+      // as the attempts grid's Total row, by the same formula — so it was a duplicate
+      // and went. The note now explains that Total row.
       if (ecmAttempts.length || pm1Attempts.length) {
         probHtml += `<div style="margin-bottom:12px">
-          <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">
-            ★ P(at least one method finds an N-digit factor)${totalECMCurves ? ' · ' + totalECMCurves + ' curves' : ''}${pm1Attempts.length ? ' · ' + pm1Attempts.length + ' P±1 run' + (pm1Attempts.length > 1 ? 's' : '') : ''}
-          </div>
           <details style="margin-bottom:8px;font-size:10px;color:var(--text-dim)">
             <summary style="cursor:pointer;color:var(--text-muted)">How these are computed</summary>
             <div style="line-height:1.5;border-left:2px solid var(--border2);padding-left:8px;margin-top:4px">
-            Assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your runs would already have caught it?
+            The <strong style="color:var(--text)">Total</strong> row answers: assuming a factor of that size <em style="color:var(--text)">does</em> exist — what are the combined odds your runs would already have caught it?
             Uses <span style="color:var(--text)">1 − (1−p_ECM) × (1−p_PM1)</span>: the chance at least one method succeeds.
-            The complement of this scales every suggested run's gain, so a level near 100% here is one where further work has little left to find.
+            The complement of this scales every suggested run's gain, so a level near 100% in the Total row is one where further work has little left to find.
             <br><br>
             <span style="color:var(--text)">ECM</span> runs random elliptic curves; each is an independent attempt, so more curves means better odds.
             Uses the empirical GMP-ECM expected-curve table: P = 1 − e^(−curves/C_opt(d)), where C_opt(d) is the curve count at which one factor is expected on average (≈63%).
@@ -10385,33 +10367,6 @@ function buildECMSection(n, e) {
             Unlike ECM, <span style="color:var(--text)">each P±1 run is a single deterministic test</span>: repeating the same B1/B2 gains nothing, only a higher bound does.
             </div>
           </details>
-          <div class="prob-grid">
-            ${checkDigits.map(d => {
-              const ecmP  = ecmAttempts.length ? ecmProbForDigit(d, ecmAttempts) : 0;
-              const pm1P  = pm1Attempts.length ? bestPm1Prob(d, pm1Attempts) : 0;
-              const both  = 1 - (1 - ecmP) * (1 - pm1P);
-              const cls   = both > 0.5 ? 'prob-high' : both > 0.1 ? 'prob-mid' : 'prob-low';
-              const nfs   = d > 65;
-              const style = nfs ? 'opacity:0.45;border-color:var(--border)' : '';
-              const pDisp = nfs
-                ? `<div class="prob-v" style="font-size:10px;color:var(--text-muted)">use NFS</div>`
-                : `<div class="prob-v ${cls}">${fmtPct(both)}</div>`;
-              const parts = [];
-              if (ecmAttempts.length) parts.push('ECM: ' + fmtPct(ecmP));
-              if (pm1Attempts.length) parts.push('P±1: ' + fmtPct(pm1P));
-              // No "B1≈11k · done: 0 · 90%→171" line. It counted only curves run at the
-              // level's IDEAL B1, ignoring every run at another B1 — so a level already
-              // >99.99% covered by higher-B1 runs showed "done: 0" directly beneath the
-              // figure that contradicted it.
-              const extra  = '';
-              return `<div class="prob-cell" style="${style}">
-                <div class="prob-d">${d}-digit factor</div>
-                ${pDisp}
-                <div class="prob-b1">${parts.join(' · ')}</div>
-                ${extra}
-              </div>`;
-            }).join('')}
-          </div>
         </div>`;
       }
 
@@ -10560,16 +10515,8 @@ function buildECMSection(n, e) {
         // with one confidence it has not earned.
         sumRow('Exists', 'How likely a number this size has a factor of this size at all',
           perLevel(r => r.calibrated
-            ? `<td style="font-size:10px" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level (model ×${r.calibRatio.toFixed(2)})">${fmtPct(r.pe)}</td>`
+            ? `<td style="font-size:10px" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level. The model was multiplied by ${r.calibRatio.toFixed(2)} (95% interval ${r.calibLo.toFixed(2)}–${r.calibHi.toFixed(2)}).">${fmtPct(r.pe)}</td>`
             : `<td style="font-size:10px;color:var(--text-muted);font-style:italic" title="Model estimate, not yet calibrated: ${r.calibVerdict}. Needs ${YIELD_CALIB_MIN_FINDS} finds at this level.">${fmtPct(r.pe)}</td>`)),
-        // Which estimate Exists rests on, visibly — the old table printed "measured
-        // ×25.40" or "model" beside each level, and a figure pinned by real finds
-        // should not read the same as an unchecked model. The ratio shows; its 95%
-        // interval sits in the tooltip, so the confidence is stated, not implied.
-        sumRow('Basis', 'Whether Exists rests on your measured finds (the model scaled by this ratio) or on the model alone',
-          perLevel(r => r.calibrated
-            ? `<td style="font-size:10px;color:var(--green)" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level. The model was multiplied by ${r.calibRatio.toFixed(2)} (95% interval ${r.calibLo.toFixed(2)}–${r.calibHi.toFixed(2)}).">×${r.calibRatio.toFixed(2)}</td>`
-            : `<td style="font-size:10px;color:var(--text-muted)" title="Model estimate, not yet calibrated: ${r.calibVerdict}. Needs ${YIELD_CALIB_MIN_FINDS} finds at this level.">model</td>`)),
         sumRow('Found', 'Total and Exists together: the chance you have actually found a factor of this size',
           perLevel(r => `<td style="font-size:10px;color:${r.pe * r.have > 0.1 ? 'var(--green)' : r.pe * r.have > 0.02 ? 'var(--yellow)' : 'var(--text-dim)'}">${fmtPct(r.pe * r.have)}</td>`)),
         sumRow('To 63%', 'CPU time to bring this level to 63% — one expected find, if the factor exists',
