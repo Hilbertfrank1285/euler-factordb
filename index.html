@@ -9812,7 +9812,7 @@ function recommendNextRun(digits, attempts, provenDigits) {
       method: 'ECM', b1: fmtB1(b1), b2: null, rawB1: b1, rawB2: null, curves: fmtCurves(addCurves),
       rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
       reason: pBefore < 0.02
-        ? 'Search the ' + d + '-digit level: ' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists. The natural next step up.'
+        ? 'Search the ' + d + '-digit level: ' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists.'
         : 'Finish the ' + d + '-digit level: ' + fmtCurves(haveEff) + ' of ' + fmtCurves(targetCv) + ' curves done (' + fmtPct(pBefore) + '); +' + fmtCurves(addCurves) + ' more at B1=' + fmtB1(b1) + ' reaches ~63%.',
     });
     if (++suggested >= 3) break;                    // never more than 3 ECM steps
@@ -10415,11 +10415,9 @@ function buildECMSection(n, e) {
         </div>`;
       }
 
-      // ── Cost to finish ──────────────────────────────────────────────────
-      if (digits && ecmAttempts.length !== undefined) {
-        try { probHtml += costToFinishHtml(e, digits, attempts); }
-        catch(err) { logSwallowed('modal/costToFinish', err); }
-      }
+      // The "Coverage and cost by level" table that stood here is now the summary
+      // rows beneath the attempts grid — Total, Exists, Found, To 63%, To 95%, Value —
+      // one cell per level, under the runs they summarise.
 
       // The per-level probability grid that stood here was merged into the coverage
       // table: its exists / find|exists / product figures are now the EXISTS, NOW and
@@ -10432,17 +10430,21 @@ function buildECMSection(n, e) {
   }
 
   // Attempts table
-  if (attempts.length) {
+  // Rendered whenever coverage can be computed, not only when runs exist: the coverage
+  // rows below the runs are the planning figures, and an entry nobody has touched yet
+  // is exactly where "what would each level cost" matters most. (They used to live in
+  // a separate table that appeared regardless.)
+  if (attempts.length || digits) {
     const totalCpuSec = attempts.reduce((sum, a) => {
       const b1n = parseB1(a.b1);
       const b2n = (a.b2 ? parseB1(a.b2) : null);
       return sum + attemptCpuSeconds(a, digits);
     }, 0);
-    tableHtml = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
+    tableHtml = (attempts.length ? `<div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;padding:5px 10px;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;gap:14px;align-items:center;border-radius:3px">
       <span>⏱ Total CPU: <strong style="color:var(--text)">${fmtCpuTime(totalCpuSec)}</strong> on 7900 core</span>
       <span style="opacity:0.3">|</span>
       <span>${attempts.length} attempt${attempts.length===1?'':'s'}</span>
-    </div>` +
+    </div>` : '') +
     (() => {
       // ONE COLUMN PER LEVEL. The probabilities used to sit in a single cell as a run
       // of text — "10d:10.69% 15d:3.83% 20d:1.34% …" — twelve figures per row, so no
@@ -10517,8 +10519,74 @@ function buildECMSection(n, e) {
         </tr>`;
       }).join('');
 
+      // ── Summary rows: all runs combined, then coverage and cost per level ──
+      // These were a separate "Coverage and cost by level" table, indexed by the very
+      // levels this grid has as columns — so its rows sit here, one cell per level,
+      // directly beneath the runs they summarise.
+      //
+      // TOTAL is NOT a product of the cells above it. The runs are not independent in
+      // that way: P-1 is deterministic, so a B1=850M P-1 run already contains what a
+      // B1=2.5M one could find, and multiplying their misses would double-count. Total
+      // is the coverage model's own aggregation — ECM by effective curves, P±1 by best
+      // run — so it agrees with that model by construction.
+      let cov = [];
+      try { cov = computeCostToFinish(e, digits, attempts); }
+      catch (err) { logSwallowed('grid/coverage', err); }
+      const covAt = new Map(cov.map(r => [r.d, r]));
+      const sieveK = sd > 0 ? Math.round(sd) : 0;
+      const labelSpan = 6 + (showPoly ? 1 : 0) + (showI ? 1 : 0);   // Method … Target
+      const perLevel = (cell) => levelCols.map(d => {
+        // A level the sieve has proven empty reads "none", as in the Sieve row: a 0%
+        // beside real estimates would read as "tried and failed".
+        if (sieveK && d <= sieveK) return '<td style="color:var(--green);font-size:10px">none</td>';
+        const r = covAt.get(d);
+        return r ? cell(r) : '<td style="color:var(--text-muted)">—</td>';
+      }).join('');
+      const totalCpu = attempts.reduce((sum, a) => sum + (attemptCpuSeconds(a, digits) || 0), 0);
+      const sumRow = (label, tip, cells, cpu, first) =>
+        `<tr${first ? ' style="border-top:2px solid var(--border2)"' : ''}>
+          <td colspan="${labelSpan}" title="${tip}"><strong>${label}</strong></td>
+          ${cells}
+          <td style="font-size:10px;color:var(--text-dim)">${cpu || ''}</td>
+          ${opt(showDate, '<td></td>')}<td></td><td></td>
+        </tr>`;
+      const valueColour = (r) => r.perHr === null ? 'var(--text-muted)'
+        : r.perHr >= 0.1 ? 'var(--green)' : r.perHr >= 0.01 ? 'var(--yellow)' : 'var(--orange)';
+      const summary = cov.length ? [
+        sumRow('Total', 'All runs combined: if a factor of this size exists, the chance your runs have already found it',
+          perLevel(r => `<td class="${cls(r.have)}" style="font-size:10px;font-weight:600">${fmtPct(r.have)}</td>`),
+          totalCpu > 0 ? fmtCpuTime(totalCpu) : '', true),
+        // Measured and model-only estimates LOOK different, so the row does not read
+        // with one confidence it has not earned.
+        sumRow('Exists', 'How likely a number this size has a factor of this size at all',
+          perLevel(r => r.calibrated
+            ? `<td style="font-size:10px" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level (model ×${r.calibRatio.toFixed(2)})">${fmtPct(r.pe)}</td>`
+            : `<td style="font-size:10px;color:var(--text-muted);font-style:italic" title="Model estimate, not yet calibrated: ${r.calibVerdict}. Needs ${YIELD_CALIB_MIN_FINDS} finds at this level.">${fmtPct(r.pe)}</td>`)),
+        // Which estimate Exists rests on, visibly — the old table printed "measured
+        // ×25.40" or "model" beside each level, and a figure pinned by real finds
+        // should not read the same as an unchecked model. The ratio shows; its 95%
+        // interval sits in the tooltip, so the confidence is stated, not implied.
+        sumRow('Basis', 'Whether Exists rests on your measured finds (the model scaled by this ratio) or on the model alone',
+          perLevel(r => r.calibrated
+            ? `<td style="font-size:10px;color:var(--green)" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level. The model was multiplied by ${r.calibRatio.toFixed(2)} (95% interval ${r.calibLo.toFixed(2)}–${r.calibHi.toFixed(2)}).">×${r.calibRatio.toFixed(2)}</td>`
+            : `<td style="font-size:10px;color:var(--text-muted)" title="Model estimate, not yet calibrated: ${r.calibVerdict}. Needs ${YIELD_CALIB_MIN_FINDS} finds at this level.">model</td>`)),
+        sumRow('Found', 'Total and Exists together: the chance you have actually found a factor of this size',
+          perLevel(r => `<td style="font-size:10px;color:${r.pe * r.have > 0.1 ? 'var(--green)' : r.pe * r.have > 0.02 ? 'var(--yellow)' : 'var(--text-dim)'}">${fmtPct(r.pe * r.have)}</td>`)),
+        sumRow('To 63%', 'CPU time to bring this level to 63% — one expected find, if the factor exists',
+          perLevel(r => `<td style="font-size:10px">${r.cLo > 0 ? fmtCpuTime(r.cLo) : '—'}</td>`)),
+        sumRow('To 95%', 'CPU time to bring this level to 95% — near-certainty',
+          perLevel(r => `<td style="font-size:10px;color:var(--text-muted)">${r.cHi > 0 ? fmtCpuTime(r.cHi) : '—'}</td>`)),
+        sumRow('Value', 'Odds gained per hour, pushing this level to the next target not yet reached',
+          perLevel(r => {
+            const doneSoon = r.nextC > 0 && r.nextC < 1800;   // next target within 30 min
+            return `<td style="font-size:10px;color:${valueColour(r)}"${doneSoon ? ' title="Next target within 30 minutes"' : ''}>`
+              + (r.perHr === null ? '—' : r.perHr.toFixed(3) + '%/hr')
+              + (doneSoon ? '<br><span style="color:var(--green);font-size:9px">easy win</span>' : '') + '</td>';
+          })),
+      ].join('') : '';
+
       // Scrolls sideways on its own rather than widening the modal.
-      return `<div style="overflow-x:auto"><table class="ecm-table">${head}<tbody>${sieveRow}${rows}</tbody></table></div>`;
+      return `<div style="overflow-x:auto"><table class="ecm-table">${head}<tbody>${sieveRow}${rows}${summary}</tbody></table></div>`;
     })();
   } else {
     // No ECM or P±1 yet — but a sieve may still have run, and that result must not
@@ -12127,6 +12195,9 @@ async function showSievePromptGuarded() { try { await showSievePrompt(); } catch
 // actionable question: it shows both the cheap wins (a level sitting one minute
 // from complete) and the wall (a level that would take years), so the stopping
 // point is visible rather than something you back into.
+const COST_TARGET_LO = 0.63;   // one expected find, if the factor exists
+const COST_TARGET_HI = 0.95;   // near-certainty
+
 function computeCostToFinish(entry, digits, attempts) {
   // Levels a sieve has already proven empty contribute nothing to the cost of
   // finishing — charging for curves that cannot find anything overstates the bill.
@@ -12142,7 +12213,6 @@ function computeCostToFinish(entry, digits, attempts) {
   // two, which are genuinely different events.
   const pm1Att = (attempts || []).filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
   const rows = [];
-  let cum90 = 0;
   for (const d of ecmLevels()) {
     if (d > Math.floor(digits / 2)) break;   // a factor larger than half the digits cannot be the smallest
     let have = 0;
@@ -12162,10 +12232,11 @@ function computeCostToFinish(entry, digits, attempts) {
     // which is the combination rule itself.
     const b1 = ecmTableB1(d);
     const need = (target) => Math.max(0, curvesForProb(d, target) - curvesForProb(d, have));
-    const n90 = need(0.90), n99 = need(0.99);
-    const c90 = n90 > 0 ? estimateCpuSeconds('ECM', b1, null, n90, digits) : 0;
-    const c99 = n99 > 0 ? estimateCpuSeconds('ECM', b1, null, n99, digits) : 0;
-    cum90 += c90;
+    // Two targets: 63% — the standard ECM curve count, one expected find if the
+    // factor exists — and 95%, near-certainty. They replaced 90% and 99%.
+    const nLo = need(COST_TARGET_LO), nHi = need(COST_TARGET_HI);
+    const cLo = nLo > 0 ? estimateCpuSeconds('ECM', b1, null, nLo, digits) : 0;
+    const cHi = nHi > 0 ? estimateCpuSeconds('ECM', b1, null, nHi, digits) : 0;
     let pe = 0, calib = null;
     try {
       pe = pFactorExistsCalibrated(d, digits, provenDigits);
@@ -12173,8 +12244,14 @@ function computeCostToFinish(entry, digits, attempts) {
     } catch(e) { logSwallowed('costToFinish/exists', e); }
     // Expected gain per CPU-hour of actually completing the level — this is what
     // makes the cliff between levels visible.
-    const perHr = c90 > 0 ? (pe * (0.90 - have) * 100) / (c90 / 3600) : null;
-    rows.push({ d, have, b1, n90, n99, c90, c99, pe, perHr, cum90,
+    // VALUE is the payoff of pushing to the NEXT target not yet reached. Tying it to
+    // the lower target alone would blank it the moment a level passes 63% — erasing
+    // the figure for exactly the levels between the two targets, where deciding
+    // whether to keep going is the live question.
+    const nextT = have < COST_TARGET_LO ? COST_TARGET_LO : have < COST_TARGET_HI ? COST_TARGET_HI : null;
+    const nextC = nextT === COST_TARGET_LO ? cLo : nextT === COST_TARGET_HI ? cHi : 0;
+    const perHr = (nextT && nextC > 0) ? (pe * (nextT - have) * 100) / (nextC / 3600) : null;
+    rows.push({ d, have, b1, nLo, nHi, cLo, cHi, nextC, pe, perHr,
                 // Which estimate this row rests on, and how well pinned it is.
                 calibrated: !!(calib && calib.usable),
                 calibRatio: calib && calib.ratio,
@@ -12183,51 +12260,6 @@ function computeCostToFinish(entry, digits, attempts) {
                 calibVerdict: calib ? calib.verdict : 'no data' });
   }
   return rows;
-}
-
-function costToFinishHtml(entry, digits, attempts) {
-  // Levels a SIEVE has proven empty are left out rather than shown as 0%: a zero
-  // beside real estimates reads as "ECM tried there and failed", when the truth is
-  // that nothing of that size can be there. Carried over from the probability grid
-  // this table absorbed. (The Sieve row in the attempts grid marks them "none".)
-  const proven = entry && entry.n ? sieveDepthDigits(entry.n) : 0;
-  const rows = computeCostToFinish(entry, digits, attempts)
-    .filter(r => !(proven > 0 && r.d <= proven));
-  if (!rows.length) return '';
-  return `<div style="margin-bottom:12px">
-    <div style="font-size:9px;color:var(--accent);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Coverage and cost by level</div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono,monospace)">
-      <tr style="color:var(--text-muted);font-size:10px;text-align:right">
-        <th style="text-align:left;padding-bottom:4px">LEVEL</th>
-        <th style="padding:0 8px 4px" title="If a factor of this size exists, the chance your runs have already found it">NOW</th>
-        <th style="padding:0 8px 4px" title="How likely a number this size has a factor this size at all">EXISTS</th>
-        <th style="padding:0 8px 4px" title="Both together: the chance you have actually found a factor of this size">FOUND</th>
-        <th style="padding:0 8px 4px">TO 90%</th><th style="padding:0 8px 4px">TO 99%</th><th style="padding:0 0 4px 8px">VALUE</th>
-      </tr>
-      ${rows.map(r => {
-        const col = r.perHr === null ? 'var(--text-muted)'
-                  : r.perHr >= 0.1 ? 'var(--green)' : r.perHr >= 0.01 ? 'var(--yellow)' : 'var(--orange)';
-        const doneSoon = r.c90 > 0 && r.c90 < 1800;   // under 30 min to complete
-        return `<tr style="text-align:right">
-          <td style="text-align:left;padding:2px 0"><strong>t${r.d}</strong>${doneSoon ? ' <span style="color:var(--green);font-size:9px">easy win</span>' : ''}${
-            // Which estimate this row rests on, and how tightly it is pinned.
-            // A number carrying a measured correction and a number resting on an
-            // unchecked model deserve to look different — otherwise the whole
-            // table reads with one confidence it has not earned.
-            r.calibrated
-              ? ` <span style="color:var(--green);font-size:9px" title="Measured from ${r.calibFinds.toLocaleString()} finds at this level. The model was multiplied by ${r.calibRatio.toFixed(2)} (95% interval ${r.calibLo.toFixed(2)}–${r.calibHi.toFixed(2)}); a ratio above 1 means the model was pessimistic here.">measured ×${r.calibRatio.toFixed(2)}</span>`
-              : ` <span style="color:var(--text-muted);font-size:9px" title="Model estimate, not calibrated: ${r.calibVerdict}. Needs ${'${YIELD_CALIB_MIN_FINDS}'} finds at this level before the measurement beats the theory.">model</span>`
-          }</td>
-          <td style="padding:2px 8px;color:var(--text-muted)">${(r.have * 100).toFixed(2)}%</td>
-          <td style="padding:2px 8px;color:var(--text-muted)">${fmtPct(r.pe)}</td>
-          <td style="padding:2px 8px;color:${r.pe * r.have > 0.1 ? 'var(--green)' : r.pe * r.have > 0.02 ? 'var(--yellow)' : 'var(--text-dim)'}">${fmtPct(r.pe * r.have)}</td>
-          <td style="padding:2px 8px">${r.c90 > 0 ? fmtCpuTime(r.c90) : '—'}</td>
-          <td style="padding:2px 8px;color:var(--text-muted)">${r.c99 > 0 ? fmtCpuTime(r.c99) : '—'}</td>
-          <td style="padding:2px 0 2px 8px;color:${col}">${r.perHr === null ? '—' : r.perHr.toFixed(3) + '%/hr'}</td>
-        </tr>`;
-      }).join('')}
-    </table>
-  </div>`;
 }
 
 async function showDataIntegrityReport() {
