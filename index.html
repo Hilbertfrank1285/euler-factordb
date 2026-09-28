@@ -271,15 +271,23 @@
   @keyframes modalIn { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
   .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; position: sticky; top: 0; background: var(--surface); }
   .modal-title { font-size: 22px; font-weight: 600; color: #fff; letter-spacing: -0.5px; }
+  /* The ENTRY modal gets room for its attempts grid: at 720px its twelve level columns
+     always scrolled sideways, showing about five levels at once. Scoped with :has() to
+     the entry modal's attempts section, because the same frame is reused by three other
+     popups that do not need the width. Browsers without :has() keep the old width. */
+  #modal:has([id^="ecmSection_"]) { width: min(1000px, 92vw); }
+  /* ‹ 12 / 348 › in the header: step through the table's current list, as ← → do. */
+  .modal-nav { margin-left: 14px; font-size: 11px; font-weight: 400; color: var(--text-muted);
+               letter-spacing: 0; white-space: nowrap; vertical-align: middle; }
+  .modal-nav button { background: none; border: 1px solid var(--border2); color: var(--text-dim);
+                      cursor: pointer; padding: 0 7px; font-size: 13px; line-height: 18px; }
+  .modal-nav button:disabled { opacity: 0.3; cursor: default; }
+  .modal-nav .pos { margin: 0 6px; }
   .modal-close { background: none; border: 1px solid var(--border2); color: var(--text-dim); font-family: 'IBM Plex Mono', monospace; font-size: 16px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
   .modal-close:hover { border-color: var(--red); color: var(--red); }
   .modal-body { padding: 20px 24px 24px; }
   .modal-section { margin-bottom: 20px; }
   .modal-section-label { font-size: 10px; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
-  .status-block { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--border2); background: var(--bg); }
-  .status-icon { font-size: 18px; }
-  .status-text { font-size: 13px; color: var(--text); }
-  .status-text small { display: block; color: var(--text-dim); font-size: 11px; margin-top: 2px; }
   .factors-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .factor-chip { background: var(--bg); border: 1px solid var(--border2); color: var(--purple); padding: 4px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px; text-decoration: none; transition: border-color 0.15s, background 0.15s; cursor: pointer; }
   .factor-chip:hover { border-color: var(--purple); background: var(--purple-dim); }
@@ -521,9 +529,6 @@
     position: sticky; left: 0; z-index: 1; background: var(--surface);
   }
   .ecm-table tr:hover td { background: var(--surface2); }
-  .ecm-table .prob-high   { color: var(--green); }
-  .ecm-table .prob-mid    { color: var(--yellow); }
-  .ecm-table .prob-low    { color: var(--red); }
   .ecm-add-form { background: var(--bg); border: 1px solid var(--border2); padding: 12px; margin-top: 10px; }
   .ecm-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-bottom: 10px; }
   .ecm-field label { display: block; font-size: 9px; color: var(--text-muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 3px; }
@@ -9278,45 +9283,68 @@ function goPage(p) {
 // ─────────────────────────────────────────────────────────────────────────────
 // MODAL
 // ─────────────────────────────────────────────────────────────────────────────
+// ── ← / → between entries ───────────────────────────────────────────────────
+// The entry currently open in the modal. The same modal frame also hosts other popups
+// (the sieve results, for one), so the key handler checks that this entry's own
+// section is actually on screen before it steps anywhere.
+let _modalEntryN = null;
+
+// The entry `dir` steps away from n in `list` — the table's current list, sorted and
+// filtered exactly as on screen (applyFilters sorts `filtered` in place before it
+// renders). Stops at the ends rather than wrapping, so holding → does not quietly
+// loop back to the start. null when n is not in the list: nothing to step through.
+function modalStepTarget(n, dir, list) {
+  if (n == null || !Array.isArray(list) || !list.length) return null;
+  const i = list.findIndex(x => x && x.n === n);
+  if (i < 0) return null;
+  const j = i + dir;
+  return (j >= 0 && j < list.length) ? list[j].n : null;
+}
+
+function modalStep(dir) {
+  const to = modalStepTarget(_modalEntryN, dir, filtered);
+  if (to != null) openModal(to);
+}
+
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    // Leave browser shortcuts alone (Alt+← is Back).
+    if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    const bd = document.getElementById('modalBackdrop');
+    if (!bd || !bd.classList.contains('open')) return;
+    if (_modalEntryN == null || !document.getElementById('ecmSection_' + _modalEntryN)) return;
+    // Never while typing: in the add-a-factor box or the log-a-run form, the arrows
+    // move the cursor, and stepping away would throw the half-typed input away.
+    const t = ev.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+    const to = modalStepTarget(_modalEntryN, ev.key === 'ArrowRight' ? 1 : -1, filtered);
+    if (to == null) return;
+    ev.preventDefault();
+    openModal(to);
+  });
+}
+
 function openModal(n) {
   const e = entryByN(n);
   if (!e) return;
+  _modalEntryN = n;
   const signWord   = e.sign === -1 ? 'negative' : 'positive';
   // The sign is one line of fact, so it sits in the header beside the title instead of
   // taking a whole section with its own heading. n is a number and signWord one of two
   // fixed words, so building this as HTML is safe.
   document.getElementById('modalTitle').innerHTML = `E(${n})`
     + ` <span style="font-size:11px;font-weight:400;color:var(--text-muted);margin-left:8px">`
-    + `${signWord} · PARI: eulerfrac(${n})</span>`;
+    + `${signWord} · PARI: eulerfrac(${n})</span>`
+    + (() => {
+        const i = Array.isArray(filtered) ? filtered.findIndex(x => x && x.n === n) : -1;
+        if (i < 0 || filtered.length < 2) return '';
+        return `<span class="modal-nav" title="Previous / next entry in the table (← →)">`
+          + `<button onclick="modalStep(-1)"${i === 0 ? ' disabled' : ''}>‹</button>`
+          + `<span class="pos">${(i + 1).toLocaleString()} / ${filtered.length.toLocaleString()}</span>`
+          + `<button onclick="modalStep(1)"${i === filtered.length - 1 ? ' disabled' : ''}>›</button></span>`;
+      })();
 
-  // #5 — one line at the top: the picture before the detail. Coverage and the next
-  // recommended run otherwise sit several sections down. Built from the same inputs
-  // the ECM section uses (loadECM, getCofactorDigits), so the two cannot disagree.
-  const summaryHtml = (() => {
-    if (!e.val || e.status === 'full') return '';
-    const dg = getCofactorDigits(e);
-    if (!dg) return '';
-    const att = loadECM()[String(n)] || [];
-    const sd  = sieveDepthDigits(n);
-    // "Covered to tN": the highest level at the 63% target — one expected find if a
-    // factor of that size exists — or proven empty by the sieve.
-    let covered = 0;
-    try {
-      for (const r of computeCostToFinish(e, dg, att)) {
-        if (r.have >= COST_TARGET_LO || (sd > 0 && r.d <= sd)) covered = Math.max(covered, r.d);
-      }
-    } catch (err) { logSwallowed('modal/summary/coverage', err); }
-    let next = '';
-    try {
-      const rec = (recommendNextRun(dg, att, sd) || [])[0];
-      if (rec) next = rec.method + ' B1=' + rec.b1 + (rec.curves ? ', ' + rec.curves + ' curves' : '');
-    } catch (err) { logSwallowed('modal/summary/next', err); }
-    const parts = [dg.toLocaleString() + '-digit cofactor',
-                   covered ? 'covered to t' + covered : 'no level covered yet'];
-    if (next) parts.push('next: ' + next);
-    return `<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;padding:7px 12px;`
-      + `background:var(--surface2);border-left:3px solid var(--accent)">${parts.join(' · ')}</div>`;
-  })();
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
@@ -9362,6 +9390,20 @@ function openModal(n) {
     });
     // Computed once for the whole entry: which of our factors FactorDB is missing.
     const fdbLacks = factorsFdbLacks(e);
+    // WHEN each factor was first recorded, from the discovery history — one pass over it
+    // per modal, not one per chip. Rows are [n, unixSeconds, digits, source, hash]; the
+    // earliest row wins, the same rule the history's own merge uses. Safe against later
+    // imports: recordDiscovery never rewrites a factor the entry already has, so a
+    // factor your ECM found keeps its date after euler.py check brings it in from
+    // FactorDB too.
+    const foundAt = new Map();
+    try {
+      for (const row of loadHistory()) {
+        if (row && row[0] === n && (foundAt.get(row[4]) == null || row[1] < foundAt.get(row[4]))) {
+          foundAt.set(row[4], row[1]);
+        }
+      }
+    } catch (err) { logSwallowed('modal/foundAt', err); }
     const chips = primeFactors.map(f => {
       // If FDB confirmed FF for this entry, all listed factors are prime by definition
       const lbl = factorPrimalityLabel(f, allVerifiedPrime, fdbCache);
@@ -9416,10 +9458,21 @@ function openModal(n) {
       const onFdb = !fdbLacks.includes(f);
       const foundBy = prov === 'e' ? 'your ECM' : prov === 'm' ? 'your P±1'
                     : prov === 's' ? 'your small-prime sieve' : prov === 'f' ? 'FactorDB' : 'before tracking began';
+      // The date, and what it means. For your own finds it is when you found it. For a
+      // factor that came FROM FactorDB it is when your check first saw it there — not
+      // when FactorDB got it, which the app has no way to know.
+      let foundTs = null;
+      try { foundTs = foundAt.get(_hashStr(_factorBase(f))) ?? null; } catch (err) { logSwallowed('modal/foundTs', err); }
+      const foundWhen = foundTs ? new Date(foundTs * 1000).toISOString().slice(0, 10) : null;
+      const foundText = !foundWhen ? foundBy
+                      : prov === 'f' ? `FactorDB — first seen in your check on ${foundWhen}`
+                      : `${foundBy} on ${foundWhen}`;
       const provTag = onFdb
-        ? `<span class="prime-tag" style="color:var(--text-muted)" title="FactorDB has this factor. Found by ${foundBy}.">FDB</span>`
-        : `<span class="prime-tag" style="color:var(--green)" title="FactorDB does NOT have this factor — it is in the submission export. Found by ${foundBy}.">YOURS</span>`;
-      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}<span class="fdb-arrow">↗</span></a>`;
+        ? `<span class="prime-tag" style="color:var(--text-muted)" title="FactorDB has this factor. Found by ${foundText}.">FDB</span>`
+        : `<span class="prime-tag" style="color:var(--green)" title="FactorDB does NOT have this factor — it is in the submission export. Found by ${foundText}.">YOURS</span>`;
+      const dateTag = foundWhen
+        ? `<span style="font-size:9px;color:var(--text-muted);margin-left:5px" title="Found by ${foundText}">${foundWhen}</span>` : '';
+      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}${dateTag}<span class="fdb-arrow">↗</span></a>`;
     }).join('');
     const sourceNote = fdbLacks.length
       ? `— ${fdbLacks.length} of ${primeFactors.length} not on FactorDB yet (green), in the next submission export`
@@ -9475,56 +9528,89 @@ function openModal(n) {
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
-  let unknownFdbHtml = '';
+  let fdbRecordHtml = '';
   if (e.status !== 'full' && e.val) {
     const c = fdbCache[e.val];
     if (c) {
-      unknownFdbHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
+      fdbRecordHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.map(f => { const t = String(f); return escHtml(t.length > 40 ? t.slice(0, 12) + '…' + t.slice(-8) + ' (' + t.length.toLocaleString() + 'd)' : t); }).join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
     }
   }
 
   const ecmSectionHtml = buildECMSection(n, e);
 
+  // ONE LINE AT THE TOP: the picture before the detail. It leads with the STATUS,
+  // which used to be a section of its own — an icon, a label and a generic sentence;
+  // the sentence is now the status's tooltip. Coverage and the next recommended run
+  // follow for anything not fully factored. Built from the same inputs the ECM section
+  // uses (loadECM, getCofactorDigits), so the two cannot disagree. It lives HERE, after
+  // statusInfo, because it needs it: built any earlier, the status is not defined yet.
+  const summaryHtml = (() => {
+    const parts = [];
+    if (statusInfo) {
+      parts.push(`<span style="color:${statusInfo.color};font-weight:600" title="${escHtml(statusInfo.desc)}">`
+        + `${statusInfo.icon} ${statusInfo.label}</span>`);
+    }
+    if (e.val && e.status !== 'full') {
+      const dg = getCofactorDigits(e);
+      if (dg) {
+        const att = loadECM()[String(n)] || [];
+        const sd  = sieveDepthDigits(n);
+        // "Covered to tN": the highest level at the 63% target — one expected find if
+        // a factor of that size exists — or proven empty by the sieve.
+        let covered = 0;
+        try {
+          for (const r of computeCostToFinish(e, dg, att)) {
+            if (r.have >= COST_TARGET_LO || (sd > 0 && r.d <= sd)) covered = Math.max(covered, r.d);
+          }
+        } catch (err) { logSwallowed('modal/summary/coverage', err); }
+        let next = '';
+        try {
+          const rec = (recommendNextRun(dg, att, sd) || [])[0];
+          if (rec) next = rec.method + ' B1=' + rec.b1 + (rec.curves ? ', ' + rec.curves + ' curves' : '');
+        } catch (err) { logSwallowed('modal/summary/next', err); }
+        parts.push(dg.toLocaleString() + '-digit cofactor');
+        parts.push(covered ? 'covered to t' + covered : 'no level covered yet');
+        if (next) parts.push('next: ' + next);
+      }
+    }
+    if (!parts.length) return '';
+    return `<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;padding:7px 12px;`
+      + `background:var(--surface2);border-left:3px solid ${statusInfo ? statusInfo.color : 'var(--accent)'}">`
+      + `${parts.join(' · ')}</div>`;
+  })();
+
   document.getElementById('modalBody').innerHTML = `
     ${summaryHtml}
-    <div class="modal-section">
-      <div class="modal-section-label">Factorization Status</div>
-      <div class="status-block">
-        <div class="status-icon" style="color:${statusInfo.color}">${statusInfo.icon}</div>
-        <div class="status-text">${statusInfo.label}<small>${statusInfo.desc}</small></div>
-      </div>
-    </div>
     ${noteHtml}
     ${factorsHtml}
-    ${e.status === 'unknown' ? `<div class="modal-section"><div class="modal-section-label">FactorDB Lookup</div>${unknownFdbHtml}
-    </div>` : ''}
-    ${(e.status !== 'full' && e.val) ? `
-    <div class="modal-section" style="border:1px solid var(--accent);padding:12px 14px;background:var(--accent-dim)">
-      <div class="modal-section-label" style="color:var(--accent)">Add Known Factor</div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Enter a factor you know divides E(${n}). The app will verify it using exact arithmetic.</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="manualFactorInput_${n}" placeholder="e.g. 12345 or 2^31-1 style: 7^3"
-          style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:6px 10px;font-family:monospace;font-size:12px"
-          onkeydown="if(event.key==='Enter')verifyAndAddFactor(${n})">
-        <button onclick="verifyAndAddFactor(${n})"
-          style="padding:6px 16px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);font-size:12px;cursor:pointer;font-weight:600">
-          ✓ Verify &amp; Add
-        </button>
-      </div>
-      <div id="factorVerifyMsg_${n}" style="font-size:11px;margin-top:8px;min-height:16px"></div>
-    </div>` : ''}
     ${valueHtml}
+    ${fdbRecordHtml ? `<div class="modal-section"><div class="modal-section-label">FactorDB</div>${fdbRecordHtml}</div>` : ''}
     <div class="modal-section">
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
       <div id="ecmSection_${n}">${ecmSectionHtml}</div>
     </div>
-    <div class="modal-section">
-      <div class="modal-section-label">Download</div>
-      <button class="download-btn" onclick="downloadEntry(${n})">↓ Download E(${n}) data (.txt)</button>
-    </div>
-    <div class="modal-section">
-      <div class="modal-section-label">Cache</div>
-      <button class="fdb-check-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)" onclick="clearEntryCache(${n})">⊗ Clear cached data for E(${n})</button>
+    ${(e.status !== 'full' && e.val) ? `
+    <details class="modal-section" style="font-size:11px">
+      <summary style="cursor:pointer;color:var(--text-muted)">+ Add a factor you know</summary>
+      <div style="margin-top:8px">
+        <div style="color:var(--text-muted);margin-bottom:8px">Enter a factor you know divides E(${n}). The app will verify it using exact arithmetic.</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="manualFactorInput_${n}" placeholder="e.g. 12345 or 2^31-1 style: 7^3"
+            style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:6px 10px;font-family:monospace;font-size:12px"
+            onkeydown="if(event.key==='Enter')verifyAndAddFactor(${n})">
+          <button onclick="verifyAndAddFactor(${n})"
+            style="padding:6px 16px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);font-size:12px;cursor:pointer;font-weight:600">
+            ✓ Verify &amp; Add
+          </button>
+        </div>
+        <div id="factorVerifyMsg_${n}" style="margin-top:8px;min-height:16px"></div>
+      </div>
+    </details>` : ''}
+    <div class="modal-section" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px">
+      <button class="download-btn" onclick="downloadEntry(${n})">↓ Download data (.txt)</button>
+      <button class="fdb-check-btn" style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
+        title="Resets this entry: its FactorDB record, its known factors and all its logged runs. Asks first."
+        onclick="resetEntry(${n})">⊗ Reset E(${n})…</button>
     </div>
   `;
 
@@ -10444,10 +10530,18 @@ function buildECMSection(n, e) {
       const levelCols = ecmLevels().filter(d => d < digits);
       const showPoly  = attempts.some(a => a.poly);
       const showI     = attempts.some(a => a.I);
-      const showDate  = attempts.some(a => a.date);
-      const cls  = (p) => p > 0.3 ? 'prob-high' : p > 0.05 ? 'prob-mid' : 'prob-low';
+      // Date is ALWAYS a column now. It was shown only when some run carried a date —
+      // and runs imported before dates were recorded carry none, so on those entries the
+      // column vanished. It is also a sort key.
+      const showDate  = true;
+      // CONTINUOUS SHADING, not three colour bands: those made 31% and 99.99% look the
+      // same. Strength follows the square root of p, so the fade between ~1% and ~30% —
+      // where the interesting changes are — stays visible rather than washing out.
+      // Browsers without color-mix() keep an unshaded, still readable cell.
+      const shade = (p) => `background:color-mix(in srgb, var(--green) ${Math.round(50 * Math.sqrt(Math.max(0, Math.min(1, p))))}%, transparent)`;
+      const ink   = (p) => p >= 0.3 ? 'var(--text)' : 'var(--text-dim)';
       const pct  = (p) => (p == null) ? '<td style="color:var(--text-muted)">—</td>'
-                                      : `<td class="${cls(p)}" style="font-size:10px">${fmtPct(p)}</td>`;
+                                      : `<td style="font-size:10px;color:${ink(p)};${shade(p)}">${fmtPct(p)}</td>`;
       const opt  = (on, html) => on ? html : '';
 
       // Every run's probability at every level, and the level it targets.
@@ -10466,13 +10560,42 @@ function buildECMSection(n, e) {
         return { target: '—', p: levelCols.map(() => null) };
       };
 
+      // ── Sorting: click a heading ─────────────────────────────────────────────
+      // Each row keeps its ORIGINAL position `i`: the ✕ button deletes by index into the
+      // stored list, and after a sort the row on screen is no longer the i-th one. Rows
+      // with no value for the key (an undated run, say) go last in either direction;
+      // equal keys keep the order the runs were logged (Array.sort is stable).
+      const gs = (typeof _gridSort !== 'undefined' && _gridSort) || { key: null, dir: 1 };
+      const METHOD_ORDER = { 'ECM': 0, 'P-1': 1, 'P+1': 2 };
+      const recsAll = attempts.map((a, i) => ({ a, i, pr: probsFor(a),
+                                               cpu: attemptCpuSeconds(a, digits), when: a.lastRun || a.date || '' }));
+      const keyOf = (r, k) => {
+        if (k === 'method') return METHOD_ORDER[r.a.method] ?? 9;
+        if (k === 'b1')     return r.a.b1 ? parseB1(r.a.b1) : null;
+        if (k === 'b2')     return r.a.b2 ? parseB1(r.a.b2) : null;
+        if (k === 'curves') return parseInt(r.a.curves) || null;
+        if (k === 'target') return /^&lt;/.test(r.pr.target) ? 0 : (parseInt(r.pr.target) || null);
+        if (k === 'cpu')    return r.cpu > 0 ? r.cpu : null;
+        if (k === 'date')   return r.when || null;
+        if (/^t\d+$/.test(k)) { const jj = levelCols.indexOf(+k.slice(1)); return jj >= 0 ? r.pr.p[jj] : null; }
+        return null;
+      };
+      if (gs.key) recsAll.sort((x, y) => {
+        const a = keyOf(x, gs.key), b = keyOf(y, gs.key);
+        if (a == null || b == null) return (a == null) - (b == null);
+        return (a < b ? -1 : a > b ? 1 : 0) * gs.dir;
+      });
+      const th = (key, label, tip) =>
+        `<th onclick="setGridSort(${n}, '${key}')" style="cursor:pointer" title="${tip ? tip + ' · ' : ''}click to sort">`
+        + `${label}${gs.key === key ? (gs.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+
       const head = `<thead><tr>
-        <th>Method</th><th>B1</th><th>B2</th><th>Curves</th>
+        ${th('method', 'Method')}${th('b1', 'B1')}${th('b2', 'B2')}${th('curves', 'Curves')}
         ${opt(showPoly, '<th>Poly</th>')}${opt(showI, '<th title="-I: B1 multiplier per curve">-I</th>')}
-        <th>Tool</th><th title="The factor size this run is aimed at">Target</th>
-        ${levelCols.map(d => `<th title="Chance this run finds a ${d}-digit factor, if one exists">t${d}</th>`).join('')}
-        <th>CPU<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~7900 core</span></th>
-        ${opt(showDate, '<th>Date</th>')}<th>Note</th><th></th>
+        <th>Tool</th>${th('target', 'Target', 'The factor size this run is aimed at')}
+        ${levelCols.map(d => th('t' + d, 't' + d, `Chance this run finds a ${d}-digit factor, if one exists`)).join('')}
+        ${th('cpu', 'CPU<br><span style="font-size:9px;color:var(--text-muted);font-weight:400">~7900 core</span>', 'Estimated time on one Zen 3/4 core')}
+        ${opt(showDate, th('date', 'Date', 'When the run was last extended'))}<th>Note</th><th></th>
       </tr></thead>`;
 
       // The sieve as a METHOD, alongside ECM and P±1 — it is one. Levels it has
@@ -10492,20 +10615,24 @@ function buildECMSection(n, e) {
         </tr>`;
       })() : '';
 
-      const rows = attempts.map((a, i) => {
-        const pr = probsFor(a);
+      const rows = recsAll.map(({ a, i, pr, cpu }) => {
+        const first = a.date || '', last = a.lastRun || a.date || '';
+        const dateCell = last
+          ? `<td style="font-size:10px;color:var(--text-dim);white-space:nowrap"${first && first !== last ? ` title="First run ${first} · last extended ${last}"` : ''}>${last}</td>`
+          : '<td style="color:var(--text-muted)" title="Logged before dates were recorded">—</td>';
         return `<tr>
           <td>${a.method}</td><td>${a.b1 || '—'}</td><td>${a.b2 || '—'}</td><td>${a.curves || '—'}</td>
           ${opt(showPoly, `<td>${a.poly || '—'}</td>`)}${opt(showI, `<td style="font-size:10px;color:var(--text-muted)">${a.I || '—'}</td>`)}
           <td style="font-size:10px;color:var(--text-muted)">${a.tool || 'GMP-ECM'}</td>
           <td style="font-size:10px;color:var(--text-dim)">${pr.target}</td>
           ${pr.p.map(pct).join('')}
-          <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${fmtCpuTime(attemptCpuSeconds(a, digits))}</td>
-          ${opt(showDate, `<td>${a.date || '—'}</td>`)}
+          <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${fmtCpuTime(cpu)}</td>
+          ${opt(showDate, dateCell)}
           <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note || ''}</td>
           <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
         </tr>`;
       }).join('');
+
 
       // ── Summary rows: all runs combined, then coverage and cost per level ──
       // These were a separate "Coverage and cost by level" table, indexed by the very
@@ -10542,7 +10669,7 @@ function buildECMSection(n, e) {
         : r.perHr >= 0.1 ? 'var(--green)' : r.perHr >= 0.01 ? 'var(--yellow)' : 'var(--orange)';
       const summary = cov.length ? [
         sumRow('Total', 'All runs combined: if a factor of this size exists, the chance your runs have already found it',
-          perLevel(r => `<td class="${cls(r.have)}" style="font-size:10px;font-weight:600">${fmtPct(r.have)}</td>`),
+          perLevel(r => `<td style="font-size:10px;font-weight:600;color:${ink(r.have)};${shade(r.have)}">${fmtPct(r.have)}</td>`),
           totalCpu > 0 ? fmtCpuTime(totalCpu) : '', true),
         // Measured and model-only estimates LOOK different, so the row does not read
         // with one confidence it has not earned.
@@ -10566,7 +10693,7 @@ function buildECMSection(n, e) {
       ].join('') : '';
 
       // Scrolls sideways on its own rather than widening the modal.
-      return `<div style="overflow-x:auto"><table class="ecm-table">${head}<tbody>${sieveRow}${rows}${summary}</tbody></table></div>`;
+      return `<div class="ecm-grid-scroll" style="overflow-x:auto"><table class="ecm-table">${head}<tbody>${sieveRow}${rows}${summary}</tbody></table></div>`;
     })();
   } else {
     // No ECM or P±1 yet — but a sieve may still have run, and that result must not
@@ -10663,48 +10790,71 @@ function buildECMSection(n, e) {
     // recommend a level the sieve had already proven empty.
     const recs = recommendNextRun(digits, attempts, sieveDepthDigits(n));
     if (recs && recs.length) {
-      const rows = recs.map((rec, i) => {
-        const cpuStr = rec.cpuTime ? '<span style="color:var(--yellow)">⏱ ' + fmtCpuTime(rec.cpuTime) + '</span>' : '';
-        const star   = i === 0 ? '★ ' : '';
-        const head   = rec.method + ' — B1=' + rec.b1 + (rec.b2 ? ', B2=' + rec.b2 : '') + (rec.curves ? ', ' + rec.curves + ' curves' : '');
-        // efficiency = overall-odds gained per HOUR of CPU (the ranking metric)
-        const effPerHr = rec.cpuTime ? (parseFloat(rec.gain) / (rec.cpuTime / 3600)) : 0;
-        const effStr = effPerHr >= 0.01 ? effPerHr.toFixed(2) + '%/hr'
-                     : effPerHr > 0 ? (effPerHr * 24).toFixed(2) + '%/day'
-                     : '';
-        return '<div style="padding:8px 0;border-top:' + (i ? '1px solid var(--border)' : 'none') + '">'
-          + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">'
-          +   '<span style="font-size:12px;color:var(--text)">' + star + head + '</span>'
-          +   '<span style="font-size:10px;white-space:nowrap">' + cpuStr + '</span>'
-          + '</div>'
-          + '<div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:3px">' + rec.reason + '</div>'
-          + '<div style="font-size:10px;color:var(--green);margin-top:2px">' + (parseFloat(rec.gain) < 0.01 ? '<0.01' : '+' + rec.gain) + '% to your overall odds of finding a new factor'
-          +   (effStr ? ' <span style="color:var(--text-muted)">· value: ' + effStr + '</span>' : '')
-          + '</div>'
-          // FINISH ODDS: if this run finds a factor, the chance what remains is prime —
-          // i.e. that the find completes the number. The completion ranking's key
-          // figure, which until now lived only in the export. For a huge cofactor it
-          // reads ~0% and says so plainly: that entry is about contributing factors,
-          // not finishing.
-          + (() => {
-              const cleared = Math.max(
-                confidentlyCleared(parseInt(rec.rawCurves || rec.curves) || 0, rec.rawB1 || 0),
-                sieveDepthDigits(n));
-              const fin = completionOdds(digits, rec.targetDigits || 0, cleared);
-              return '<div style="font-size:10px;color:var(--text-dim);margin-top:1px" '
-                + 'title="If this run finds a factor, the chance that what remains is prime — so the find completes the number.">'
-                + 'if it finds one: <span style="color:' + (fin >= 0.1 ? 'var(--green)' : fin >= 0.01 ? 'var(--yellow)' : 'var(--text-muted)') + '">'
-                + fmtPct(fin) + '</span> chance that completes E(' + n + ')</div>';
-            })()
-          + '</div>';
-      }).join('');
+      // ONE ROW PER RECOMMENDED RUN, in the attempts grid's style. These were stacked
+      // cards — a heading, the plan sentence, a gain line and a finish line — so
+      // comparing two runs meant reading two paragraphs. As columns they compare at a
+      // glance, and each row's plan sentence is its tooltip, so nothing is lost.
+      const rrows = recs.map((rec, i) => {
+        // Value per HOUR, always. The cards switched to %/day for small figures, which
+        // in one sortable column would put incomparable units side by side.
+        const eff = rec.cpuTime ? (parseFloat(rec.gain) / (rec.cpuTime / 3600)) : 0;
+        // FINISH ODDS: if this run finds a factor, the chance what remains is prime —
+        // i.e. that the find completes the number. For a huge cofactor it reads ~0% and
+        // says so plainly: that entry is about contributing factors, not finishing.
+        const cleared = Math.max(
+          confidentlyCleared(parseInt(rec.rawCurves || rec.curves) || 0, rec.rawB1 || 0),
+          sieveDepthDigits(n));
+        const fin = completionOdds(digits, rec.targetDigits || 0, cleared);
+        return { rec, rank: i, eff, fin, gain: parseFloat(rec.gain) || 0 };
+      });
+      // Sortable like the grid. The default is the recommender's own ranking, best value
+      // first, and the ★ stays on ITS top pick whatever the sort — so re-sorting by time
+      // or finish odds still shows which run the ranking prefers.
+      const rs = (typeof _recSort !== 'undefined' && _recSort) || { key: null, dir: 1 };
+      const rkey = (r, k) => k === 'method' ? ({ 'ECM': 0, 'P-1': 1, 'P+1': 2 }[r.rec.method] ?? 9)
+        : k === 'b1'     ? (r.rec.rawB1 || parseB1(r.rec.b1) || null)
+        : k === 'curves' ? (parseInt(r.rec.rawCurves) || null)
+        : k === 'time'   ? (r.rec.cpuTime || null)
+        : k === 'gain'   ? r.gain
+        : k === 'value'  ? (r.eff || null)
+        : k === 'finish' ? r.fin : null;
+      if (rs.key) rrows.sort((x, y) => {
+        const a = rkey(x, rs.key), b = rkey(y, rs.key);
+        if (a == null || b == null) return (a == null) - (b == null);
+        return (a < b ? -1 : a > b ? 1 : 0) * rs.dir;
+      });
+      const showB2 = recs.some(r => r.b2);
+      const rth = (key, label, tip) =>
+        `<th onclick="setRecSort(${n}, '${key}')" style="cursor:pointer" title="${tip ? tip + ' · ' : ''}click to sort">`
+        + `${label}${rs.key === key ? (rs.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
+      const plain = (t) => escHtml(String(t || '').replace(/<[^>]+>/g, ''));
+      const recBody = rrows.map(({ rec, rank, eff, fin, gain }) => `<tr title="${plain(rec.reason)}">
+          <td style="color:var(--yellow)">${rank === 0 ? '★' : ''}</td>
+          <td>${rec.method}</td><td>${rec.b1 || '—'}</td>
+          ${showB2 ? `<td>${rec.b2 || '—'}</td>` : ''}
+          <td>${rec.curves || '—'}</td>
+          <td style="white-space:nowrap">${rec.cpuTime ? fmtCpuTime(rec.cpuTime) : '—'}</td>
+          <td style="color:var(--green)">${gain < 0.01 ? '<0.01%' : '+' + rec.gain + '%'}</td>
+          <td style="color:var(--text-dim)">${eff > 0 ? (eff >= 0.001 ? eff.toFixed(3) + '%/hr' : '<0.001%/hr') : '—'}</td>
+          <td style="color:${fin >= 0.1 ? 'var(--green)' : fin >= 0.01 ? 'var(--yellow)' : 'var(--text-muted)'}">${fmtPct(fin)}</td>
+        </tr>`).join('');
+      const top = recs[0];
       recommendHtml = '<div style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2)">'
         + '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Recommended next runs <span style="color:var(--text-dim);text-transform:none;letter-spacing:0">— best value first</span></div>'
         + '<div style="font-size:10px;color:var(--text-dim);line-height:1.5;margin-bottom:8px;border-left:2px solid var(--border2);padding-left:8px">'
-        +   '<span style="color:var(--text)">~63%</span> = chance the run finds a factor of that size, if one exists. '
-        +   '<span style="color:var(--green)">Green %</span> = how much it raises your overall odds.'
+        +   '<span style="color:var(--green)">+Odds</span> = how much the run raises your overall odds of a new factor. '
+        +   '<span style="color:var(--text)">Finish</span> = if it finds one, the chance that completes E(' + n + '). Hover a row for its plan.'
         + '</div>'
-        + rows
+        + '<div style="overflow-x:auto"><table class="ecm-table"><thead><tr><th></th>'
+        +   rth('method', 'Method') + rth('b1', 'B1') + (showB2 ? '<th>B2</th>' : '') + rth('curves', 'Curves')
+        +   rth('time', 'Time', 'Estimated time on one Zen 3/4 core')
+        +   rth('gain', '+Odds', 'How much this run raises your overall odds of finding a new factor')
+        +   rth('value', 'Value', 'Odds gained per hour of CPU — the ranking metric')
+        +   rth('finish', 'Finish', 'If this run finds a factor, the chance that completes E(' + n + ')')
+        + '</tr></thead><tbody>' + recBody + '</tbody></table></div>'
+        // The ★ pick's plan stays readable without hovering: it is the run you are most
+        // likely to start.
+        + (top && top.reason ? '<div style="font-size:10px;color:var(--text-dim);margin-top:6px;line-height:1.5">★ ' + plain(top.reason) + '</div>' : '')
         + '</div>';
     }
   }
@@ -10983,6 +11133,38 @@ function addECMAttempt(n) {
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
 
+// The attempts grid's sort: which column, which way. Kept across entries, so stepping
+// with ← → shows every entry sorted the same way.
+let _gridSort = { key: null, dir: 1 };
+
+// ONE click cycle for every sortable table: ascending, then descending, then back to
+// the table's own default order.
+function _nextSort(cur, key) {
+  if (cur.key !== key) return { key, dir: 1 };
+  if (cur.dir === 1)   return { key, dir: -1 };
+  return { key: null, dir: 1 };
+}
+
+// Re-render the attempts section in place, keeping the grid's sideways scroll — so
+// sorting by t60 does not jump the grid back to its left edge.
+function _rerenderEcmSection(n) {
+  const sec = document.getElementById('ecmSection_' + n);
+  const e   = entryByN(n);
+  if (!sec || !e) return;
+  const was  = sec.querySelector('.ecm-grid-scroll');
+  const left = was ? was.scrollLeft : 0;
+  sec.innerHTML = buildECMSection(n, e);
+  const now = sec.querySelector('.ecm-grid-scroll');
+  if (now) now.scrollLeft = left;
+}
+
+function setGridSort(n, key) { _gridSort = _nextSort(_gridSort, key); _rerenderEcmSection(n); }
+
+// The recommendations table's sort. Its default (key null) is the recommender's own
+// ranking, best value first. Kept across entries, like the grid's.
+let _recSort = { key: null, dir: 1 };
+function setRecSort(n, key) { _recSort = _nextSort(_recSort, key); _rerenderEcmSection(n); }
+
 function deleteECMAttempt(n, i) {
   const key     = String(n);
   const idx     = parseInt(i);
@@ -11045,9 +11227,22 @@ function confirmDeleteECM(n, idx) {
   if (sec && e) sec.innerHTML = buildECMSection(n, e);
 }
 
-function clearEntryCache(n) {
+function resetEntry(n) {
   const e = entryByN(n);
   if (!e) return;
+
+  // CONFIRM FIRST, and say what actually goes. This is a full reset of the entry — it
+  // was called "Clear cached data", which badly understated it: its FactorDB record, its known factors (back to "never checked") and
+  // every logged ECM / P-1 / P+1 run. It used to fire on a single click — risky alone
+  // in its own section, dangerous beside Download in the modal footer where it now
+  // sits. The counts are real, so the stakes are visible before anything is lost.
+  const nRuns = (loadECM()[String(n)] || []).length;
+  const nFac  = (e.factors || []).filter(f => f && f !== '1').length;
+  const lines = ['  • its FactorDB record, including results imported from euler.py check'];
+  if (nFac)  lines.push(`  • its ${nFac} known factor${nFac === 1 ? '' : 's'} — the entry goes back to "never checked"`);
+  if (nRuns) lines.push(`  • all ${nRuns} logged ECM / P-1 / P+1 run${nRuns === 1 ? '' : 's'}`);
+  if (typeof confirm === 'function'
+      && !confirm(`Reset E(${n})?\n\nThis deletes, for this entry:\n${lines.join('\n')}`)) return;
 
   // Remove FDB cache entries for this entry's value and cofactor
   if (e.val && fdbCache[e.val])      { delete fdbCache[e.val];      }
@@ -11066,7 +11261,7 @@ function clearEntryCache(n) {
   delete ecmAll[String(n)];
   saveECM(ecmAll);
 
-  addLog(`E(${n}) cache cleared`, 'warn');
+  addLog(`E(${n}) reset`, 'warn');
   applyFilters();
   openModal(n); // refresh modal
 }
