@@ -334,20 +334,6 @@
   .download-btn { display: inline-flex; align-items: center; gap: 8px; background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 8px 16px; cursor: pointer; transition: all 0.15s; text-decoration: none; margin-top: 4px; }
   .download-btn:hover { background: var(--accent); color: #000; }
 
-  /* ── FactorDB result block in modal ── */
-  .fdb-block {
-    border: 1px solid var(--border2);
-    background: var(--bg);
-    padding: 12px 14px;
-  }
-  .fdb-block .fdb-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; font-size: 12px; }
-  .fdb-block .fdb-key { color: var(--text-muted); width: 90px; flex-shrink: 0; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
-  .fdb-block .fdb-val { color: var(--text); }
-  .fdb-block .fdb-val.ff  { color: var(--green); }
-  .fdb-block .fdb-val.cf  { color: var(--yellow); }
-  .fdb-block .fdb-val.p   { color: var(--cyan); }
-  .fdb-block .fdb-val.prp { color: var(--purple); }
-  .fdb-block .fdb-timestamp { font-size: 10px; color: var(--text-muted); margin-top: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
   .fdb-check-btn {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--cyan-dim); border: 1px solid var(--cyan);
@@ -2264,7 +2250,7 @@ function loadFDBCache() {
       const slimFactors = v.factors ? v.factors.map(_decodeFactor) : v.factors;
       const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
       full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
-                    ...(v.fdbId ? { fdbId: v.fdbId } : {}),
+                    ...(v.fdbIdExact ? { fdbIdExact: v.fdbIdExact } : {}),
                     ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
@@ -2347,7 +2333,7 @@ function saveFDBCache(c) {
                   ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
                   // FactorDB's id for this number — lets later checks use a tiny
                   // ?id= URL instead of sending the whole number.
-                  ...(v.fdbId ? { fdbId: v.fdbId } : {}),
+                  ...(v.fdbIdExact ? { fdbIdExact: v.fdbIdExact } : {}),
                   factors: slimFactors.length ? slimFactors : undefined };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
@@ -3517,7 +3503,22 @@ function ecmDefaultB2(b1) {
 // is P-1-specific and single-point-calibrated, so treat it as an approximation,
 // not a certainty, but still dramatically closer than a flat multiplier that was
 // off by a factor of 2000+ at the verified point.
-function pm1DefaultB2(b1) { return 24.8 * Math.pow(b1, 1.4); }
+// The B2 GMP-ECM chooses by itself for a P-1 / P+1 run at a given B1 — what the app
+// assumes when it PLANS a P±1 run (the recommendations, their cost and their odds).
+//
+// Fitted to GMP-ECM's OWN choices in the user's run log: 9 distinct settings, 4,395
+// runs, from B1 = 250,000 to 850,000,000. B2 values set by hand — round millions,
+// 19,000,000 / 130,000,000 / 1,300,000,000 — are excluded; GMP-ECM derives B2 from its
+// stage-2 parameters, which never lands on a round number. P-1 and P+1 share the
+// function: at B1 = 10,000,000 GMP-ECM gave both the identical B2, 93,541,776,130.
+//
+// Within 0.80-1.34x of GMP-ECM at every setting but one. That one is GMP-ECM itself
+// disagreeing: at B1 = 10,000,000 it chose 93.5e9 on some runs and 182.3e9 on others,
+// and a function of B1 alone can only sit between them (0.55x of the higher). The
+// previous formula, 24.8 * B1^1.4, rested on a single data point and missed by up to
+// 5.2x — overstating B2 at low B1, understating it by 2.6x at B1 = 850M. B2 grows as
+// B1^1.71, not B1^1.4.
+function pm1DefaultB2(b1) { return 0.1072 * Math.pow(b1, 1.7103); }
 
 // Expected curves to find a d-digit factor at OPTIMAL B1 (log-space interpolation).
 function ecmOptimalCurves(d) {
@@ -4294,7 +4295,7 @@ function buildSyncPayload() {
     //           its digits. Lose it and those entries become unaskable, which is
     //           exactly the set that needs asking about most.
     if (v.fdbHas && v.fdbHas.length) entry.fdbHas = v.fdbHas;
-    if (v.fdbId)                     entry.fdbId  = v.fdbId;
+    if (v.fdbIdExact)                entry.fdbIdExact = v.fdbIdExact;
     full[nStr] = entry;
   }
   return {
@@ -7674,9 +7675,19 @@ function applyFdbResult(data, n, numberStr) {
   // ?id=<small integer> instead of ?query=<the whole number>, which is what the
   // digit cap exists to avoid. For anything already known to FactorDB, re-checks
   // stop depending on the number's size entirely.
-  const fdbId = (() => {
+  //
+  // EXACT, or not at all. FactorDB ids are ~19-digit integers — past the 16 digits a
+  // JavaScript number holds exactly. Read from JSON as a NUMBER, an id is silently
+  // ROUNDED to a different one: 1100000008856768812 reads as …768768 and prints as
+  // …768800, and every link built from it opened some other number on FactorDB. That
+  // was the old `fdbId`, and all of its values passed through that rounding. So an id
+  // is accepted only as TEXT (euler.py writes it as a string) or as a number small
+  // enough to be exact, and it lives under a new name, `fdbIdExact`, that nothing
+  // rounded was ever written to. The old field is no longer read, saved or synced.
+  const fdbIdExact = (() => {
     const raw = data.id;
     if (raw == null) return null;
+    if (typeof raw === 'number') return (Number.isSafeInteger(raw) && raw > 0) ? String(raw) : null;
     const m = String(raw).match(/(\d+)\s*$/); // API has returned both a bare id and a full URL
     return m ? m[1] : null;
   })();
@@ -7721,7 +7732,7 @@ function applyFdbResult(data, n, numberStr) {
 
   const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
                        ...(fdbPrimes.length ? { fdbHas: fdbPrimes.slice() } : {}),
-                       ...(fdbId ? { fdbId } : {}) };
+                       ...(fdbIdExact ? { fdbIdExact } : {}) };
   if (numberStr) {
     fdbCache[numberStr] = cacheEntry;
     if (merged.length) fdbFactors[numberStr] = { factors: merged };
@@ -9511,13 +9522,15 @@ function openModal(n) {
   // clicking.
   if (e.val) {
     const rec = fdbCache[e.val];
-    const fdbLink = (rec && rec.fdbId)
-      ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbId)
+    const fdbLink = (rec && rec.fdbIdExact)
+      ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbIdExact)
       : (e.val.length <= currentQueryCap()
           ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.val) : null);
     const copyBtn = '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>';
     valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value'
-      + (fdbLink ? ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span>' : '')
+      + (fdbLink ? ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span>'
+                 : ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— too long to look up by value; '
+                 + 'run euler.py check to fetch its FactorDB link</span>')
       + '</div>'
       + (fdbLink
           ? '<a class="value-box cofactor-link" href="' + fdbLink + '" target="_blank" rel="noopener" style="position:relative">'
@@ -9528,13 +9541,11 @@ function openModal(n) {
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
 
   // Unknown + FactorDB check
-  let fdbRecordHtml = '';
-  if (e.status !== 'full' && e.val) {
-    const c = fdbCache[e.val];
-    if (c) {
-      fdbRecordHtml = `<div class="fdb-block"><div class="fdb-row"><span class="fdb-key">FDB Status</span><span class="fdb-val ${c.status.toLowerCase()}">${fdbStatusLabel(c.status)}</span></div>${(c.factors||[]).length?`<div class="fdb-row"><span class="fdb-key">Factors</span><span class="fdb-val">${c.factors.map(f => { const t = String(f); return escHtml(t.length > 40 ? t.slice(0, 12) + '…' + t.slice(-8) + ' (' + t.length.toLocaleString() + 'd)' : t); }).join(' × ')}</span></div>`:''}<div class="fdb-timestamp">Last checked: ${new Date(c.timestamp).toLocaleDateString()}</div></div>`;
-    }
-  }
+  // No FactorDB section. It repeated what the modal already shows — FactorDB's factor
+  // list is the Known Factors chips (each marked FDB or YOURS), and its status is the
+  // summary line's. The one fact it alone carried, when FactorDB was last checked,
+  // is now in the summary line.
+
 
   const ecmSectionHtml = buildECMSection(n, e);
 
@@ -9572,6 +9583,12 @@ function openModal(n) {
         parts.push(covered ? 'covered to t' + covered : 'no level covered yet');
         if (next) parts.push('next: ' + next);
       }
+      // When FactorDB was last checked for this entry — what the FDB / YOURS tags on
+      // the factor chips are relative to. It was the one fact only the old FactorDB
+      // section carried. ISO, like every other date in the modal.
+      const rec = (typeof fdbCache !== 'undefined' && fdbCache) ? fdbCache[e.val] : null;
+      const at = rec && rec.timestamp ? new Date(rec.timestamp) : null;
+      if (at && !isNaN(at)) parts.push('FactorDB checked ' + at.toISOString().slice(0, 10));
     }
     if (!parts.length) return '';
     return `<div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;padding:7px 12px;`
@@ -9584,7 +9601,6 @@ function openModal(n) {
     ${noteHtml}
     ${factorsHtml}
     ${valueHtml}
-    ${fdbRecordHtml ? `<div class="modal-section"><div class="modal-section-label">FactorDB</div>${fdbRecordHtml}</div>` : ''}
     <div class="modal-section">
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
       <div id="ecmSection_${n}">${ecmSectionHtml}</div>
