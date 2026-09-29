@@ -247,7 +247,20 @@
     100% { transform: translateX(200%); }
   }
 
-  .card-index { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 2px; }
+  .visitor-banner { display: none; align-items: center; gap: 6px 14px; flex-wrap: wrap; padding: 8px 16px;
+                    background: var(--surface2); border-bottom: 1px solid var(--border2); font-size: 12px; color: var(--text-dim); }
+  .visitor-banner strong { color: var(--text); font-weight: 500; }
+  .visitor-hint { font-size: 11px; color: var(--text-muted); }
+  .contrib-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+  .contrib-table th, .contrib-table td { padding: 4px 8px; border-bottom: 1px solid var(--border2); text-align: left; vertical-align: top; }
+  .contrib-scroll { overflow-x: auto; max-height: 320px; overflow-y: auto; margin-bottom: 10px; }
+  .contrib-head { margin: 12px 0 6px; font-size: 12px; }
+  .contrib-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .contrib-who { font-size: 12px; margin: 4px 0; }
+  .contrib-muted { font-size: 11px; color: var(--text-muted); }
+  .github-local { font-size: 11px; color: var(--text-muted); padding: 4px 10px; border: 1px dashed var(--border2); }
+  .card-sign { font-size: 10px; font-weight: 400; color: var(--text-muted); letter-spacing: 0.3px;
+               margin-left: 8px; vertical-align: middle; }
   .card-label { font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px; }
   .card-badge {
     display: inline-flex; align-items: center; gap: 5px;
@@ -530,6 +543,15 @@
 </head>
 <body>
 
+<!-- Visitor mode: this browser has no GitHub token, so it cannot push. Shown by
+     updateVisitorMode(); says plainly that changes stay here and GitHub is untouched. -->
+<div class="visitor-banner" id="visitorBanner" role="note">
+  <span>You're viewing <strong id="visitorOwner">hilbertfrank1285</strong>'s data. Anything you change here
+  stays in this browser — the data on GitHub is not affected.</span>
+  <button class="github-btn" onclick="exportMyContributions()" title="Save the runs and factors in this browser that the owner's data lacks, as a file to send them">Export my contributions</button>
+  <span class="visitor-hint">Owner? Add your GitHub token under ⚙ in the GitHub sync bar.</span>
+</div>
+
 <header style="position:relative">
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
@@ -771,6 +793,9 @@
   <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
   <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
   <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push<span id="dirtyDot" title="You have unsaved changes not yet pushed" style="display:none;width:7px;height:7px;border-radius:50%;background:var(--yellow);margin-left:6px;vertical-align:middle"></span></button>
+  <span class="github-local" id="ghLocalLabel" style="display:none"
+        title="Changes you make stay in this browser — there is no GitHub token here, so nothing can be pushed. Owner? Add your token under ⚙.">Local copy</span>
+  <button class="github-btn" onclick="openContributions()" id="ghContribBtn" title="Review runs and factors other people sent you">Contributions…</button>
   <button class="github-btn" onclick="toggleGithubSettings()" title="GitHub settings">⚙</button>
 </div>
 <div class="github-settings-panel" id="githubSettingsPanel">
@@ -1711,7 +1736,7 @@ function migrateFalseFdbUnknown() {
         e._fdbUnknown = false;
         cleared++;
       }
-      if (cleared) { saveFdbUnknownSet(s); markDirty(); }
+      if (cleared) { saveFdbUnknownSet(s); markDirty('FactorDB status corrections'); }
     }
     localStorage.setItem('eulerFDB_falseUnknown_v1', '1');
   } catch (e) { logSwallowed('migrate/falseUnknown', e); return; }
@@ -1824,11 +1849,12 @@ function saveECM(d) {
         // `ms` is the real measured run time. Dropping it would quietly downgrade
         // exact CPU figures back to estimates on the next save.
         if (a.ms > 0) out.ms = a.ms;
+        if (a.from) out.from = a.from;       // who contributed it — dropping this would merge their work into yours
         return out;
       });
     }
     kvSet(ECM_KEY, JSON.stringify(slimmed));
-    markDirty();
+    markDirty('ECM runs');
   } catch(e) {
     console.error('saveECM failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
@@ -2014,7 +2040,7 @@ function loadChangelog() {
 function saveChangelog(c) {
   try {
     kvSet(CHANGELOG_KEY, JSON.stringify(c));
-    markDirty();
+    markDirty('the changelog');
   } catch(e) {
     console.error('saveChangelog failed:', e.name, e.message);
     if (e.name === 'QuotaExceededError') showStorageWarning();
@@ -2372,7 +2398,7 @@ function flushFDBCache() {
   if (!slim) return false;
   try {
     kvSet(STORAGE_KEY, JSON.stringify(slim));
-    markDirty();
+    markDirty('FactorDB records');
     return true;
   } catch(e) {
     console.error('saveFDBCache failed:', e.name, e.message);
@@ -2485,41 +2511,97 @@ let polling      = false;
 // from the save functions, cleared on a successful push. Drives the beforeunload
 // warning and the optional auto-push timer.
 let _dirty = false;
+// WHAT is waiting to go to GitHub, since the last push — shown in the Push button's
+// tooltip, so the dot is never a mystery: "Not on GitHub yet: ECM runs · pushing
+// automatically in 38 s". Also the first thing to read if it ever lights up when
+// you did not expect it to.
+let _dirtyWhat = new Set();
 let _autoPushTimer = null;
-function markDirty() {
+let _autoPushAt = 0;            // when the pending automatic push fires (ms); 0 = none
+let _countdownTick = null;
+// Declared here, with the rest of the push state, because the tooltip reads it: a
+// `let` read before its declaration has run throws, and it used to sit 2,000 lines on.
+let _pushInFlight = false;
+const AUTO_PUSH_DELAY_MS = 45000;
+
+function markDirty(what) {
   _dirty = true;
-  updateDirtyIndicator();
+  _dirtyWhat.add(what || 'local changes');
   scheduleAutoPush();
+  updateDirtyIndicator();
 }
 function markClean() {
   _dirty = false;
+  _dirtyWhat.clear();
+  _autoPushAt = 0;
   updateDirtyIndicator();
 }
-function updateDirtyIndicator() {
-  const el = document.getElementById('dirtyDot');
-  if (el) el.style.display = _dirty ? 'inline-block' : 'none';
+// For work that saves but brings nothing GitHub lacks — a pull, above all: take a
+// snapshot first, restore it after. The save functions mark dirty as a side effect
+// of their normal write path, which is right for a real local edit and wrong for
+// data that has just come FROM GitHub.
+function dirtySnapshot() { return { dirty: _dirty, what: new Set(_dirtyWhat) }; }
+function restoreDirty(snap) {
+  _dirty = !!snap.dirty;
+  _dirtyWhat = new Set(snap.what || []);
+  if (!_dirty) _autoPushAt = 0;
+  updateDirtyIndicator();
 }
-// Auto-push: 45s after the last change, push if GitHub is configured.
-// Disabled when AUTO_PUSH is off (user can toggle via localStorage flag).
+
+// The Push button's tooltip: what is waiting, and what will happen to it.
+function pushButtonTitle(now = Date.now()) {
+  if (!_dirty) return 'Everything is on GitHub · click to push anyway';
+  const what = [..._dirtyWhat].join(', ');
+  let when;
+  if (_pushInFlight)                 when = 'pushing now…';
+  else if (_autoPushAt > now)        when = 'pushing automatically in ' + Math.ceil((_autoPushAt - now) / 1000) + ' s';
+  else if (!autoPushEnabled())       when = 'automatic push is off — click Push to send';
+  else                               when = 'click Push to send';
+  return 'Not on GitHub yet: ' + what + ' · ' + when;
+}
+function updateDirtyIndicator() {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('dirtyDot');
+  if (el) el.style.display = (_dirty && !isVisitor()) ? 'inline-block' : 'none';
+  const title = pushButtonTitle();
+  const btn = document.getElementById('ghPushBtn');
+  if (btn) btn.title = title;
+  if (el) el.title = title;
+}
+// Keep the countdown in the tooltip current while an automatic push is pending.
+function ensureCountdownTick() {
+  if (_countdownTick) return;
+  _countdownTick = setInterval(() => {
+    updateDirtyIndicator();
+    if (!_dirty || !(_autoPushAt > Date.now())) { clearInterval(_countdownTick); _countdownTick = null; }
+  }, 1000);
+}
+// Auto-push: 45 s after the last change, push if GitHub is configured. Each new
+// change restarts the wait. Disabled when the localStorage flag is 'off'.
 function autoPushEnabled() {
   return localStorage.getItem('eulerFDB_autoPush') !== 'off';
 }
 function scheduleAutoPush() {
   if (!autoPushEnabled()) return;
   if (_autoPushTimer) clearTimeout(_autoPushTimer);
+  _autoPushAt = Date.now() + AUTO_PUSH_DELAY_MS;
+  ensureCountdownTick();
   _autoPushTimer = setTimeout(() => {
     _autoPushTimer = null;
-    if (!_dirty) return;
+    _autoPushAt = 0;
+    if (!_dirty) { updateDirtyIndicator(); return; }
     const s = loadGHSettings();
     if (s && s.token && s.user && s.repo && navigator.onLine && !polling) {
       addLog('Auto-pushing unsaved changes…', '');
       githubPush();
     }
-  }, 45000);
+    updateDirtyIndicator();
+  }, AUTO_PUSH_DELAY_MS);
 }
 // Warn before leaving the page with unpushed changes.
 window.addEventListener('beforeunload', (e) => {
-  if (_dirty) { e.preventDefault(); e.returnValue = ''; return ''; }
+  // Nothing to warn a visitor about: their changes stay in this browser regardless.
+  if (_dirty && !isVisitor()) { e.preventDefault(); e.returnValue = ''; return ''; }
 });
 // Writes to the IndexedDB store are debounced (~400ms), so a tab closed or
 // backgrounded mid-timer could otherwise drop the most recent save. 'pagehide'
@@ -3301,7 +3383,7 @@ function clearAllFdbUnknown() {
     if (e.status === 'fdb-unknown') e.status = 'unknown';
     e._fdbUnknown = false;
   }
-  markDirty();
+  markDirty('FactorDB status corrections');
   return n;
 }
 
@@ -3882,6 +3964,28 @@ const SCHEMA_VERSION  = 3;
 function loadGHSettings() {
   try { return JSON.parse(localStorage.getItem(GH_SETTINGS_KEY) || '{}'); } catch { return {}; }
 }
+// ── Visitor mode ─────────────────────────────────────────────────────────────
+// No token in this browser means it cannot push: a visitor — or the owner on a machine
+// not yet set up, which is just as true. The data on GitHub is protected by GitHub
+// itself either way; this makes it VISIBLE, so nobody mistakes their experiments for
+// the real thing: a banner, "Local copy" instead of Push, and no pending-push dot or
+// leave-page warning for changes that have nowhere to go.
+function isVisitor() { const s = loadGHSettings(); return !(s && s.token); }
+function updateVisitorMode() {
+  if (typeof document === 'undefined') return;
+  const v = isVisitor();
+  const banner = document.getElementById('visitorBanner');
+  if (banner) banner.style.display = v ? 'flex' : 'none';
+  const who = document.getElementById('visitorOwner');
+  if (who) who.textContent = loadGHSettings().user || 'hilbertfrank1285';
+  const push = document.getElementById('ghPushBtn'), local = document.getElementById('ghLocalLabel');
+  if (push)  push.style.display  = v ? 'none' : '';
+  if (local) local.style.display = v ? '' : 'none';
+  const contrib = document.getElementById('ghContribBtn');
+  if (contrib) contrib.style.display = v ? 'none' : '';     // reviewing is the owner's job
+  updateDirtyIndicator();
+}
+
 function saveGHSettings() {
   const s = {
     user:   document.getElementById('ghUser')?.value?.trim()   || '',
@@ -3893,6 +3997,7 @@ function saveGHSettings() {
   // Repo/branch may have changed — a SHA cached from a different file is
   // meaningless, so drop it and let the next push fetch a fresh one.
   _lastPushedSha = null;
+  updateVisitorMode();     // a token typed in or removed switches modes at once
 }
 
 function loadGHSettingsToUI() {
@@ -3984,7 +4089,9 @@ function normalizeEcmAttempts(attempts) {
     }
     const looksLikeEcm = (Array.isArray(a.sigmas) && a.sigmas.length > 0) || (parseInt(a.curves) || 0) > 1;
     if ((a.method === 'P-1' || a.method === 'P+1') && looksLikeEcm) a.method = 'ECM';
-    const key = a.method + '|' + parseB1(a.b1);
+    // A contributor's record is never folded into yours: independent work at the same
+    // B1 must ADD, and this keeps only the higher count.
+    const key = a.method + '|' + parseB1(a.b1) + (a.from ? '|' + a.from : '');
     const hit = seen.get(key);
     if (!hit) { seen.set(key, a); out.push(a); continue; }
     const u = new Set([...(hit.sigmas||[]), ...(a.sigmas||[])]);
@@ -4002,17 +4109,20 @@ function normalizeEcmAttempts(attempts) {
   return out;
 }
 
-function mergeEcmData(remoteEcm) {
-  const local = loadECM();
+function mergeEcmData(remoteEcm) { return mergeEcmInto(loadECM(), remoteEcm); }
+// PURE: local and remote are left untouched. Local runs are deep-copied first — the
+// merge extends runs in place (sigmas, curves, dates), and the push guard calls this on
+// the live store, where an in-place edit would quietly change the data it is checking.
+function mergeEcmInto(local, remoteEcm) {
   const merged = {};
-  for (const [k, v] of Object.entries(local)) merged[String(k)] = normalizeEcmAttempts((v || []).slice());
+  for (const [k, v] of Object.entries(local || {})) merged[String(k)] = normalizeEcmAttempts(JSON.parse(JSON.stringify(v || [])));
   for (const [n, attempts] of Object.entries(remoteEcm || {})) {
     const key = String(n);
     const incoming = normalizeEcmAttempts((attempts || []).slice());
     if (!merged[key]) { merged[key] = incoming; continue; }
     for (const a of incoming) {
       const aB1 = parseB1(a.b1);
-      const hit = merged[key].find(x => x.method === a.method && parseB1(x.b1) === aB1);
+      const hit = merged[key].find(x => x.method === a.method && parseB1(x.b1) === aB1 && (x.from || '') === (a.from || ''));
       if (!hit) { merged[key].push(a); continue; }
       // same method+B1: union sigma sets so curve counts accumulate correctly across
       // devices, then derive curves from the union (falling back to max when absent).
@@ -4045,6 +4155,21 @@ function mergeEcmData(remoteEcm) {
 }
 
 // Pull results_ecm.json and merge it into local ECM logs. Public (no token needed).
+// Do two ECM stores hold the same runs, in ANY order? Numbers, the runs within a
+// number and the fields within a run are compared as sets: a pull appends GitHub's
+// runs after the local ones, so the merged text never matches GitHub's file
+// character for character even when the content is identical. VALUES are compared
+// exactly — one extra curve on a run is a difference — so every uncertain case falls
+// on the side of pushing.
+function ecmContentKey(ecm) {
+  const canon = (v) => Array.isArray(v) ? v.map(canon)
+    : (v && typeof v === 'object') ? Object.keys(v).sort().reduce((o, k) => (o[k] = canon(v[k]), o), {})
+    : v;
+  const nums = Object.keys(ecm || {}).filter(k => (ecm[k] || []).length).sort((a, b) => Number(a) - Number(b));
+  return JSON.stringify(nums.map(k => [k, (ecm[k] || []).map(r => JSON.stringify(canon(r))).sort()]));
+}
+function sameEcmContent(a, b) { return ecmContentKey(a) === ecmContentKey(b); }
+
 async function pullECMFile() {
   const s = loadGHSettings();
   const user = s.user || 'hilbertfrank1285', repo = s.repo || 'euler-factordb', branch = s.branch || 'main';
@@ -4052,18 +4177,40 @@ async function pullECMFile() {
   const headers = { 'Accept': 'application/vnd.github.raw+json' };
   if (s.token) headers['Authorization'] = 'Bearer ' + s.token;
   const r = await fetch(apiUrl, { headers, cache: 'no-store' });
-  if (r.status === 404) { addLog('No results_ecm.json yet — will be created on next push', ''); return false; }
+  if (r.status === 404) {
+    addLog('No results_ecm.json yet — will be created on next push', '');
+    _syncBase = Object.assign(_syncBase || {}, { ecmSha: null, ecm: {} });
+    return false;
+  }
   if (!r.ok) throw new Error('HTTP ' + r.status + ' pulling ECM file');
-  const text = await r.text();
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
   const payload = JSON.parse(text);
   const remoteEcm = payload.ecm || payload || {};
+  _syncBase = Object.assign(_syncBase || {}, { ecmSha: await gitBlobSha(bytes).catch(() => undefined), ecm: remoteEcm });
   const before = JSON.stringify(loadECM());
-  const merged = mergeEcmData(remoteEcm);
+  // Runs deleted here and not yet pushed stay deleted, whatever GitHub still holds.
+  const merged = applyDeletionsToEcm(mergeEcmData(remoteEcm), deletedHere());
   const changed = JSON.stringify(merged) !== before;
   if (changed) {
-    _lastPushedEcmSig = null; // local ECM data just changed — don't let a stale signature skip the next push
+    // Does GitHub need any of this? Only if the merge holds something GitHub's file
+    // lacks. When the new runs came FROM GitHub — logged from another browser or
+    // machine — the browser now simply matches GitHub, and pushing would re-upload
+    // what is already there. That was the dot that lit up for a minute after a load:
+    // this pull finishes after startup has marked everything clean, and its save
+    // marked it dirty again.
+    const githubHasItAll = sameEcmContent(merged, remoteEcm);
+    const snap = dirtySnapshot();
     saveECM(merged);
-    addLog('ECM runs pulled — ' + Object.keys(merged).length + ' numbers have logged runs', 'ok');
+    if (githubHasItAll) {
+      restoreDirty(snap);
+      // …and the next push need not re-send an identical ECM file either.
+      _lastPushedEcmSig = _hashStr(serializeSyncPayload({ version: SCHEMA_VERSION, ecm: merged }));
+    } else {
+      _lastPushedEcmSig = null; // local ECM data holds runs GitHub lacks — the next push must send them
+    }
+    addLog('ECM runs pulled — ' + Object.keys(merged).length + ' numbers have logged runs'
+      + (githubHasItAll ? '' : ' (including runs GitHub lacks — they will be pushed)'), 'ok');
   } else {
     _ecmCache = merged; // keep in-memory cache fresh without marking dirty / scheduling a push
   }
@@ -4113,18 +4260,18 @@ async function pushECMFile() {
   }
   let sha = await getSha();
   let r = await attempt(sha);
-  let retries = 0;
-  while (!r.ok && retries < 2) {
-    const clone = r.clone();
-    let conflict = (r.status === 409 || r.status === 422);
-    try { const eb = await clone.json(); if (eb.message && /does not match|sha/i.test(eb.message)) conflict = true; } catch(e) {}
-    if (!conflict) break;
-    retries++;
-    await new Promise(res => setTimeout(res, 500 * retries));
-    sha = await getSha();
-    r = await attempt(sha);
+  // No blind retry. A rejection here means results_ecm.json changed on GitHub since
+  // this browser read it; re-sending with the new ID would overwrite that change.
+  // Reported as a conflict instead — the caller merges and tries once more.
+  if (!r.ok) { _lastPushedEcmSig = null; const err = await r.json().catch(()=>({}));
+    const conflict = r.status === 409 || r.status === 422 || /does not match|sha/i.test(err.message || '');
+    const e = new Error(conflict ? 'results_ecm.json changed on GitHub during the push' : (err.message || 'HTTP ' + r.status + ' pushing ECM file'));
+    e.conflict = conflict;
+    throw e;
   }
-  if (!r.ok) { _lastPushedEcmSig = null; const err = await r.json().catch(()=>({})); throw new Error(err.message || 'HTTP ' + r.status + ' pushing ECM file'); }
+  try { const okBody = await r.clone().json();
+        _syncBase = Object.assign(_syncBase || {}, { ecmSha: (okBody && okBody.content && okBody.content.sha) || undefined, ecm: JSON.parse(jsonStr).ecm }); }
+  catch (e) { logSwallowed('pushECM/base', e); }
   _lastPushedEcmSig = contentSig; // remember what we just pushed, to skip identical re-pushes
   addLog('ECM runs pushed to results_ecm.json', 'ok');
   return true;
@@ -4622,6 +4769,530 @@ function mergeSyncPayload(remote) {
   }
 }
 
+// ── Push guard ───────────────────────────────────────────────────────────────
+// A push REPLACES GitHub's files with this browser's copy, so anything GitHub holds
+// that this browser lacks is destroyed. Two ways that happens:
+//
+//   1. GitHub changed since this browser last synced — pushed from another machine
+//      or browser. Before this guard, a push that GitHub rejected for exactly that
+//      reason fetched the new version's ID and re-sent its own copy anyway,
+//      overwriting the other machine's work. Now: merge GitHub's version in first
+//      (merging loses nothing), re-apply this browser's deliberate deletions, push.
+//   2. This browser's copy is missing things GitHub has that were NOT deleted here —
+//      storage cleared, a half-finished load, a bug. Stop and ask.
+//
+// "Missing" uses the merge's own rules, so harmless differences are not losses: a run
+// whose curve count grew is the same run; a composite factor split into its primes
+// still divides their product. A LOWER curve count than GitHub's is a loss.
+
+// What GitHub held at the last sync (pull or push): each file's git blob ID, its runs,
+// and its factors per entry. Set by the pulls and pushes below.
+let _syncBase = null;
+let _ecmPullPromise = null;
+
+// Deliberate deletions made here and not yet pushed — so the guard does not mistake
+// them for losses, and a merge does not bring them back. Persisted: a reload before
+// pushing must not resurrect what you deleted. "Clear all local data" is deliberately
+// NOT recorded here: it means "start fresh in this browser", not "wipe GitHub".
+const DELETED_HERE_KEY = 'eulerFDB_deletedHere';
+function deletedHere() {
+  try {
+    const d = JSON.parse(kvGet(DELETED_HERE_KEY) || '{}');
+    return { runs: new Set(d.runs || []), entries: new Set((d.entries || []).map(String)) };
+  } catch (e) { return { runs: new Set(), entries: new Set() }; }
+}
+function recordDeletion({ runs = [], entries = [] } = {}) {
+  const d = deletedHere();
+  for (const id of runs) d.runs.add(id);
+  for (const n of entries) d.entries.add(String(n));
+  kvSet(DELETED_HERE_KEY, JSON.stringify({ runs: [...d.runs], entries: [...d.entries] }));
+}
+function clearDeletedHere() { kvSet(DELETED_HERE_KEY, JSON.stringify({ runs: [], entries: [] })); }
+function hasDeletionsPending() { const d = deletedHere(); return d.runs.size > 0 || d.entries.size > 0; }
+
+// A run's identity, by the merge's rule: same entry, same method, same B1.
+function ecmRunId(n, a) { return String(n) + '|' + a.method + '|' + parseB1(a.b1) + (a.from ? '|' + a.from : ''); }
+
+// PURE: the store without the runs and entries deleted here.
+function applyDeletionsToEcm(ecm, del) {
+  if (!del || (!del.runs.size && !del.entries.size)) return ecm;
+  const out = {};
+  for (const [n, runs] of Object.entries(ecm || {})) {
+    if (del.entries.has(String(n))) continue;
+    const kept = (runs || []).filter(a => !del.runs.has(ecmRunId(n, a)));
+    if (kept.length) out[n] = kept;
+  }
+  return out;
+}
+
+// PURE: {n: [factor, …]} from a sync payload — this browser's or GitHub's copy.
+function factorsFromPayload(payload) {
+  const out = {};
+  for (const [k, rec] of Object.entries((payload && payload.fdbCache) || {})) {
+    const fs = ((rec && rec.factors) || []).map(f => _decodeFactor(String(f))).filter(f => /^\d+$/.test(f) && f !== '1');
+    if (fs.length) out[String(rec && rec.n != null ? rec.n : k)] = fs;
+  }
+  return out;
+}
+
+// PURE: what a push would remove from GitHub that was not deleted here.
+function pushLosses(base, localEcm, localFactors, del) {
+  const lost = { runs: [], factors: [] };
+  if (!base) return lost;
+  del = del || { runs: new Set(), entries: new Set() };
+  const mine   = mergeEcmInto(localEcm, {});                          // normalised, as the merge sees it
+  const merged = mergeEcmInto(localEcm, applyDeletionsToEcm(base.ecm || {}, del));
+  for (const [n, runs] of Object.entries(merged)) {
+    for (const a of runs) {
+      const hit = (mine[n] || []).find(x => ecmRunId(n, x) === ecmRunId(n, a));
+      const ac = parseInt(a.curves) || 0, hc = hit ? (parseInt(hit.curves) || 0) : 0;
+      if (!hit)         lost.runs.push({ n: Number(n), method: a.method, b1: a.b1, curves: ac, why: 'missing' });
+      else if (ac > hc) lost.runs.push({ n: Number(n), method: a.method, b1: a.b1, curves: ac - hc, why: 'fewer curves' });
+    }
+  }
+  for (const [n, fs] of Object.entries(base.factors || {})) {
+    if (del.entries.has(String(n))) continue;
+    const have = (localFactors && localFactors[n]) || [];
+    let prod = 1n;
+    for (const f of have) { try { prod *= BigInt(f); } catch (e) { /* not a number — contributes nothing */ } }
+    for (const f of fs) {
+      if (have.includes(f)) continue;
+      let implied = false;
+      try { const F = BigInt(f); implied = F > 1n && prod % F === 0n; } catch (e) { /* unparseable — not implied */ }
+      if (!implied) lost.factors.push({ n: Number(n), f });
+    }
+  }
+  return lost;
+}
+
+function lossMessage(L) {
+  const entriesIn = (list) => new Set(list.map(x => x.n)).size;
+  const plural = (k, one, many) => k + ' ' + (k === 1 ? one : many);
+  const lines = [];
+  if (L.runs.length)    lines.push('  • ' + plural(L.runs.length, 'ECM run', 'ECM runs') + ' on ' + plural(entriesIn(L.runs), 'entry', 'entries'));
+  if (L.factors.length) lines.push('  • ' + plural(L.factors.length, 'factor', 'factors') + ' on ' + plural(entriesIn(L.factors), 'entry', 'entries'));
+  const ns = [...new Set([...L.runs, ...L.factors].map(x => x.n))].sort((a, b) => a - b);
+  const where = ns.slice(0, 6).map(n => 'E(' + n + ')').join(', ') + (ns.length > 6 ? ', …' : '');
+  return 'This push would remove from GitHub:\n\n' + lines.join('\n') + '\n    (' + where + ')\n\n'
+    + 'You did not delete these here. This usually means this browser\'s copy is\n'
+    + 'incomplete — its storage was cleared, or it did not finish loading.\n\n'
+    + 'OK — restore them from GitHub first, then push (recommended)\n'
+    + 'Cancel — do not push';
+}
+
+// The git blob ID of exact file bytes — the same ID GitHub reports for the file, so
+// "has GitHub changed since the version I merged?" is an exact comparison.
+async function gitBlobSha(bytes) {
+  const head = new TextEncoder().encode('blob ' + bytes.length + '\0');
+  const all = new Uint8Array(head.length + bytes.length);
+  all.set(head); all.set(bytes, head.length);
+  const d = await crypto.subtle.digest('SHA-1', all);
+  return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function ghShaAt(apiBase) {
+  const s = loadGHSettings();
+  const r = await fetch(apiBase + '?ref=' + (s.branch || 'main') + '&_=' + Date.now(), { headers: ghHeaders(), cache: 'no-store' });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('HTTP ' + r.status + ' checking GitHub before pushing');
+  const d = await r.json();
+  return d.sha || null;
+}
+
+// Re-apply a reset after a merge brought the entry's data back. Works from the
+// FactorDB records themselves, so it does not need the entry list to be built yet.
+function resetEntryData(n) {
+  for (const [k, rec] of Object.entries(fdbCache)) {
+    if (rec && Number(rec.n) === Number(n)) delete fdbCache[k];
+  }
+  const e = entryByN(n);
+  if (e) {
+    if (e.val && fdbCache[e.val])           delete fdbCache[e.val];
+    if (e.cofactor && fdbCache[e.cofactor]) delete fdbCache[e.cofactor];
+    e.status = 'unknown'; e.factors = []; e.cofactor = null;
+    delete e._fdbVerified; delete e._resolvedViaCofactor;
+  }
+  saveFDBCache(fdbCache);
+  const ecmAll = loadECM();
+  delete ecmAll[String(n)];
+  saveECM(ecmAll);
+}
+
+// Pull and merge BOTH files, waiting for the ECM one too. True only if both worked.
+async function pullBothFromGitHub() {
+  const mainOk = await githubPull(false);
+  let ecmOk = false;
+  try { ecmOk = (await _ecmPullPromise) !== false; } catch (e) { logSwallowed('pullBoth/ecm', e); }
+  setGHBtns(true);            // the pull re-enabled the buttons; a push is still running
+  return mainOk !== false && ecmOk;
+}
+
+// Runs before every push. Returns { ok, mainSha } — ok false means do not push.
+async function pushGuard() {
+  let [mainSha, ecmSha] = await Promise.all([ghShaAt(ghApiBase()), ghShaAt(ghEcmApiBase())]);
+  const b = _syncBase || {};
+  const unseen = !_syncBase || !('mainSha' in b) || !('ecmSha' in b) || mainSha !== b.mainSha || ecmSha !== b.ecmSha;
+  const stop = (why) => { setGHStatus(why, 'err'); addLog(why, 'warn'); return { ok: false }; };
+  if (unseen) {
+    addLog('GitHub has changes this browser has not seen — merging them in before pushing', '');
+    setGHStatus('GitHub changed since this browser last synced — merging first…', 'busy');
+    if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s latest version to merge, so nothing was sent');
+    mainSha = _syncBase.mainSha;
+  }
+  const L = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere());
+  if (L.runs.length || L.factors.length) {
+    if (!confirm(lossMessage(L))) return stop('Push cancelled — it would have removed data from GitHub that was not deleted here');
+    setGHStatus('Restoring from GitHub before pushing…', 'busy');
+    if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s version to restore from, so nothing was sent');
+    mainSha = _syncBase.mainSha;
+  }
+  return { ok: true, mainSha };
+}
+
+// ── Contributions ────────────────────────────────────────────────────────────
+// Other people can send runs and factors; the owner reviews them before anything is
+// added. The two are treated differently on purpose:
+//
+//   · FACTORS are proofs — exact division against E(n) settles them. A verified one
+//     is pre-accepted; one that does not divide is rejected outright.
+//   · RUNS are claims — nothing proves 842 curves at B1=1M were run, and a false claim
+//     does quiet damage: the model counts the level as covered and stops recommending
+//     it. So runs are flagged when implausible, and none goes in without a tick.
+//
+// Contributed runs are stored as SEPARATE records tagged `from: <name>`. The merge
+// treats records with the same entry, method and B1 as one run and keeps the higher
+// count — right for one run seen twice through sync, wrong for independent work, which
+// would be silently dropped. The tag is part of a run's identity, so a contributor's
+// curves add to yours instead of hiding behind them, and "remove all of X's runs" is
+// one clean operation. Your own runs carry no tag and are unaffected.
+const CONTRIB_KIND = 'euler-factordb-contribution';
+const CONTRIB_NAME_KEY = 'eulerFDB_contributorName';
+
+function cleanContributorName(s) {
+  const t = String(s == null ? '' : s).trim().replace(/\s+/g, ' ');
+  return /^[A-Za-z0-9 _.\-]{1,40}$/.test(t) ? t : '';
+}
+function ecmCurves(a) { return parseInt(a && a.curves) || 0; }
+function sameRunAs(x, a, tag) {
+  return x.method === a.method && parseB1(x.b1) === parseB1(a.b1) && (x.from || '') === (tag == null ? (a.from || '') : tag);
+}
+
+// PURE. What this browser holds that GitHub lacks: run records carrying only the NEW
+// curves (by sigma when both sides recorded sigmas, by count otherwise), and factors
+// GitHub neither has nor implies. Runs another contributor sent are not yours to send.
+function contributionDiff(githubEcm, githubFactors, localEcm, localFactors, name) {
+  const runs = {}, factors = {};
+  let nRuns = 0, nCurves = 0, nFactors = 0;
+  for (const [n, list] of Object.entries(localEcm || {})) {
+    for (const a of (list || [])) {
+      const tag = a.from || '';
+      if (tag && tag !== name) continue;
+      const g = ((githubEcm || {})[n] || []).find(x => sameRunAs(x, a, tag));
+      const as = Array.isArray(a.sigmas) ? a.sigmas : [];
+      let extra, sigmas;
+      if (g && as.length && Array.isArray(g.sigmas) && g.sigmas.length) {
+        const gs = new Set(g.sigmas);
+        sigmas = as.filter(s => !gs.has(s)); extra = sigmas.length;
+      } else if (g) {
+        extra = ecmCurves(a) - ecmCurves(g);
+      } else {
+        extra = Math.max(ecmCurves(a), as.length); sigmas = as.length ? as.slice() : undefined;
+      }
+      if (!(extra > 0)) continue;
+      const rec = { method: a.method, b1: a.b1, curves: String(extra) };
+      if (a.b2) rec.b2 = a.b2;
+      if (sigmas && sigmas.length) rec.sigmas = sigmas;
+      if (a.date) rec.date = a.date;
+      if (a.lastRun) rec.lastRun = a.lastRun;
+      if (a.tool) rec.tool = a.tool;
+      if (!g && a.ms > 0) rec.ms = a.ms;           // measured time only describes the WHOLE record
+      (runs[n] = runs[n] || []).push(rec);
+      nRuns++; nCurves += extra;
+    }
+  }
+  for (const [n, fs] of Object.entries(localFactors || {})) {
+    const G = (githubFactors || {})[n] || [];
+    let prod = 1n;
+    for (const f of G) { try { prod *= BigInt(f); } catch (e) { /* not a number */ } }
+    for (const f of fs) {
+      if (G.includes(f)) continue;
+      let implied = false;
+      try { const F = BigInt(f); implied = F > 1n && prod % F === 0n; } catch (e) { /* unparseable */ }
+      if (!implied) { (factors[n] = factors[n] || []).push(f); nFactors++; }
+    }
+  }
+  return { runs, factors, nRuns, nCurves, nFactors };
+}
+
+// PURE. After exporting: move the sent curves out of your untagged records into ones
+// tagged with your name — the shape the owner's data takes once they accept — so a
+// later pull does not count your work twice.
+function retagAfterExport(localEcm, contributed, name) {
+  const out = JSON.parse(JSON.stringify(localEcm || {}));
+  for (const [n, recs] of Object.entries(contributed || {})) {
+    const list = out[n] = out[n] || [];
+    for (const c of recs) {
+      const src = list.find(x => sameRunAs(x, c, ''));
+      if (!src) continue;                            // already tagged as yours — nothing to move
+      const cs = new Set(c.sigmas || []);
+      if (cs.size && Array.isArray(src.sigmas)) src.sigmas = src.sigmas.filter(s => !cs.has(s));
+      const left = ecmCurves(src) - ecmCurves(c);
+      if (left > 0) src.curves = String(left); else list.splice(list.indexOf(src), 1);
+      const mine = list.find(x => sameRunAs(x, c, name));
+      if (mine) {
+        mine.curves = String(ecmCurves(mine) + ecmCurves(c));
+        if (c.sigmas) mine.sigmas = Array.from(new Set([...(mine.sigmas || []), ...c.sigmas]));
+      } else list.push(Object.assign({}, c, { from: name }));
+    }
+  }
+  for (const n of Object.keys(out)) if (!out[n].length) delete out[n];
+  return out;
+}
+
+// PURE. A run from a file, reduced to known fields with sane values — or why not.
+// Everything else in the record is dropped: it came from someone else's file.
+function sanitizeContributedRun(a) {
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return { bad: 'not a run record' };
+  if (!['ECM', 'P-1', 'P+1'].includes(a.method)) return { bad: 'unknown method' };
+  const b1 = parseB1(a.b1);
+  if (!(b1 >= 1e3 && b1 <= 1e16)) return { bad: 'B1 missing or out of range' };
+  const curves = Number(a.curves);
+  if (!Number.isInteger(curves) || curves < 1 || curves > 1e7) return { bad: 'curve count missing or out of range' };
+  const num = /^[0-9][0-9.eEkKmMgGtT]*$/;
+  const run = { method: a.method, b1: num.test(String(a.b1)) ? String(a.b1) : String(b1), curves: String(curves) };
+  if (a.b2 != null && a.b2 !== '') {
+    const b2 = parseB1(a.b2);
+    if (!(b2 >= b1 && b2 <= 1e20)) return { bad: 'B2 out of range' };
+    run.b2 = num.test(String(a.b2)) ? String(a.b2) : String(b2);
+  }
+  const day = /^\d{4}-\d{2}-\d{2}(?:[T ][0-9:.]+Z?)?$/;
+  if (typeof a.date === 'string' && day.test(a.date)) run.date = a.date;
+  if (typeof a.lastRun === 'string' && day.test(a.lastRun)) run.lastRun = a.lastRun;
+  if (typeof a.tool === 'string' && /^[\w .+\-]{1,40}$/.test(a.tool)) run.tool = a.tool;
+  if (Array.isArray(a.sigmas) && a.sigmas.length && a.sigmas.length <= 1e6
+      && a.sigmas.every(s => /^[0-9A-Za-z:_\-]{1,80}$/.test(String(s)))) run.sigmas = a.sigmas.map(String);
+  if (Number.isFinite(Number(a.ms)) && Number(a.ms) > 0) run.ms = Number(a.ms);
+  return { run };
+}
+
+// PURE, given ctx: { entry(n), ecm, today, cpuHours(run, n) }. What each item in a
+// contribution is: new, already here, or rejected — and for new runs, what looks odd.
+function reviewContribution(obj, ctx) {
+  if (!obj || typeof obj !== 'object' || obj.kind !== CONTRIB_KIND) return { error: 'This is not a contribution file.' };
+  const name = cleanContributorName(obj.contributor);
+  if (!name) return { error: 'The file has no valid contributor name, so it cannot be attributed. Nothing was read from it.' };
+  const runs = [], factors = [];
+  const entryOf = (k) => (/^\d+$/.test(k) && Number(k) > 2 ? ctx.entry(Number(k)) : null);
+  for (const [k, list] of Object.entries(obj.runs || {})) {
+    const n = Number(k), e = entryOf(k);
+    for (const raw of (Array.isArray(list) ? list : [])) {
+      if (!e) { runs.push({ n, status: 'bad', why: 'no such entry' }); continue; }
+      const s = sanitizeContributedRun(raw);
+      if (s.bad) { runs.push({ n, status: 'bad', why: s.bad }); continue; }
+      const run = Object.assign(s.run, { from: name });
+      const have = ((ctx.ecm || {})[k] || []).find(x => sameRunAs(x, run, name));
+      let extra = ecmCurves(run);
+      if (have) {
+        if (run.sigmas && Array.isArray(have.sigmas) && have.sigmas.length) {
+          const hs = new Set(have.sigmas); extra = run.sigmas.filter(x => !hs.has(x)).length;
+        } else extra = ecmCurves(run) - ecmCurves(have);
+      }
+      if (!(extra > 0)) { runs.push({ n, run, status: 'known', why: 'already recorded' }); continue; }
+      const flags = [];
+      const b1 = parseB1(run.b1), c = ecmCurves(run);
+      if (e.status === 'full') flags.push('the entry is already fully factored — these runs add nothing');
+      if ((run.method === 'P-1' || run.method === 'P+1') && c > 10) flags.push('P±1 is normally run once or a few times per B1');
+      if (c > 50000) flags.push('unusually many curves in one record');
+      if (b1 > 1e11) flags.push('B1 far above anything usual');
+      if ((run.lastRun || run.date || '').slice(0, 10) > ctx.today) flags.push('dated in the future');
+      const est = ctx.cpuHours(Object.assign({}, run, { ms: 0 }), n);
+      if (est > 2000) flags.push('a very large claim — about ' + Math.round(est).toLocaleString() + ' CPU-hours');
+      if (run.ms > 0 && est > 0 && run.ms / 3.6e6 < 0.2 * est) flags.push('reports far less CPU time than this much work needs');
+      runs.push({ n, run, status: 'new', extra, flags, cpuHours: est });
+    }
+  }
+  for (const [k, list] of Object.entries(obj.factors || {})) {
+    const n = Number(k), e = entryOf(k);
+    for (const raw of (Array.isArray(list) ? list : [])) {
+      const f = String(raw == null ? '' : raw).trim();
+      if (!e || !e.val) { factors.push({ n, f, status: 'bad', why: 'no such entry' }); continue; }
+      if (!/^\d+$/.test(f) || /^0*[01]$/.test(f)) { factors.push({ n, f, status: 'bad', why: 'not a whole number above 1' }); continue; }
+      const F = BigInt(f), V = BigInt(e.val);
+      if (F >= V || V % F !== 0n) { factors.push({ n, f, status: 'bad', why: 'does not divide E(' + n + ')' }); continue; }
+      let prod = 1n;
+      for (const x of (e.factors || [])) { try { prod *= BigInt(x); } catch (err) { /* an expression — checked again on accept */ } }
+      if ((e.factors || []).includes(f) || (prod > 1n && prod % F === 0n)) { factors.push({ n, f, status: 'known', why: 'already known' }); continue; }
+      factors.push({ n, f, status: 'new', why: 'verified — divides E(' + n + ') exactly' });
+    }
+  }
+  return { name, created: String(obj.created || '').slice(0, 10), runs, factors };
+}
+
+// PURE. Who has contributed runs to this store, and how much.
+function listContributors(ecm) {
+  const by = new Map();
+  for (const list of Object.values(ecm || {})) for (const a of (list || [])) {
+    if (!a.from) continue;
+    const c = by.get(a.from) || { name: a.from, records: 0, curves: 0 };
+    c.records++; c.curves += ecmCurves(a); by.set(a.from, c);
+  }
+  return [...by.values()].sort((x, y) => x.name.localeCompare(y.name));
+}
+// PURE. The store without one contributor's runs, and the ids of what went.
+function removeContributorFrom(ecm, name) {
+  const out = {}, removedIds = [];
+  for (const [n, list] of Object.entries(ecm || {})) {
+    const kept = [];
+    for (const a of (list || [])) { if (a.from === name) removedIds.push(ecmRunId(n, a)); else kept.push(a); }
+    if (kept.length) out[n] = kept;
+  }
+  return { ecm: out, removedIds };
+}
+
+// ── contributor side ──
+function exportMyContributions() {
+  const base = _syncBase;
+  if (!base || !base.ecm || !base.factors) {
+    alert("The owner's data has not been read from GitHub yet, so there is nothing to compare against. Press ↓ Pull, then try again.");
+    return;
+  }
+  let name = cleanContributorName(kvGet(CONTRIB_NAME_KEY) || '');
+  if (!name) {
+    const ans = prompt('Your name, as the owner will see it on your runs\n(letters, digits, spaces, _ . -):', '');
+    if (ans === null) return;
+    name = cleanContributorName(ans);
+    if (!name) { alert('That name has characters that are not allowed. Use letters, digits, spaces, _ . or -.'); return; }
+    kvSet(CONTRIB_NAME_KEY, name);
+  }
+  const local = loadECM();
+  const d = contributionDiff(base.ecm, base.factors, local, factorsFromPayload(buildSyncPayload()), name);
+  if (!d.nRuns && !d.nFactors) { alert("Nothing to send: everything in this browser is already in the owner's data."); return; }
+  const s = loadGHSettings(), owner = s.user || 'hilbertfrank1285', repo = s.repo || 'euler-factordb';
+  const file = { kind: CONTRIB_KIND, version: 1, contributor: name, created: new Date().toISOString(),
+                 repo: owner + '/' + repo, runs: d.runs, factors: d.factors };
+  downloadText('contribution-' + name.replace(/[^A-Za-z0-9_.-]+/g, '_') + '-' + new Date().toISOString().slice(0, 10) + '.json',
+               JSON.stringify(file, null, 1));
+  saveECM(retagAfterExport(local, d.runs, name));
+  addLog('Exported a contribution: ' + d.nRuns + ' run records (' + d.nCurves + ' curves), ' + d.nFactors + ' factors', 'ok');
+  alert('Saved your contribution: ' + d.nRuns + ' run record' + (d.nRuns === 1 ? '' : 's') + ' (' + d.nCurves.toLocaleString()
+    + ' curves) and ' + d.nFactors + ' factor' + (d.nFactors === 1 ? '' : 's') + '.\n\n'
+    + 'To send it, open an issue at github.com/' + owner + '/' + repo + '/issues and attach the file,\n'
+    + 'or send it to the owner directly. They review every run before it is added.');
+}
+
+// ── owner side ──
+let _pendingReview = null;
+function contributionCtx() {
+  return {
+    entry: (n) => entryByN(n),
+    ecm: loadECM(),
+    today: new Date().toISOString().slice(0, 10),
+    cpuHours: (run, n) => { const e = entryByN(n); const d = e ? String(e.cofactor || e.val || '').length : 0;
+                            try { return attemptCpuSeconds(run, d) / 3600; } catch (err) { return 0; } },
+  };
+}
+function shortNum(f) { const t = String(f); return t.length > 24 ? t.slice(0, 12) + '…' + t.slice(-6) + ' (' + t.length + 'd)' : t; }
+function renderContributionReview(r) {
+  const status = (x) => x.status === 'new' ? '' : '<span class="contrib-muted">' + escHtml(x.why) + '</span>';
+  const fRows = r.factors.map((x, i) => '<tr><td><input type="checkbox" id="contribF_' + i + '"'
+      + (x.status === 'new' ? ' checked' : ' disabled') + '></td><td>E(' + x.n + ')</td><td>' + escHtml(shortNum(x.f)) + '</td><td>'
+      + (x.status === 'new' ? '<span style="color:var(--green)">✓ ' + escHtml(x.why) + '</span>'
+         : x.status === 'bad' ? '<span style="color:var(--red)">✗ ' + escHtml(x.why) + '</span>' : status(x)) + '</td></tr>').join('');
+  const rRows = r.runs.map((x, i) => {
+    const run = x.run || {};
+    const notes = x.status !== 'new' ? (x.status === 'bad' ? '<span style="color:var(--red)">✗ ' + escHtml(x.why) + '</span>' : status(x))
+      : (x.flags.length ? x.flags.map(f => '<div style="color:var(--yellow)">⚠ ' + escHtml(f) + '</div>').join('') : '');
+    return '<tr><td><input type="checkbox" id="contribR_' + i + '"' + (x.status === 'new' ? (x.flags.length ? '' : ' checked') : ' disabled')
+      + '></td><td>E(' + x.n + ')</td><td>' + escHtml(run.method || '—') + '</td><td>' + escHtml(run.b1 || '—') + '</td><td>'
+      + (x.status === 'new' ? escHtml(String(x.extra)) + (x.extra !== ecmCurves(run) ? ' new of ' + escHtml(run.curves) : '') : escHtml(run.curves || '—'))
+      + '</td><td>' + (x.cpuHours ? escHtml(fmtCpuTime(x.cpuHours * 3600)) : '') + '</td><td>' + notes + '</td></tr>';
+  }).join('');
+  const nNew = (list) => list.filter(x => x.status === 'new').length;
+  return '<div class="contrib-head">From <strong>' + escHtml(r.name) + '</strong>' + (r.created ? ' · ' + escHtml(r.created) : '')
+    + ' · ' + nNew(r.runs) + ' new run record' + (nNew(r.runs) === 1 ? '' : 's') + ' · ' + nNew(r.factors) + ' new factor' + (nNew(r.factors) === 1 ? '' : 's') + '</div>'
+    + (r.factors.length ? '<h4>Factors — verified by exact division</h4><div class="contrib-scroll"><table class="contrib-table"><tr><th></th><th>Entry</th><th>Factor</th><th></th></tr>' + fRows + '</table></div>' : '')
+    + (r.runs.length ? '<h4>Runs — claims: tick only what you trust</h4><div class="contrib-scroll"><table class="contrib-table"><tr><th></th><th>Entry</th><th>Method</th><th>B1</th><th>Curves</th><th>≈ CPU</th><th></th></tr>' + rRows + '</table></div>' : '')
+    + '<div class="contrib-actions"><button class="github-btn primary" onclick="applyContribution()">Accept ticked items</button>'
+    + '<span class="contrib-muted">Flagged runs start unticked. Accepted runs are tagged "from ' + escHtml(r.name) + '".</span></div>';
+}
+function openContributions() {
+  const who = listContributors(loadECM());
+  const list = who.length
+    ? who.map(c => '<div class="contrib-who">' + escHtml(c.name) + ' — ' + c.records + ' run record' + (c.records === 1 ? '' : 's') + ', '
+        + c.curves.toLocaleString() + ' curves <button class="github-btn" data-name="' + escHtml(c.name)
+        + '" onclick="removeContributor(this.dataset.name)">Remove all</button></div>').join('')
+    : '<div class="contrib-muted">No contributed runs in your data yet.</div>';
+  document.getElementById('modalTitle').textContent = 'Contributions';
+  document.getElementById('modalBody').innerHTML =
+    '<p class="contrib-muted">Load a contribution file someone sent you. Nothing is added until you accept it here.</p>'
+    + '<input type="file" accept=".json,application/json" onchange="loadContributionFile(this)">'
+    + '<div id="contribReview"></div><h4>Contributors in your data</h4>' + list;
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+function loadContributionFile(input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let obj;
+    try { obj = JSON.parse(reader.result); } catch (e) { alert('That file is not valid JSON, so nothing was read from it.'); return; }
+    const r = reviewContribution(obj, contributionCtx());
+    if (r.error) { alert(r.error); return; }
+    _pendingReview = r;
+    const el = document.getElementById('contribReview');
+    if (el) el.innerHTML = renderContributionReview(r);
+  };
+  reader.readAsText(file);
+}
+// A contributed factor goes through exactly the checks and bookkeeping of one you add
+// by hand: verified against what is still unfactored, then committed by the same code.
+function addContributedFactor(n, factorStr, name) {
+  const e = entryByN(n);
+  if (!e || !e.val) return { ok: false, why: 'Euler value not loaded' };
+  let parsed;
+  try { parsed = parseFactorExpr(factorStr); } catch (err) { return { ok: false, why: 'not a number' }; }
+  const factorBig = parsed.value;
+  if (factorBig < 2n) return { ok: false, why: 'must be at least 2' };
+  const known = (e.factors || []).map(f => { try { return parseFactorExpr(f).value; } catch (err) { return null; } });
+  if (known.some(b => b === factorBig)) return { ok: false, why: 'already listed' };
+  const remaining = divideOutFactors(BigInt(e.val), (e.factors || []).filter(f => f && f !== '1'));
+  if (remaining % factorBig !== 0n) return { ok: false, why: 'already accounted for by the known factors' };
+  commitKnownFactor(n, e, parsed.display, remaining, factorBig, 'c', 'contributed', 'Contributed factor from ' + name);
+  return { ok: true };
+}
+function applyContribution() {
+  const r = _pendingReview;
+  if (!r) return;
+  const ticked = (prefix, i) => { const el = document.getElementById(prefix + i); return !!(el && el.checked && !el.disabled); };
+  const takeF = r.factors.filter((x, i) => x.status === 'new' && ticked('contribF_', i));
+  const takeR = r.runs.filter((x, i) => x.status === 'new' && ticked('contribR_', i));
+  let addedF = 0; const skipped = [];
+  for (const x of takeF) { const res = addContributedFactor(x.n, x.f, r.name); if (res.ok) addedF++; else skipped.push('E(' + x.n + '): ' + res.why); }
+  if (takeR.length) {
+    const incoming = {};
+    for (const x of takeR) (incoming[String(x.n)] = incoming[String(x.n)] || []).push(x.run);
+    saveECM(mergeEcmInto(loadECM(), incoming));
+  }
+  try { invalidateNextRunCache(); invalidateCpuTotal(); applyFilters(); renderStats(); } catch (e) { logSwallowed('contrib/render', e); }
+  addLog('Accepted from ' + r.name + ': ' + takeR.length + ' run records, ' + addedF + ' factors', 'ok');
+  _pendingReview = null;
+  alert('Accepted from ' + r.name + ': ' + takeR.length + ' run record' + (takeR.length === 1 ? '' : 's') + ' and '
+    + addedF + ' factor' + (addedF === 1 ? '' : 's') + '.' + (skipped.length ? '\n\nNot added:\n' + skipped.join('\n') : '')
+    + '\n\nThey will be pushed to GitHub with your next push.');
+  openContributions();
+}
+function removeContributor(name) {
+  const who = listContributors(loadECM()).find(c => c.name === name);
+  if (!who) return;
+  if (!confirm('Remove all ' + who.records + ' run record' + (who.records === 1 ? '' : 's') + ' (' + who.curves.toLocaleString()
+      + ' curves) contributed by ' + name + '?\n\nFactors they contributed stay: those were verified by exact division.')) return;
+  const res = removeContributorFrom(loadECM(), name);
+  recordDeletion({ runs: res.removedIds });     // deliberate — the push guard must not call it a loss
+  saveECM(res.ecm);
+  try { invalidateNextRunCache(); invalidateCpuTotal(); applyFilters(); renderStats(); } catch (e) { logSwallowed('contrib/remove', e); }
+  addLog('Removed ' + who.records + ' run records contributed by ' + name, 'warn');
+  openContributions();
+}
+
 async function githubPull(skipRender) {
   const s = loadGHSettings();
   const user   = s.user   || 'hilbertfrank1285';
@@ -4641,12 +5312,17 @@ async function githubPull(skipRender) {
       // File doesn't exist yet — treat as empty, allow push to create it
       setGHStatus('No results.json on GitHub yet — push to create it', '');
       addLog('No results.json found — starting fresh', '');
-      return;
+      _syncBase = Object.assign(_syncBase || {}, { mainSha: null, factors: {} });
+      _ecmPullPromise = pullECMFile().catch(err => { addLog('ECM file pull skipped: ' + err.message, 'warn'); return false; });
+      return true;
     }
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    // raw accept header returns content directly as text
-    const text = await r.text();
+    // raw accept header returns content directly. Read as BYTES: their git blob ID is
+    // what the push guard compares with GitHub's current version.
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    const text = new TextDecoder().decode(bytes);
     const payload = JSON.parse(text);
+    const pulledSha = await gitBlobSha(bytes).catch(() => undefined);
     // Snapshot dirty-relevant storage + the dirty flag itself BEFORE merging. The
     // save functions mergeSyncPayload calls (saveFDBCache/saveChangelog/saveECM)
     // unconditionally markDirty() as a side effect of their normal write path —
@@ -4654,7 +5330,7 @@ async function githubPull(skipRender) {
     // (which would otherwise silently schedule a spurious auto-push on every load).
     // If nothing actually changed, restore whatever dirty state existed before the
     // pull — preserving genuine pending local edits while not manufacturing new ones.
-    const dirtyBefore = _dirty;
+    const dirtyBefore = dirtySnapshot();
     // FLUSH FIRST, or the comparison measures the wrong thing.
     //
     // saveFDBCache is debounced, so a save from work that just finished may not be
@@ -4674,11 +5350,14 @@ async function githubPull(skipRender) {
     // any SHA we cached is no longer trustworthy — force the next push to re-fetch.
     _lastPushedSha = null;
     mergeSyncPayload(payload);
+    // A merge brings back what was reset here but not yet pushed — reset it again.
+    for (const n of deletedHere().entries) resetEntryData(Number(n));
+    _syncBase = Object.assign(_syncBase || {}, { mainSha: pulledSha, factors: factorsFromPayload(payload) });
     // And again after, so a deferred write from the merge itself is counted rather
     // than landing after the comparison and being missed.
     try { flushFDBCache(); } catch (e) { logSwallowed('githubPull/flush2', e); }
     const snapAfter = (kvGet(STORAGE_KEY)||'') + '\u0001' + (kvGet(CHANGELOG_KEY)||'') + '\u0001' + (kvGet(ECM_KEY)||'');
-    if (snapAfter === snapBefore) { _dirty = dirtyBefore; updateDirtyIndicator(); }
+    if (snapAfter === snapBefore) restoreDirty(dirtyBefore);
     if (!skipRender) {
       allEntries = buildEntries();
       replayFDBCache();
@@ -4689,21 +5368,28 @@ async function githubPull(skipRender) {
     fetchLastUpdateTime();
     const pulledCount = Object.keys(fdbCache || {}).length;
     setGHStatus('✓ Pulled from GitHub — ' + pulledCount + ' entries merged', 'ok');
-    markClean(); // just synced with remote — nothing unsaved
+    // Back to exactly what was pending BEFORE the pull. What the pull brought in came
+    // from GitHub and needs no push — but anything already waiting still is. This was
+    // an unconditional markClean(), so pressing Pull with changes pending turned the
+    // dot off and those changes were never pushed automatically.
+    restoreDirty(dirtyBefore);
     // Pull the separate ECM run-log file in the BACKGROUND (don't block the UI).
     // It only affects recommendation/curve counts, so a slightly later refresh is fine.
-    pullECMFile()
-      .then(changed => { if (changed) { try { renderStats(); applyFilters(); } catch(e) { logSwallowed('ecmPull/render', e); } } })
-      .catch(ecmErr => addLog('ECM file pull skipped: ' + ecmErr.message, 'warn'));
+    _ecmPullPromise = pullECMFile()
+      .then(changed => { if (changed) { try { renderStats(); applyFilters(); } catch(e) { logSwallowed('ecmPull/render', e); } } return true; })
+      .catch(ecmErr => { addLog('ECM file pull skipped: ' + ecmErr.message, 'warn'); return false; });
+    // Deletions made here and not yet pushed must still be pushed after a reload.
+    if (hasDeletionsPending()) markDirty('deletions');
+    return true;
   } catch(e) {
     setGHStatus(`Pull failed: ${e.message}`, 'err');
     addLog(`GitHub pull error: ${e.message}`, 'err');
+    return false;
   } finally {
     setGHBtns(false);
   }
 }
 
-let _pushInFlight   = false;
 // SHA of results.json as of OUR last successful push. Lets the next push skip a
 // GET request. Set to null whenever it might be stale (push failure, settings
 // change, or a pull that brought down a different version) so the code falls
@@ -4755,6 +5441,7 @@ async function githubPush() {
     return;
   }
   _pushInFlight = true;
+  updateDirtyIndicator();
   setGHBtns(true);
   setGHStatus('Pushing to GitHub…', 'busy');
   try {
@@ -4778,10 +5465,13 @@ async function githubPush() {
     // (which walks every entry and decodes every factor) and re-base64-encoded
     // the whole megabyte-scale string — up to 3x the work for no benefit, since
     // the content is identical across retries; only the SHA changes.
-    const payload   = buildSyncPayload();
-    const jsonStr   = serializeSyncPayload(payload);
-    const encoded   = btoa(unescape(encodeURIComponent(jsonStr)));
-    const entryCount = Object.keys(payload.fdbCache || {}).length;
+    const guard = await pushGuard();
+    if (!guard.ok) return;
+
+    let payload   = buildSyncPayload();
+    let jsonStr   = serializeSyncPayload(payload);
+    let encoded   = btoa(unescape(encodeURIComponent(jsonStr)));
+    let entryCount = Object.keys(payload.fdbCache || {}).length;
     console.log('Push payload stats:',
       'fdbCache=' + entryCount,
       'changelog=' + (payload.changelog || []).length,
@@ -4804,7 +5494,7 @@ async function githubPush() {
     // this is a pure saving in the common single-device case: 2 requests per
     // push instead of 3 (and the GET was the slower one — it returns the whole
     // file's metadata).
-    let sha = _lastPushedSha || await getCurrentSha();
+    let sha = guard.mainSha;
     let r   = await attemptPush(sha);
 
     // Retry up to 3 times on SHA conflict — every conflict gets a fresh SHA
@@ -4823,6 +5513,12 @@ async function githubPush() {
       setGHStatus('SHA conflict — retrying (' + retries + '/2)…', 'busy');
       // Small backoff to let GitHub's API stabilise
       await new Promise(res => setTimeout(res, 500 * retries));
+      // GitHub changed during the push. Re-sending this copy with the new version's ID
+      // would overwrite that change — the exact accident GitHub's check exists to stop.
+      // Merge GitHub's version in first, rebuild, then retry.
+      if (!await pullBothFromGitHub()) throw new Error('GitHub changed during the push, and its new version could not be fetched to merge — nothing was overwritten');
+      payload = buildSyncPayload(); jsonStr = serializeSyncPayload(payload);
+      encoded = btoa(unescape(encodeURIComponent(jsonStr))); entryCount = Object.keys(payload.fdbCache || {}).length;
       sha = await getCurrentSha();
       r   = await attemptPush(sha);
     }
@@ -4841,6 +5537,7 @@ async function githubPush() {
     // Remember the SHA GitHub just assigned, so the next push can skip its GET.
     try { const okBody = await r.clone().json(); _lastPushedSha = okBody?.content?.sha || null; }
     catch(_) { _lastPushedSha = null; }
+    _syncBase = Object.assign(_syncBase || {}, { mainSha: _lastPushedSha || undefined, factors: factorsFromPayload(payload) });
     const pushTime = new Date();
     addLog('GitHub push complete', 'ok');
     // Push the ECM run-log file too. Kept SEQUENTIAL deliberately: although these
@@ -4848,8 +5545,20 @@ async function githubPush() {
     // PUT creates a COMMIT on the same branch, and two concurrent commits to one
     // branch can fail at the git level with a ref-mismatch. The round-trip saving
     // isn't worth introducing an intermittent, hard-to-reproduce push failure.
-    try { await pushECMFile(); } catch(ecmErr) { addLog('ECM file push skipped: ' + ecmErr.message, 'warn'); }
-    markClean(); // changes are now safely on GitHub
+    let ecmOk = true;
+    try { await pushECMFile(); }
+    catch (ecmErr) {
+      if (ecmErr.conflict) {
+        addLog('results_ecm.json changed on GitHub during the push — merging it in and retrying', 'warn');
+        try { await pullECMFile(); await pushECMFile(); }
+        catch (e2) { ecmOk = false; addLog('ECM file push failed: ' + e2.message, 'err'); }
+      } else { ecmOk = false; addLog('ECM file push failed: ' + ecmErr.message, 'err'); }
+    }
+    // Only when BOTH files landed are the changes safely on GitHub. This used to mark
+    // clean even when the ECM push failed — the dot went out and those runs were
+    // never sent.
+    if (ecmOk) { clearDeletedHere(); markClean(); }
+    else markDirty('ECM runs');
     setGHStatus('✓ Pushed ' + entryCount + ' entries to GitHub @ ' + pushTime.toLocaleTimeString(), 'ok');
     // Update header timestamp directly — don't query API (CDN caches for minutes)
     const el = document.getElementById('ghLastUpdate');
@@ -4863,6 +5572,7 @@ async function githubPush() {
     if (warnEl) warnEl.style.display = 'flex';
   } finally {
     _pushInFlight = false;
+    updateDirtyIndicator();
     setGHBtns(false);
   }
 }
@@ -6512,7 +7222,7 @@ async function importFDBResults(file) {
   try { cleared = reconcileSubmitted(); } catch(e) { logSwallowed('importFDBResults/reconcile', e); }
 
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
-  markDirty();
+  markDirty('imported FactorDB results');
   addLog('Imported ' + applied + ' FactorDB results from euler.py check'
     + (cleared ? ' · ' + cleared + ' submission(s) confirmed and cleared' : ''), 'ok');
   alert('Imported ' + applied + ' result(s).'
@@ -6916,7 +7626,10 @@ async function processEcmLogText(text, sourceLabel) {
       // normalizeEcmAttempts and mergeEcmData both key on method|B1 with no source
       // filter. All three now agree, which is the point: whether two records
       // describe the same work cannot depend on which door the work came in by.
-      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n);
+      // A log you import is YOUR work, so it only ever extends your own (untagged)
+      // records. Matching a contributor's record here would credit your curves to them
+      // — and "Remove all" of their runs would then delete your work with theirs.
+      const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n && !a.from);
       let seenGrew = false;
       if (existing) {
         const curvesBefore = parseInt(existing.curves) || 0;
@@ -8442,6 +9155,55 @@ function dedupeCompositeFactors(list) {
   return factors.filter((_, i) => !drop.has(i));
 }
 
+// The bookkeeping after a factor is VERIFIED: status, discovery record, FactorDB record,
+// changelog, caches, redraw. Shared by the modal's "Add known factor" and by accepted
+// contributions, so the two can never drift apart.
+function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, label) {
+  e.factors = [...(e.factors || []), factorStr];
+  e.cofactor = null;
+  e.status = 'partial';
+
+  // Check if fully factored
+  const newRemaining = remaining / factorBig;
+  if (newRemaining === 1n) e.status = 'full';
+
+  // Record WHO found it. 'm' is the manual source code, defined and documented
+  // and — until now — never written by anything, so a factor added by hand was
+  // invisible to the yield report, the finds column and factorProvenance. It
+  // showed as belonging to nobody.
+  try { recordDiscovery(n, factorStr, prov); } catch (err) { logSwallowed('manualAdd/prov', err); }
+
+  // MERGE into the cache record, do not replace it.
+  //
+  // The old literal dropped `fdbHas` and `fdbId`. fdbHas is what FactorDB itself
+  // reported holding, and it is what stops the submission export sending FactorDB
+  // its own factors back — so adding one factor by hand silently re-armed exactly
+  // the bug §14 exists to prevent. fdbId is the cheap re-check handle for numbers
+  // too big to query by value.
+  const prev = fdbCache[e.val] || {};
+  fdbCache[e.val] = { ...prev,
+    status: e.status === 'full' ? 'FF' : 'CF',
+    factors: e.factors, timestamp: Date.now(), source, n };
+  fdbFactors[e.val] = { factors: e.factors };
+  saveFDBCache(fdbCache);
+
+  // FactorDB is not undetermined about this number any more — and this is the one
+  // rule for saying so, rather than a third hand-rolled set edit.
+  removeFdbUnknown(n);
+  e._fdbUnknown = false;
+
+  const newRemMsg = newRemaining > 1n
+    ? ' — remaining cofactor: ' + String(newRemaining).length + ' digits'
+    : ' — FULLY FACTORED!';
+  addLog('E(' + n + ') factor added: ' + factorStr.length + 'd' + newRemMsg, 'ok');
+  addChangelogEntry(n, e.status === 'full' ? 'resolved' : 'promoted',
+    label + ' (' + factorStr.length + 'd) → ' + e.status);
+  scheduleECMPush();
+  invalidateNextRunCache(); // cofactor shrank — cached recommendation is stale
+  invalidateCpuTotal();
+  applyFilters(); renderStats();
+}
+
 async function verifyAndAddFactor(n) {
   const input = document.getElementById('manualFactorInput_' + n);
   const msg   = document.getElementById('factorVerifyMsg_' + n);
@@ -8501,50 +9263,8 @@ async function verifyAndAddFactor(n) {
 
     // Valid — expand by multiplicity (e.g. 5^3 → divide 3 times)
     // For expressions like 5^3, we already computed the value. Store canonical string.
-    e.factors = [...(e.factors || []), factorStr];
-    e.cofactor = null;
-    e.status = 'partial';
-
-    // Check if fully factored
-    const newRemaining = remaining / factorBig;
-    if (newRemaining === 1n) e.status = 'full';
-
-    // Record WHO found it. 'm' is the manual source code, defined and documented
-    // and — until now — never written by anything, so a factor added by hand was
-    // invisible to the yield report, the finds column and factorProvenance. It
-    // showed as belonging to nobody.
-    try { recordDiscovery(n, factorStr, 'm'); } catch (err) { logSwallowed('manualAdd/prov', err); }
-
-    // MERGE into the cache record, do not replace it.
-    //
-    // The old literal dropped `fdbHas` and `fdbId`. fdbHas is what FactorDB itself
-    // reported holding, and it is what stops the submission export sending FactorDB
-    // its own factors back — so adding one factor by hand silently re-armed exactly
-    // the bug §14 exists to prevent. fdbId is the cheap re-check handle for numbers
-    // too big to query by value.
-    const prev = fdbCache[e.val] || {};
-    fdbCache[e.val] = { ...prev,
-      status: e.status === 'full' ? 'FF' : 'CF',
-      factors: e.factors, timestamp: Date.now(), source: 'manual', n };
-    fdbFactors[e.val] = { factors: e.factors };
-    saveFDBCache(fdbCache);
-
-    // FactorDB is not undetermined about this number any more — and this is the one
-    // rule for saying so, rather than a third hand-rolled set edit.
-    removeFdbUnknown(n);
-    e._fdbUnknown = false;
-
-    const newRemMsg = newRemaining > 1n
-      ? ' — remaining cofactor: ' + String(newRemaining).length + ' digits'
-      : ' — FULLY FACTORED!';
-    addLog('E(' + n + ') factor added: ' + factorStr.length + 'd' + newRemMsg, 'ok');
-    addChangelogEntry(n, e.status === 'full' ? 'resolved' : 'promoted',
-      'Manual factor (' + factorStr.length + 'd) → ' + e.status);
+    commitKnownFactor(n, e, factorStr, remaining, factorBig, 'm', 'manual', 'Manual factor');
     input.value = '';
-    scheduleECMPush();
-    invalidateNextRunCache(); // cofactor shrank — cached recommendation is stale
-    invalidateCpuTotal();
-    applyFilters(); renderStats();
 
     msg.innerHTML = '<span style="color:var(--green)">✓ Factor verified & saved' + (e.status === 'full' ? ' — now FULLY FACTORED' : '') + '</span>';
 
@@ -8854,8 +9574,10 @@ function renderGrid() {
 
   // Pass 1: render skeleton cards immediately (fast — no heavy computations)
   grid.innerHTML = page.map(e => {
-    const sign    = e.sign === -1 ? '−' : '+';
-    const signCls = e.sign === -1 ? 'color:var(--text-dim)' : 'color:var(--text-muted)';
+    // The sign as a WORD on the title line. It used to be a separate line above the
+    // title — "E(1062) −" over "E(1062)" — so the name showed twice, and the lone
+    // minus sign read as a dash. The modal's header shows it the same way.
+    const signWord = e.sign === -1 ? 'negative' : 'positive';
     const badge   = {
       full:           '<span class="card-badge badge-full">● FULLY FACTORED</span>',
       partial:        '<span class="card-badge badge-partial">◐ PARTIAL</span>',
@@ -8864,9 +9586,10 @@ function renderGrid() {
       'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNDETERMINED</span>',
     }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
 
-    const hasAttempt = e.status !== 'full' && (loadECM()[String(e.n)] || []).length > 0;
-    const attemptBadge = (hasAttempt && e.status !== 'attempted')
-      ? '<span class="card-badge badge-attempted" style="opacity:0.6">⟳</span>' : '';
+    // No "⟳" marker beside the status badge. It meant "ECM runs are logged", but it
+    // is the universal refresh symbol, so it read as a refresh button — one that did
+    // nothing, being a plain label. The tile's ECM line ("σ ECM: 215 curves · P-1×3")
+    // already says the same, in more detail.
 
     // "ours / FactorDB's" at a glance — 3/2 means we hold three factors and
     // FactorDB has two of them. Shown only when we are actually ahead, so it reads
@@ -8878,9 +9601,8 @@ function renderGrid() {
       : '';
 
     return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative" data-n="${e.n}">
-      <div class="card-index" style="${signCls}">E(${e.n}) ${sign}</div>
-      <div class="card-label">E(${e.n})</div>
-      ${badge}${attemptBadge}${aheadBadge}
+      <div class="card-label">E(${e.n})<span class="card-sign" title="E(${e.n}) is ${signWord}">${signWord}</span></div>
+      ${badge}${aheadBadge}
       <div class="card-lazy" style="min-height:28px"></div>
     </div>`;
   }).join('');
@@ -9283,7 +10005,7 @@ function openModal(n) {
       // "Export FDB submission" would send. Who found it is still available, in the
       // tooltip, where it is interesting rather than load-bearing.
       const onFdb = !fdbLacks.includes(f);
-      const foundBy = prov === 'e' ? 'your ECM' : prov === 'm' ? 'your P±1'
+      const foundBy = prov === 'e' ? 'your ECM' : prov === 'm' ? 'your P±1' : prov === 'c' ? 'a contribution you accepted'
                     : prov === 's' ? 'your small-prime sieve' : prov === 'f' ? 'FactorDB' : 'before tracking began';
       // The date, and what it means. For your own finds it is when you found it. For a
       // factor that came FROM FactorDB it is when your check first saw it there — not
@@ -9299,7 +10021,7 @@ function openModal(n) {
         : `<span class="prime-tag" style="color:var(--green)" title="FactorDB does NOT have this factor — it is in the submission export. Found by ${foundText}.">YOURS</span>`;
       const dateTag = foundWhen
         ? `<span style="font-size:9px;color:var(--text-muted);margin-left:5px" title="Found by ${foundText}">${foundWhen}</span>` : '';
-      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${f} on FactorDB">${f} ${tag}${provTag}${dateTag}<span class="fdb-arrow">↗</span></a>`;
+      return `<a class="factor-chip" href="${fdbUrl}" target="_blank" rel="noopener" title="Open ${escHtml(f)} on FactorDB">${escHtml(f)} ${tag}${provTag}${dateTag}<span class="fdb-arrow">↗</span></a>`;
     }).join('');
     const sourceNote = fdbLacks.length
       ? `— ${fdbLacks.length} of ${primeFactors.length} not on FactorDB yet (green), in the next submission export`
@@ -9354,7 +10076,7 @@ function openModal(n) {
           : '<div class="value-box" style="position:relative">' + copyBtn + '<strong>' + e.val + '</strong></div>')
       + '</div>';
   }
-  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${e.note}</div>` : '';
+  const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${escHtml(e.note)}</div>` : '';
 
   // Unknown + FactorDB check
   // No FactorDB section. It repeated what the modal already shows — FactorDB's factor
@@ -10448,19 +11170,23 @@ function buildECMSection(n, e) {
       })() : '';
 
       const rows = recsAll.map(({ a, i, pr, cpu }) => {
-        const first = a.date || '', last = a.lastRun || a.date || '';
+        // Every field below is DATA — from a log you imported, a file someone sent you,
+        // or GitHub — and is escaped before it becomes HTML. Unescaped, a run whose note
+        // read <img src=x onerror=…> would run code the moment its entry was opened, with
+        // your GitHub token readable from the same page.
+        const first = escHtml(a.date || ''), last = escHtml(a.lastRun || a.date || '');
         const dateCell = last
           ? `<td style="font-size:10px;color:var(--text-dim);white-space:nowrap"${first && first !== last ? ` title="First run ${first} · last extended ${last}"` : ''}>${last}</td>`
           : '<td style="color:var(--text-muted)" title="Logged before dates were recorded">—</td>';
         return `<tr>
-          <td>${a.method}</td><td>${a.b1 || '—'}</td><td>${a.b2 || '—'}</td><td>${a.curves || '—'}</td>
-          ${opt(showPoly, `<td>${a.poly || '—'}</td>`)}${opt(showI, `<td style="font-size:10px;color:var(--text-muted)">${a.I || '—'}</td>`)}
-          <td style="font-size:10px;color:var(--text-muted)">${a.tool || 'GMP-ECM'}</td>
+          <td>${escHtml(a.method)}</td><td>${escHtml(a.b1 || '—')}</td><td>${escHtml(a.b2 || '—')}</td><td>${escHtml(a.curves || '—')}</td>
+          ${opt(showPoly, `<td>${escHtml(a.poly || '—')}</td>`)}${opt(showI, `<td style="font-size:10px;color:var(--text-muted)">${escHtml(a.I || '—')}</td>`)}
+          <td style="font-size:10px;color:var(--text-muted)">${escHtml(a.tool || 'GMP-ECM')}${a.from ? ' · from ' + escHtml(a.from) : ''}</td>
           <td style="font-size:10px;color:var(--text-dim)">${pr.target}</td>
           ${pr.p.map(pct).join('')}
           <td title="Estimated time on a single Zen 3/4 / 7900 core" style="font-size:10px;color:var(--text-dim)">${fmtCpuTime(cpu)}</td>
           ${opt(showDate, dateCell)}
-          <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.note || ''}</td>
+          <td style="color:var(--text-muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.note || '')}</td>
           <td><button class="ecm-delete" onclick="deleteECMAttempt(${n}, ${i})" title="Delete">✕</button></td>
         </tr>`;
       }).join('');
@@ -10740,6 +11466,7 @@ function executeBulkDelete() {
     const n = parseInt(nStr);
     if (n < from || n > to) continue;
     const before = attempts.length;
+    recordDeletion({ runs: attempts.filter(a => method === 'all' || a.method === method).map(a => ecmRunId(nStr, a)) });
     ecmData[nStr] = method === 'all' ? [] : attempts.filter(a => a.method !== method);
     totalDeleted += before - ecmData[nStr].length;
     if (ecmData[nStr].length === 0) delete ecmData[nStr];
@@ -11044,6 +11771,7 @@ function confirmDeleteECM(n, idx) {
   const ecmData = loadECM();
   const attempts = ecmData[key] || ecmData[n] || [];
   if (idx < 0 || idx >= attempts.length) return;
+  recordDeletion({ runs: [ecmRunId(n, attempts[idx])] });   // deliberate, not a loss
 
   if (ecmData[key]) {
     ecmData[key].splice(idx, 1);
@@ -11077,21 +11805,8 @@ function resetEntry(n) {
       && !confirm(`Reset E(${n})?\n\nThis deletes, for this entry:\n${lines.join('\n')}`)) return;
 
   // Remove FDB cache entries for this entry's value and cofactor
-  if (e.val && fdbCache[e.val])      { delete fdbCache[e.val];      }
-  if (e.cofactor && fdbCache[e.cofactor]) { delete fdbCache[e.cofactor]; }
-  saveFDBCache(fdbCache);
-
-  // Reset entry back to unknown
-  // Reset to unknown — factoData is empty, all data comes from FDB
-  e.status   = 'unknown';
-  e.factors  = [];
-  e.cofactor = null;
-  delete e._fdbVerified;
-  delete e._resolvedViaCofactor;
-  // Also clear ECM log attempts for this entry
-  const ecmAll = loadECM();
-  delete ecmAll[String(n)];
-  saveECM(ecmAll);
+  resetEntryData(n);
+  recordDeletion({ entries: [n] });     // deliberate: the push guard must not mistake it for a loss
 
   addLog(`E(${n}) reset`, 'warn');
   applyFilters();
@@ -11256,7 +11971,7 @@ function acknowledgeListedComplete(ns) {
     + 'It suppresses ONLY the "factors fall short" finding. Every other integrity\n'
     + 'check still applies to these entries, and the count stays visible in the report.')) return;
   const total = markVerifiedComplete(ns);
-  markDirty();
+  markDirty('completed entries');
   addLog('Marked ' + ns.length + ' entr' + (ns.length === 1 ? 'y' : 'ies') + ' as externally verified complete (' + total + ' total)', 'ok');
   closeModal();
   showDataIntegrityReport();
@@ -11778,7 +12493,7 @@ async function fixIntegrityIssues(scan) {
     }
   }
   saveFDBCache(fdbCache);
-  markDirty();
+  markDirty('integrity fixes');
   return { fixed, needsRecheck: Array.from(new Set(needsRecheck)) };
 }
 
@@ -12120,7 +12835,7 @@ function loadSieveDepth() {
 
 function saveSieveDepth(d) {
   _sieveDepthMemo = d || {};   // keep the memo in step with what is written
-  try { kvSet(SIEVE_DEPTH_KEY, JSON.stringify(d || {})); markDirty(); }
+  try { kvSet(SIEVE_DEPTH_KEY, JSON.stringify(d || {})); markDirty('sieve depth'); }
   catch (e) { logSwallowed('saveSieveDepth', e); }
 }
 
@@ -12195,7 +12910,7 @@ function applySieveFindings() {
       timestamp: Date.now(), source: 'sieve', n: f.n };
   }
   saveFDBCache(fdbCache);
-  markDirty();
+  markDirty('sieve findings');
   _pendingSieve = null;
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
   addLog('Small-prime sieve: recorded ' + applied + ' factor(s)' + (rejected ? ', ' + rejected + ' rejected on re-verification' : ''), 'ok');
@@ -12329,7 +13044,7 @@ async function showDataIntegrityReport() {
          Re-checking the listed entries on FactorDB resolves most of these, since a
          fresh result restores whatever the local copy is missing. Entries marked
          <em>factors complete but not marked full</em> are safe to promote as-is.
-         ${acknowledged ? '<br><br>' + acknowledged + ' entr(y/ies) are marked as verified complete externally and are not re-reported here. They rest on your FactorDB check rather than on arithmetic done in this app; every other integrity check still applies to them. <a href="#" onclick="event.preventDefault(); if(confirm(\'Clear all ' + acknowledged + ' acknowledgement(s)? They will be re-reported until acknowledged again or resolved.\')) { clearVerifiedComplete(); markDirty(); closeModal(); showDataIntegrityReport(); }" style="color:var(--accent)">clear</a>' : ''}
+         ${acknowledged ? '<br><br>' + acknowledged + ' entr(y/ies) are marked as verified complete externally and are not re-reported here. They rest on your FactorDB check rather than on arithmetic done in this app; every other integrity check still applies to them. <a href="#" onclick="event.preventDefault(); if(confirm(\'Clear all ' + acknowledged + ' acknowledgement(s)? They will be re-reported until acknowledged again or resolved.\')) { clearVerifiedComplete(); markDirty(\'verification changes\'); closeModal(); showDataIntegrityReport(); }" style="color:var(--accent)">clear</a>' : ''}
        </div>
        ${issues.fullMismatch.length ? `<div class="modal-section">
          <button class="fdb-check-btn" style="background:var(--surface2)"
@@ -12801,6 +13516,7 @@ async function fetchEulerValues() {
 // ── INIT ─────────────────────────────────────────────────────────────────────
 // Step 1: render synchronously with whatever is available right now
 try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
+try { updateVisitorMode(); } catch(e) { console.error('updateVisitorMode', e); }
 try { fetchLastUpdateTime(); } catch(e) { console.warn('fetchLastUpdateTime failed:', e.message); }
 
 try { renderLog(); } catch(e) { console.warn('renderLog failed:', e.message); }
@@ -12892,6 +13608,7 @@ setTimeout(async () => {
   try { saveChangelog(loadChangelog()); } catch(e) { console.warn('changelog re-save failed:', e.message); }
   // Loading/replaying data during init is not an unsaved user change — start clean.
   markClean();
+  if (hasDeletionsPending()) markDirty('deletions');   // deleted before a reload, not yet pushed
 }, 0);
 </script>
 </body>
