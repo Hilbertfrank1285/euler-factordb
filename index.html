@@ -213,7 +213,7 @@
   .filter-count { font-weight: 600; }
   .badge-ahead { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
   .badge-new   { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); font-weight: 600; }
-  .new-since   { font-size: 11px; color: var(--accent); margin-bottom: 12px; }
+  .new-since-line { font-size: 11px; color: var(--accent); margin-bottom: 12px; }
   .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
   .stat-item strong { color: var(--text); }
 
@@ -2714,7 +2714,10 @@ function replayFDBCache() {
     // 'FF'/'P'/'PRP' are handled above and set 'full'; everything else that carries
     // factors lands here.
     if (!['FF','P','PRP'].includes(effectiveStatus) && factors && factors.length >= 1) {
-      const allFDB = (factors || []).filter(f => f && f !== '1');
+      // FactorDB lists an unfactored composite as its own single "factor". Replayed as
+      // one, every such entry came back from a reload as "partially factored", its whole
+      // value its only factor — and the submission export counted it as a factor held.
+      const allFDB = (factors || []).filter(f => f && f !== '1' && String(f).split('^')[0] !== String(number));
       const cofactorLen = cached.cofactorLen || null;
       // If we have cofactorLen, we know prime factors are all but the implied cofactor
       const knownFactors = allFDB.length > 0 ? allFDB : [];
@@ -5838,7 +5841,9 @@ function exportFDBSubmission() {
   for (const e of allEntries) {
     // Dedupe here too (not just at write time): factor lists can arrive via GitHub
     // pull from a device that hasn't run the one-time cleanup migration yet.
-    const factors = dedupeCompositeFactors((e.factors || []).filter(f => f && f !== '1'));
+    // A "factor" equal to E(n) itself says nothing: FactorDB's way of listing a number it
+    // cannot factor, or a prime E(n) being its own factorisation. Nothing to send.
+    const factors = dedupeCompositeFactors((e.factors || []).filter(f => f && f !== '1' && String(f).split('^')[0] !== String(e.val)));
     if (!factors.length) continue;
     if (!e.val) { skippedNoVal++; continue; }
 
@@ -5970,29 +5975,27 @@ function exportFDBSubmission() {
   URL.revokeObjectURL(url);
 
   const pending = markSubmitted(exportedNs);
-  let msg = 'Exported ' + count + ' numbers (your factors only) to factordb_submission.txt';
+  let msg = 'Exported ' + count.toLocaleString() + ' entr' + (count === 1 ? 'y' : 'ies')
+          + ' with factors FactorDB lacks, to factordb_submission.txt';
   if (skippedBadFactors) msg += ' · ' + skippedBadFactors + ' SKIPPED (factors do not divide E(n) — run the data integrity check)';
-  if (skippedFdb)    msg += ' · ' + skippedFdb + ' skipped (already on FDB)';
-  if (skippedAllFdb) msg += ' · ' + skippedAllFdb + ' skipped (every factor came from FDB)';
-  if (withheldFactors) msg += ' · ' + withheldFactors + ' factor(s) withheld (FactorDB already has them)';
+  if (skippedFdb)    msg += ' · ' + skippedFdb.toLocaleString() + ' skipped: FactorDB already has every factor we hold';
+  if (skippedAllFdb) msg += ' · ' + skippedAllFdb + ' skipped: every factor came from FactorDB';
   if (skippedTooBig) msg += ' · ' + skippedTooBig + ' skipped (>1000000 digits)';
   if (skippedNoVal)  msg += ' · ' + skippedNoVal + ' skipped (no value)';
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
-  // Filter(Boolean): ''.split('*') is [''], so an empty factor list counted as one.
-  // Those lines cannot occur any more, but a count that overstates by construction
-  // is the kind of thing that quietly comes back.
   const totalFactors = lines.reduce((t, l) =>
     t + l.split('=')[1].split('*').filter(Boolean).length, 0);
+  // euler.py submit's own default and minimum: one factor every 2 s.
+  const minutes = Math.max(1, Math.round(totalFactors * 2 / 60));
   alert(msg + '\n\n'
-    + totalFactors.toLocaleString() + ' factor(s) to post'
-    + (withheldFactors ? ', with ' + withheldFactors.toLocaleString()
-        + ' left out because FactorDB reported them to us in the first place' : '')
-    + '.\n\neuler.py submit posts one factor every 2s, so that is about '
-    + Math.max(1, Math.round(totalFactors * 2 / 60)) + ' min'
-    + (withheldFactors ? ' instead of ' + Math.max(1, Math.round((totalFactors + withheldFactors) * 2 / 60)) : '')
-    + '.\n\nAfter pasting these into FactorDB, use "Check submitted (' + pending + ')" '
-    + 'to re-verify them all in one pass instead of opening each number.');
+    + totalFactors.toLocaleString() + ' factor' + (totalFactors === 1 ? '' : 's') + ' to send'
+    + (withheldFactors ? ' — ' + withheldFactors.toLocaleString() + ' more were left out, because FactorDB reported them to us in the first place' : '')
+    + '.\n\nTo send them — one factor every 2 s, about ' + minutes + ' min:\n'
+    + '  python3 euler.py submit factordb_submission.txt --commit\n'
+    + 'Without --commit it is a dry run: it shows what would be sent, and sends nothing.\n\n'
+    + 'Then confirm they landed: Export FDB check list → "submitted" → euler.py check → Import FDB results. '
+    + 'Until FactorDB has them, ' + (pending === 1 ? 'this entry stays' : 'these ' + pending.toLocaleString() + ' entries stay') + ' marked as pending.');
 }
 
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
@@ -9992,7 +9995,7 @@ function openModal(n) {
       + '</div>';
   }
   const newMarkM = loadNewSince()[String(n)];
-  const newHtml   = newMarkM ? `<div class="new-since">✦ New since your last visit: ${escHtml(newSinceText(newMarkM))}</div>` : '';
+  const newHtml   = newMarkM ? `<div class="new-since-line">✦ New since your last visit: ${escHtml(newSinceText(newMarkM))}</div>` : '';
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${escHtml(e.note)}</div>` : '';
 
   // Unknown + FactorDB check
