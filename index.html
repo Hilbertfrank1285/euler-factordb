@@ -208,6 +208,9 @@
   .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
   .filter-btn.active.attempted  { background: var(--teal-dim);   border-color: var(--teal);   color: var(--teal); }
   .filter-btn.active.ahead-of-fdb { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active.new-since { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .filter-btn.new-since.has-new { border-color: var(--accent); color: var(--accent); }
+  .filter-count { font-weight: 600; }
   .badge-ahead { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
   .badge-new   { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); font-weight: 600; }
   .new-since   { font-size: 11px; color: var(--accent); margin-bottom: 12px; }
@@ -691,6 +694,8 @@
     <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
     <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
       title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
+    <button class="filter-btn new-since" data-filter="new"
+      title="Entries that got new factors or runs from GitHub since you last opened them">NEW<span class="filter-count" id="newCount"></span></button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
@@ -2514,7 +2519,10 @@ let _countdownTick = null;
 // Declared here, with the rest of the push state, because the tooltip reads it: a
 // `let` read before its declaration has run throws, and it used to sit 2,000 lines on.
 let _pushInFlight = false;
-const AUTO_PUSH_DELAY_MS = 45000;
+// 20 s after the last change. It was 45 s when every push sent 12 MB; a push is now one
+// small commit, so a shorter wait gets changes to GitHub — and to your other machines —
+// sooner. Each new change still restarts the wait, so a long import is still one push.
+const AUTO_PUSH_DELAY_MS = 20000;
 
 function markDirty(what) {
   _dirty = true;
@@ -2568,7 +2576,7 @@ function ensureCountdownTick() {
     if (!_dirty || !(_autoPushAt > Date.now())) { clearInterval(_countdownTick); _countdownTick = null; }
   }, 1000);
 }
-// Auto-push: 45 s after the last change, push if GitHub is configured. Each new
+// Auto-push: AUTO_PUSH_DELAY_MS after the last change, push if GitHub is configured. Each new
 // change restarts the wait. Disabled when the localStorage flag is 'off'.
 function autoPushEnabled() {
   return localStorage.getItem('eulerFDB_autoPush') !== 'off';
@@ -4848,7 +4856,7 @@ async function fetchDataFile(ctx, path) {
   const r = await fetch(url, { headers, cache: 'no-store' });
   if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching ' + path);
   const bytes = new Uint8Array(await r.arrayBuffer());
-  return { obj: JSON.parse(new TextDecoder().decode(bytes)), sha: await gitBlobSha(bytes) };
+  return { obj: JSON.parse(new TextDecoder().decode(bytes)), sha: await gitBlobSha(bytes), bytes: bytes.length };
 }
 async function fetchDataFiles(ctx, paths) {
   const out = {};
@@ -4907,6 +4915,14 @@ async function commitFiles(ctx, head, plan, message) {
   if (ref.ok) return { ok: true, commit: commit.data.sha };
   return { ok: false, conflict: ref.status === 409 || ref.status === 422, message: ref.message };
 }
+// PURE: what a pull or push moved, and how long it took — "13 files, 3.7 MB, in 6.8 s".
+// Logged every time, so the speed of your own connection is on record, and a slowdown
+// shows up the day it starts.
+function fmtSecs(ms) { return ms >= 10000 ? Math.round(ms / 1000) + ' s' : (Math.max(0, ms) / 1000).toFixed(1) + ' s'; }
+function fmtTransfer(files, bytes, ms) {
+  const size = bytes >= 1e6 ? (bytes / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1e3)) + ' KB';
+  return files + ' file' + (files === 1 ? '' : 's') + ', ' + size + ', in ' + fmtSecs(ms);
+}
 function syncCtx() {
   const s = loadGHSettings();
   return { user: s.user || 'hilbertfrank1285', repo: s.repo || 'euler-factordb', branch: s.branch || 'main', token: s.token || '' };
@@ -4925,9 +4941,10 @@ async function planChunkedPush(payload, ecm, listing) {
   const plan = [];
   for (const [path, obj] of Object.entries(files)) {
     const text = serializeSyncPayload(obj);
-    const sha = await gitBlobSha(new TextEncoder().encode(text));
+    const enc = new TextEncoder().encode(text);
+    const sha = await gitBlobSha(enc);
     if (listing && listing[path] === sha) continue;               // GitHub already has exactly this
-    plan.push({ path, text, sha, remoteSha: (listing && listing[path]) || null });
+    plan.push({ path, text, sha, bytes: enc.length, remoteSha: (listing && listing[path]) || null });
   }
   return plan;
 }
@@ -5111,7 +5128,20 @@ function loadNewSince() {
   try { _newSince = JSON.parse(kvGet(NEW_SINCE_KEY) || '{}') || {}; } catch (e) { _newSince = {}; }
   return _newSince;
 }
-function saveNewSince(m) { _newSince = m; try { kvSet(NEW_SINCE_KEY, JSON.stringify(m)); } catch (e) { logSwallowed('newSince/save', e); } }
+function saveNewSince(m) {
+  _newSince = m;
+  try { kvSet(NEW_SINCE_KEY, JSON.stringify(m)); } catch (e) { logSwallowed('newSince/save', e); }
+  updateNewCount();
+}
+// The count on the NEW filter button — kept current whenever marks are added or seen.
+function updateNewCount() {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById('newCount');
+  if (!el) return;
+  const k = Object.keys(loadNewSince()).length;
+  el.textContent = k ? ' ' + k : '';
+  if (el.parentElement && el.parentElement.classList) el.parentElement.classList.toggle('has-new', k > 0);
+}
 // PURE: what a pull added, entry by entry — factors that were not there before, and curves.
 function pullNews(beforeFactors, afterFactors, beforeCurves, afterCurves) {
   const out = {};
@@ -5238,9 +5268,11 @@ async function pullChunked(listing, skipRender, ctx) {
       files: Object.assign({}, (_syncBase && _syncBase.files) || {}, ...mainPaths.map(p => ({ [p]: got[p].sha }))),
       factors: replaceRanges((_syncBase && _syncBase.factors) || {}, factorsFromPayload(payload), ranges),
     }));
-    addLog('Pulled ' + mainPaths.length + ' changed part' + (mainPaths.length === 1 ? '' : 's') + ' of the results from GitHub', 'ok');
+    const bytes = mainPaths.reduce((t, p) => t + (got[p].bytes || 0), 0);
+    addLog('Pulled results from GitHub: ' + fmtTransfer(mainPaths.length, bytes, Date.now() - (ctx.t0 || Date.now())), 'ok');
   } else {
-    addLog('Results unchanged on GitHub since your last sync — nothing to download', '');
+    addLog('Results unchanged on GitHub since your last sync — nothing to download (checked in '
+           + fmtSecs(Date.now() - (ctx.t0 || Date.now())) + ')', '');
     setGHStatus('✓ Up to date with GitHub', 'ok');
   }
   _ecmPullPromise = pullEcmChunks(ctx, ecmPaths)
@@ -5251,7 +5283,9 @@ async function pullChunked(listing, skipRender, ctx) {
 }
 async function pullEcmChunks(ctx, paths) {
   if (!paths.length) { addLog('ECM runs unchanged on GitHub since your last sync — nothing to download', ''); return false; }
+  const t0 = Date.now();
   const got = await fetchDataFiles(ctx, paths);
+  addLog('Pulled ECM runs from GitHub: ' + fmtTransfer(paths.length, paths.reduce((t, p) => t + (got[p].bytes || 0), 0), Date.now() - t0), 'ok');
   const remoteEcm = joinEcmParts(paths.map(p => got[p].obj));
   const ranges = paths.map(chunkRange).filter(Boolean);
   setSyncBase({
@@ -5271,7 +5305,7 @@ async function githubPull(skipRender) {
   try {
     // The chunked layout, whenever GitHub has it. Only a definite "no data/ folder"
     // falls through to the old single files.
-    const ctx = { user, repo, branch, token: s.token || '' };
+    const ctx = { user, repo, branch, token: s.token || '', t0: Date.now() };
     const listing = await dataListing(ctx);
     if (listing) return await pullChunked(listing, skipRender, ctx);
     // Is GitHub's copy the one this browser already merged? Then there is nothing to
@@ -5408,6 +5442,7 @@ async function githubPush() {
     // (which walks every entry and decodes every factor) and re-base64-encoded
     // the whole megabyte-scale string — up to 3x the work for no benefit, since
     // the content is identical across retries; only the SHA changes.
+    const tPush = Date.now();                                      // the whole push, guard included
     const guard = await pushGuard();
     if (!guard.ok) return;
 
@@ -5416,7 +5451,7 @@ async function githubPush() {
     // GitHub during the push; re-sending would overwrite that change, so merge GitHub's
     // new version in first, plan again, and retry once.
     const ctx = syncCtx();
-    let payload = null, lastShas = {}, uploaded = [];
+    let payload = null, lastShas = {}, uploaded = [], sentPlan = [];
     for (let attempt = 0; ; attempt++) {
       const head = await branchHead(ctx);                       // the commit this push builds on
       // Listed AT that commit, so the plan and the commit's base cannot disagree.
@@ -5428,7 +5463,7 @@ async function githubPush() {
       setGHStatus('Pushing ' + plan.length + ' changed file' + (plan.length === 1 ? '' : 's') + ' in one commit…', 'busy');
       const res = await commitFiles(ctx, head, plan, 'Update Euler factorization data — ' + new Date().toISOString().slice(0, 10)
                                      + ' (' + plan.length + ' file' + (plan.length === 1 ? '' : 's') + ')');
-      if (res.ok) { for (const item of plan) lastShas[item.path] = item.sha; uploaded = plan.map(x => x.path); break; }
+      if (res.ok) { for (const item of plan) lastShas[item.path] = item.sha; uploaded = plan.map(x => x.path); sentPlan = plan; break; }
       if (!res.conflict) throw new Error(res.message);
       if (attempt >= 1) throw new Error('GitHub kept changing during the push — nothing was sent; try again');
       addLog('GitHub changed during the push — merging it in and retrying', 'warn');
@@ -5439,10 +5474,11 @@ async function githubPush() {
     clearDeletedHere();
     markClean();
     const pushTime = new Date();
-    addLog(uploaded.length ? 'GitHub push complete — ' + uploaded.length + ' changed file' + (uploaded.length === 1 ? '' : 's') + ' sent'
-                           : 'GitHub already had everything — nothing needed sending', 'ok');
-    setGHStatus('✓ Pushed to GitHub @ ' + pushTime.toLocaleTimeString()
-      + (uploaded.length ? ' — ' + uploaded.length + ' changed file' + (uploaded.length === 1 ? '' : 's') : ' — nothing needed sending'), 'ok');
+    const took = pushTime.getTime() - tPush;
+    const moved = fmtTransfer(uploaded.length, sentPlan.reduce((t, x) => t + (x.bytes || 0), 0), took);
+    addLog(uploaded.length ? 'Pushed to GitHub in one commit: ' + moved
+                           : 'GitHub already had everything — nothing needed sending (checked in ' + fmtSecs(took) + ')', 'ok');
+    setGHStatus('✓ Pushed to GitHub @ ' + pushTime.toLocaleTimeString() + ' — ' + (uploaded.length ? moved : 'nothing needed sending'), 'ok');
     // Update header timestamp directly — don't query API (CDN caches for minutes)
     const el = document.getElementById('ghLastUpdate');
     if (el) { el.textContent = pushTime.toLocaleString(); el.title = 'Just pushed'; }
@@ -9251,6 +9287,7 @@ function applyFilters() {
     if (v.n != null) window._fdbCacheByN[v.n] = v;
   }
   const ecmData = loadECM();
+  const newMarks = activeFilter === 'new' ? loadNewSince() : null;
   filtered = allEntries.filter(e => {
     let matchFilter;
     if (activeFilter === 'all') {
@@ -9264,6 +9301,8 @@ function applyFilters() {
       // finished a number FactorDB knows nothing about is the strongest case of
       // being ahead of it, not a reason to hide the entry.
       matchFilter = factorsFdbLacks(e).length > 0;
+    } else if (activeFilter === 'new') {
+      matchFilter = !!newMarks[String(e.n)];                      // what came in since you last looked
     } else {
       matchFilter = e.status === activeFilter;
     }
@@ -13427,6 +13466,7 @@ async function fetchEulerValues() {
 // Step 1: render synchronously with whatever is available right now
 try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
 try { updateVisitorMode(); } catch(e) { console.error('updateVisitorMode', e); }
+try { updateNewCount(); } catch(e) { console.error('updateNewCount', e); }
 try { fetchLastUpdateTime(); } catch(e) { console.warn('fetchLastUpdateTime failed:', e.message); }
 
 try { renderLog(); } catch(e) { console.warn('renderLog failed:', e.message); }
