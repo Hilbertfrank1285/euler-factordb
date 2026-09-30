@@ -257,6 +257,9 @@
   .visitor-banner strong { color: var(--text); font-weight: 500; }
   .visitor-hint { font-size: 11px; color: var(--text-muted); }
   .github-local { font-size: 11px; color: var(--text-muted); padding: 4px 10px; border: 1px dashed var(--border2); }
+  .bar-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); align-self: center; }
+  .danger-zone { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border2); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .danger-label { width: 100%; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--red); }
   .card-sign { font-size: 10px; font-weight: 400; color: var(--text-muted); letter-spacing: 0.3px;
                margin-left: 8px; vertical-align: middle; }
   .card-label { font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px; }
@@ -576,7 +579,7 @@
 -->
 <div class="factordb-bar">
 
-  <!-- ── 1. Ask FactorDB ─────────────────────────────────────────────────── -->
+  <!-- The entries the table shows -->
   <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border2);padding:6px 10px;background:var(--bg)">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">Range E(</label>
     <input type="number" id="minNInput" value="0" min="0" step="2" onchange="applyRangeInputs();"
@@ -586,21 +589,9 @@
       style="width:100px;background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none;text-align:center;padding:3px 6px">
     <label style="font-size:11px;color:var(--text-dim);white-space:nowrap">)</label>
   </div>
-  <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--border2);padding:4px 8px;background:var(--bg)">
-    <label style="font-size:10px;color:var(--text-muted);white-space:nowrap">Max requests</label>
-    <input type="number" id="maxRequestsInput" value="500" min="1" max="9999"
-      onchange="MAX_PER_SESSION = Math.max(1, parseInt(this.value)||500)"
-      style="width:52px;background:transparent;border:none;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;outline:none;text-align:center">
-  </div>
-
-  <!-- The in-app FactorDB check was removed. A browser cannot call FactorDB
-       directly (no CORS headers), so every query went through public proxies and
-       those stopped answering — dead UI that still wrote a false verdict on each
-       attempt. Checking runs through `euler.py check`. -->
 
   <span class="bar-sep"></span>
-
-  <!-- ── 2. Run ECM: export work, import results ──────────────────────────── -->
+  <span class="bar-label">ECM</span>
   <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)"
     title="Export the best-value recommended ECM/P±1 runs (odds gained per unit time) as GMP-ECM commands — asks how many, and whether to prioritise entries FactorDB has never seen">
     ↓ Export ECM
@@ -614,10 +605,9 @@
   </button>
 
   <span class="bar-sep"></span>
-
-  <!-- ── 3. Numbers the browser cannot reach, and giving back ─────────────── -->
+  <span class="bar-label">FactorDB</span>
   <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)"
-    title="Export entries above the browser's ~65,470-digit URL limit, for euler.py check to run against on any machine with Python">
+    title="Export entries to check against FactorDB with euler.py check, on any machine with Python — your submissions, never-checked entries, ones not re-checked in 31 days, FactorDB-undetermined ones, or everything">
     ↓ Export FDB check list
   </button>
   <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
@@ -628,49 +618,34 @@
     ↑ Import FDB results
   </button>
   <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)"
-    title="Export your factors for submission to FactorDB — paste into factordb.com/report.php, or run euler.py submit">
+    title="Export your factors for submission to FactorDB — send them with euler.py submit --commit (without --commit it is a dry run), or paste the file into factordb.com/report.php">
     ↑ Export FDB submission
   </button>
 
   <span class="bar-sep"></span>
-
-  <!-- ── 4. Find and verify, no network needed ────────────────────────────── -->
+  <span class="bar-label">Tools</span>
   <button class="poll-btn" onclick="showSievePromptGuarded()" style="background:var(--surface2)"
     title="Sieve every small prime out of the remaining cofactors — exhaustive, and far cheaper than ECM at that range">
     ⌗ Sieve small primes
   </button>
   <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)"
-    title="Scan every entry for self-contradictory factor data — no network needed">
-    ⚕ Check data integrity
-  </button>
-  <button class="poll-btn" onclick="runFactorAudit()" style="background:var(--surface2)"
-    title="Check that every stored factor actually divides its E(n)">
-    ✓ Audit factors
-  </button>
-  <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)">
-    ↓ Export CSV
+    title="Check every entry against itself — each factor must divide E(n), be prime and appear once, and the status must match what the factors prove — then fix what can be fixed safely. No network needed.">
+    ⚕ Check data
   </button>
 
   <span class="bar-sep"></span>
-
-  <!-- ── 5. Destructive — deliberately last, away from routine actions ────── -->
-  <button class="poll-btn" onclick="clearEulerValueCache().then(()=>setStatus('Value cache cleared — reload to re-download','ok'))"
-    style="background:var(--surface2)"
-    title="Clears the cached Euler values (IndexedDB). Use if the chunk files on GitHub were updated. They re-download on next load.">
-    ⊗ Clear value cache
+  <span class="bar-label">Data</span>
+  <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)"
+    title="Download every entry — all of them, not just this page — as a CSV file: factors, cofactor size, difficulty, FactorDB status and run count">
+    ↓ Export CSV
   </button>
-  <button class="poll-btn" onclick="clearAllLocalData()"
-    style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
-    title="Wipes all local data — ECM logs, FDB cache, factors. Cannot be undone.">
-    ⊗ Clear all local data
-  </button>
+  <!-- Clearing lives under ⚙ ("Danger zone"), away from the buttons used every day. -->
 
   <input type="file" id="fdbResultsInput" accept=".json,application/json" style="display:none"
     onchange="if(this.files.length) importFDBResults(this.files[0]); this.value='';">
 
-  <div class="factordb-status" id="fdbStatusText">Idle — open the page to trigger daily check</div>
-  <div class="queue-info" id="queueInfo" style="display:none">Queue: <span id="queueCount">0</span> pending</div>
-  <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none">⊘ Cancel</button>
+  <div class="factordb-status" id="fdbStatusText">Idle</div>
+  <button class="cancel-btn" id="cancelBtn" onclick="cancelPoll()" style="display:none" title="Stop the running sieve — it then shows what it found so far, for you to record">⊘ Cancel</button>
 </div>
 <div class="poll-progress" id="pollProgress">
   <div class="poll-progress-inner" id="pollProgressInner" style="width:0%"></div>
@@ -685,13 +660,13 @@
       style="width:110px;background:transparent;border:1px solid var(--border2);color:var(--text);font-size:11px;padding:2px 6px;border-radius:2px;margin-right:4px"
       onkeydown="if(event.key==='Enter')jumpToN(parseInt(this.value))"
       title="Type an n and press Enter to open E(n)">
-    <button class="filter-btn active" data-filter="all">ALL</button>
-    <button class="filter-btn full" data-filter="full">FULLY FACTORED</button>
-    <button class="filter-btn partial" data-filter="partial">PARTIALLY FACTORED</button>
-    <button class="filter-btn composite" data-filter="composite">NO KNOWN FACTORS</button>
+    <button class="filter-btn active" data-filter="all" title="Every entry in the range">ALL</button>
+    <button class="filter-btn full" data-filter="full" title="The factors multiply back to E(n) — nothing left to find">FULLY FACTORED</button>
+    <button class="filter-btn partial" data-filter="partial" title="Some factors known; a composite cofactor is still to crack">PARTIALLY FACTORED</button>
+    <button class="filter-btn composite" data-filter="composite" title="FactorDB says composite, and no factor is known yet">NO KNOWN FACTORS</button>
     <button class="filter-btn fdb-unknown" data-filter="fdb-unknown" title="We asked — FactorDB has no factorisation for these">FDB UNDETERMINED</button>
-    <button class="filter-btn unknown" data-filter="unknown">UNKNOWN</button>
-    <button class="filter-btn attempted" data-filter="attempted">ECM LOGGED</button>
+    <button class="filter-btn unknown" data-filter="unknown" title="FactorDB has never been asked about these — Export FDB check list → &quot;never&quot; picks them up">NEVER CHECKED</button>
+    <button class="filter-btn attempted" data-filter="attempted" title="Runs are logged on them, and they are not fully factored yet">ECM LOGGED</button>
     <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
       title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
     <button class="filter-btn new-since" data-filter="new"
@@ -749,10 +724,10 @@
       <label>) &nbsp;·&nbsp; Only apply to:</label>
       <select id="bulk_filter" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
         <option value="all">All entries in range</option>
-        <option value="unknown">Unknown only</option>
+        <option value="unknown">Never checked only</option>
         <option value="composite">No known factors only</option>
         <option value="partial">Partial only</option>
-        <option value="unfactored">Unknown + No known factors + Partial</option>
+        <option value="unfactored">Never checked + No known factors + Partial</option>
       </select>
     </div>
     <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
@@ -817,14 +792,29 @@
     Token needs <strong>Contents: Read &amp; Write</strong> scope only.
     Create one at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>
     (Fine-grained token → your repo → Contents read/write).
-    Data is saved as <code>results.json</code> (factors) and <code>results_ecm.json</code> (ECM run logs) in your repo root.
+    Data is saved in a <code>data/</code> folder in your repo: <code>meta.json</code>, plus one file per 1,000 entries
+    for results and for ECM runs — a push sends only the files that changed, in one commit. The old
+    <code>results.json</code> / <code>results_ecm.json</code> are read only until <code>data/</code> exists.
+  </div>
+  <div class="danger-zone">
+    <div class="danger-label">Danger zone — this browser only</div>
+    <button class="poll-btn" onclick="clearEulerValueCache().then(()=>setStatus('Value cache cleared — reload to re-download','ok'))"
+      style="background:var(--surface2)"
+      title="Clears the cached Euler values (IndexedDB). Use if the chunk files on GitHub were updated. They re-download on next load.">
+      ⊗ Clear value cache
+    </button>
+    <button class="poll-btn" onclick="clearAllLocalData()"
+      style="background:var(--red-dim);border-color:var(--red);color:var(--red)"
+      title="Wipes this browser's copy of everything — ECM logs, FactorDB records, factors. Whatever is on GitHub comes back with your next pull; changes not yet pushed are lost.">
+      ⊗ Clear all local data
+    </button>
   </div>
 </div>
 
 <div class="legend">
   <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Fully factored — all prime factors known</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Unknown — not yet checked</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Never checked — FactorDB not asked yet</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — confirmed composite, no factors found</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Attempted — ECM/P-1/P+1 logged, no factors found yet</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
@@ -1585,64 +1575,6 @@ function migrateRedundantComposites() {
 // 120 digits keeps a test near 9ms, and a wall-clock budget bounds the total.
 const REPAIR_PRIMALITY_MAX_DIGITS = 120;
 const REPAIR_BUDGET_MS = 3000;
-// Audit every stored factor against its entry's value. A real factor of E(n)
-// divides E(n) exactly, so anything that doesn't is provably wrong — most often a
-// run attributed to the wrong number (the ECM import's last-resort matching picks
-// the FIRST E(n) a number divides, which can be the wrong one). Nothing verified
-// this before, so bad factors accumulated silently and inflated factor counts.
-function auditFactors(fix) {
-  const bad = [];
-  let checked = 0;
-  for (const e of allEntries) {
-    if (!e || !e.val || !Array.isArray(e.factors) || !e.factors.length) continue;
-    for (const f of e.factors) {
-      checked++;
-      if (factorDividesValue(e.val, f) === false) bad.push({ n: e.n, factor: String(f) });
-    }
-  }
-  if (fix && bad.length) {
-    const byN = new Map();
-    for (const b of bad) {
-      if (!byN.has(b.n)) byN.set(b.n, new Set());
-      byN.get(b.n).add(b.factor);
-    }
-    for (const e of allEntries) {
-      const drop = byN.get(e.n);
-      if (!drop) continue;
-      e.factors = (e.factors || []).filter(f => !drop.has(String(f)));
-      e.cofactor = null;
-      if (e.status === 'full') e.status = e.factors.length ? 'partial' : 'composite';
-      const rec = fdbCache[e.val];
-      if (rec) { rec.factors = e.factors; if (rec.status === 'FF') rec.status = e.factors.length ? 'CF' : 'C'; }
-      if (fdbFactors[e.val]) fdbFactors[e.val] = { factors: e.factors };
-    }
-    saveFDBCache(fdbCache);
-    applyFilters(); renderStats();
-    addLog('Removed ' + bad.length + ' factor(s) that do not divide their E(n)', 'warn');
-  }
-  return { checked, bad };
-}
-
-// UI entry point — reports first, only changes anything on explicit confirmation.
-function runFactorAudit() {
-  const { checked, bad } = auditFactors(false);
-  if (!bad.length) {
-    alert('Factor audit: all ' + checked.toLocaleString() + ' stored factors divide their E(n) exactly.\n\nNothing to fix.');
-    return;
-  }
-  const byN = {};
-  for (const b of bad) (byN[b.n] = byN[b.n] || []).push(b.factor);
-  const lines = Object.entries(byN).slice(0, 15)
-    .map(([n, fs]) => '  E(' + n + '): ' + fs.map(f => f.length > 18 ? f.slice(0, 18) + '…' : f).join(', '));
-  const more = Object.keys(byN).length > 15 ? '\n  …and ' + (Object.keys(byN).length - 15) + ' more entries' : '';
-  const ok = confirm(
-    'Factor audit: ' + bad.length + ' of ' + checked.toLocaleString() + ' stored factors do NOT divide their E(n).\n\n'
-    + 'These are provably wrong — most likely runs attributed to the wrong number.\n\n'
-    + lines.join('\n') + more
-    + '\n\nRemove them? Affected entries drop back to partial/composite.');
-  if (ok) auditFactors(true);
-}
-
 function migrateBogusCofactorFactors() {
   if (localStorage.getItem('eulerFDB_bogusCofactorFix_v2')) return;
   let fixed = 0;
@@ -2061,7 +1993,6 @@ const MANUAL_COOLDOWN = 0; // 10 seconds
 // there is no deadline on any of this work — a check that takes twice as long costs
 // nothing that matters, while the traffic it generates is someone else's bandwidth.
 const REQUEST_DELAY_MS = 500;  // 500ms between numbers = 2/sec at most
-let MAX_PER_SESSION    = 500;   // cap requests per manual session (user-adjustable)
 
 // Maximum number size (in digits) we attempt to auto-query on FactorDB. Above this
 // the query URL is too long for the proxies (HTTP 414) — the user checks it directly
@@ -5336,8 +5267,8 @@ async function githubPull(skipRender) {
     const r = await fetch(apiUrl, { headers, cache: 'no-store' });
     if (r.status === 404) {
       // File doesn't exist yet — treat as empty, allow push to create it
-      setGHStatus('No results.json on GitHub yet — push to create it', '');
-      addLog('No results.json found — starting fresh', '');
+      setGHStatus('No data on GitHub yet — your first push creates it', '');
+      addLog('No data on GitHub yet — starting fresh', '');
       setSyncBase({ mainSha: null, factors: {} });
       // A pull that COMPLETED is a success, whatever it found — including "no file yet",
       // which pullECMFile reports as false (nothing changed). Only a thrown error is a
@@ -5691,9 +5622,8 @@ function clearAllLocalData() {
     alert('Not clearing — there is work here that GitHub does not have:\n\n'
       + risk.map(r => '  • ' + r).join('\n')
       + '\n\nClearing now would delete the only copy. Push first (↑ Push), wait for\n'
-      + 'the dirty indicator to clear, then try again.\n\n'
-      + 'Note the ECM log is a separate file (results_ecm.json) with its own delay,\n'
-      + 'so pushing factors does not necessarily mean it has gone too.');
+      + 'the dot on Push to go out, then try again. (Runs and factors go up together,\n'
+      + 'in one commit.)');
     return;
   }
 
@@ -7121,8 +7051,7 @@ async function importFDBResults(file) {
   addLog('Imported ' + applied + ' FactorDB results from euler.py check'
     + (cleared ? ' · ' + cleared + ' submission(s) confirmed and cleared' : ''), 'ok');
   alert('Imported ' + applied + ' result(s).'
-    + (biggest ? '\n\nLargest was ' + biggest.toLocaleString() + ' digits — '
-        + (biggest > currentQueryCap() ? 'past what the browser can reach.' : 'within browser range.') : '')
+    + (biggest ? '\n\nLargest was ' + biggest.toLocaleString() + ' digits.' : '')
     + (notFound ? '\n' + notFound + ' referred to entries not present here.' : '')
     + (skipped ? '\n' + skipped + ' skipped (unreadable or no status).' : ''));
 }
@@ -9497,7 +9426,7 @@ function renderGrid() {
       composite:      '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>',
       attempted:      '<span class="card-badge badge-attempted">⟳ ECM</span>',
       'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNDETERMINED</span>',
-    }[e.status] || '<span class="card-badge badge-unknown">○ UNKNOWN</span>';
+    }[e.status] || '<span class="card-badge badge-unknown">○ NEVER CHECKED</span>';
 
     // No "⟳" marker beside the status badge. It meant "ECM runs are logged", but it
     // is the universal refresh symbol, so it read as a refresh button — one that did
@@ -9814,7 +9743,7 @@ function openModal(n) {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
     'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Undetermined', desc:'We asked and FactorDB has no factorisation for it — it has not even settled whether the number is composite. Nothing else is working on it, so your own ECM is the only thing that will move it.' },
-       unknown:   { icon:'○', color:'var(--red)',     label:'Never Checked',         desc:'We have not asked FactorDB about this number yet. Checking it is cheap and almost always tells us something.' },
+       unknown:   { icon:'○', color:'var(--red)',     label:'Never Checked',         desc:'We have not asked FactorDB about this number yet. Checking is cheap and almost always tells us something — Export FDB check list → "never".' },
     composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
     attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
@@ -12583,7 +12512,7 @@ async function estimateSieveCost(cands, onProgress) {
 }
 
 async function showSievePrompt() {
-  if (polling) { alert('Wait for the current poll to finish.'); return; }
+  if (polling) { alert('A sieve is already running — wait for it to finish, or press ⊘ Cancel to stop it.'); return; }
   const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
   const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
 
