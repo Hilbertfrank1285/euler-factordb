@@ -260,6 +260,15 @@
   .bar-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); align-self: center; }
   .danger-zone { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border2); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .danger-label { width: 100%; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--red); }
+  .run-text { margin: 0 0 12px; font-size: 12px; line-height: 1.5; }
+  .run-step { margin: 0 0 12px; }
+  .run-heading { margin: 16px 0 8px; padding-top: 10px; border-top: 1px solid var(--border2); font-size: 13px; font-weight: 600; }
+  .run-label { font-size: 12px; margin-bottom: 4px; color: var(--text-muted); }
+  .run-line { display: flex; gap: 6px; align-items: stretch; }
+  .run-cmd { flex: 1; min-width: 0; display: block; padding: 7px 9px; font-family: var(--mono, monospace); font-size: 12px;
+             background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px;
+             white-space: nowrap; overflow-x: auto; user-select: all; }
+  .run-copy { flex: none; padding: 0 12px; cursor: pointer; }
   .yield-notes { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
   .yield-notes > div { margin-bottom: 6px; }
   .yield-notes b { color: var(--text); font-weight: 600; }
@@ -5963,14 +5972,61 @@ function exportFDBSubmission() {
     t + l.split('=')[1].split('*').filter(Boolean).length, 0);
   // euler.py submit's own default and minimum: one factor every 2 s.
   const minutes = Math.max(1, Math.round(totalFactors * 2 / 60));
-  alert(msg + '\n\n'
-    + totalFactors.toLocaleString() + ' factor' + (totalFactors === 1 ? '' : 's') + ' to send'
-    + (withheldFactors ? ' — ' + withheldFactors.toLocaleString() + ' more were left out, because FactorDB reported them to us in the first place' : '')
-    + '.\n\nTo send them — one factor every 2 s, about ' + minutes + ' min:\n'
-    + '  python3 euler.py submit factordb_submission.txt --commit\n'
-    + 'Without --commit it is a dry run: it shows what would be sent, and sends nothing.\n\n'
-    + 'Then confirm they landed: Export FDB check list → "submitted" → euler.py check → Import FDB results. '
-    + 'Until FactorDB has them, ' + (pending === 1 ? 'this entry stays' : 'these ' + pending.toLocaleString() + ' entries stay') + ' marked as pending.');
+  showRunDialog('FactorDB submission exported',
+    msg + '. ' + totalFactors.toLocaleString() + ' factor' + (totalFactors === 1 ? '' : 's') + ' to send'
+      + (withheldFactors ? ' — ' + withheldFactors.toLocaleString() + ' more were left out, because FactorDB reported them to us' : '')
+      + ': one every 2 s, about ' + minutes + ' min.',
+    [{ label: 'Send them. Without --commit it is a dry run: it shows what would be sent, and sends nothing.',
+       cmd: 'python3 euler.py submit factordb_submission.txt --commit' }],
+    'Then confirm they landed: Export FDB check list → "submitted" → euler.py check → Import FDB results. Until FactorDB has them, '
+      + (pending === 1 ? 'this entry stays' : 'these ' + pending.toLocaleString() + ' entries stay') + ' marked as pending.');
+}
+
+// ── a message with commands to run ───────────────────────────────────────────
+// Each command sits on ONE line in its own box, with a Copy button. The exports used
+// to show them in a browser alert, split with a backslash over two lines — awful to
+// copy, and a backslash continuation does not paste into Windows at all.
+// PURE: the dialog's body. Steps are { label, cmd }; every text is plain, and escaped.
+function runDialogHtml(intro, steps, outro) {
+  const p = (t) => t ? '<p class="run-text">' + escHtml(t) + '</p>' : '';
+  return p(intro) + (steps || []).map(st => st.heading ? '<div class="run-heading">' + escHtml(st.heading) + '</div>'
+    : !st.cmd ? p(st.label)
+    : `
+    <div class="run-step">
+      <div class="run-label">${escHtml(st.label)}</div>
+      <div class="run-line">
+        <code class="run-cmd" title="Click to select it all">${escHtml(st.cmd)}</code>
+        <button class="run-copy" data-cmd="${escHtml(st.cmd)}" onclick="copyCommand(this)">Copy</button>
+      </div>
+    </div>`).join('') + p(outro);
+}
+
+function showRunDialog(title, intro, steps, outro) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = '<div class="modal-section">' + runDialogHtml(intro, steps, outro) + '</div>';
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+// Copies the command exactly as shown. Where the clipboard is unavailable it selects
+// the command instead, so Ctrl+C copies it. The label resets after resetMs (0: never).
+async function copyCommand(btn, clip, resetMs) {
+  const cmd = (btn && btn.dataset && btn.dataset.cmd) || '';
+  if (clip === undefined) clip = (typeof navigator !== 'undefined' && navigator.clipboard) || null;
+  try {
+    if (!clip || typeof clip.writeText !== 'function') throw new Error('no clipboard here');
+    await clip.writeText(cmd);
+    btn.textContent = 'Copied ✓';
+  } catch (e) {
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(btn.previousElementSibling);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    } catch (e2) { logSwallowed('copyCommand/select', e2); }
+    btn.textContent = 'Press Ctrl+C';
+  }
+  const wait = resetMs === undefined ? 1800 : resetMs;
+  if (wait > 0) setTimeout(() => { btn.textContent = 'Copy'; }, wait);
+  return cmd;
 }
 
 // Export the fastest recommended ECM/P-1/P+1 runs across all numbers as runnable
@@ -6088,85 +6144,134 @@ function fillRunBudget(ranked, budget) {
 // Built from the SAME values the scripts were built from — the real file names and
 // the real core count — so it can be pasted rather than adapted. A generic note has
 // to be translated every time, and that is where the mistakes come from.
+// PURE: the files one machine's share of an ECM export was written under. A one-core
+// export uses the plain names; anything more is per machine and core.
+function ecmMachineFiles(cores, m, ext) {
+  const single = cores.reduce((x, y) => x + y, 0) === 1;
+  const k = cores[m - 1];
+  return single
+    ? { k, numbers: 'ecm_numbers.txt', worker: 'ecm_runs' + ext, results: 'ecm_import.txt', files: 2 }
+    : { k, numbers: 'ecm_numbers_m' + m + '_c*.txt', worker: 'ecm_worker_m' + m + '_c*' + ext,
+        results: 'ecm_import_m' + m + '_c*.txt', files: k * 2 };
+}
+
+// RUN_ON_SERVER.txt: how to run the export — one section per machine. It used machine
+// 1's file names with the TOTAL core count, so for "24,16,8" it copied only machine
+// 1's files, expected 96 where 48 exist, started workers 1–48 on a 24-core box, and
+// never mentioned machines 2 and 3.
 function serverNotes(isSh, cores, ext) {
-  const n = cores.reduce((a, b) => a + b, 0);
-  // Single-core exports use the plain names; anything more is per machine/core.
-  const single = n === 1;
-  const numbersGlob = single ? 'ecm_numbers.txt' : 'ecm_numbers_m1_c*.txt';
-  const workerGlob  = single ? 'ecm_runs' + ext  : 'ecm_worker_m1_c*' + ext;
-  const resultsGlob = single ? 'ecm_import.txt'  : 'ecm_import_m1_c*.txt';
-  const files = cores.length === 1 && n === 1 ? 2 : n * 2;
-  if (!isSh) {
-    return [
-      'RUNNING THESE ON ANOTHER WINDOWS MACHINE',
-      '========================================',
-      '',
-      '1. Copy ' + numbersGlob + ' and ' + workerGlob + ' to the target machine',
-      '   (' + files + ' files). Any shared folder or USB stick will do.',
-      '',
-      '2. Install GMP-ECM if it is not there. There is no package manager, so take a',
-      '   build from https://gitlab.inria.fr/zimmerma/ecm and put ecm.exe beside the',
-      '   scripts, or anywhere on PATH.',
-      '',
-      '3. Start one worker per core, each in its own window:',
-      ...Array.from({ length: n }, (_, i) => '     start "" ' + workerGlob.replace('*', String(i + 1))),
-      '',
-      '4. When they finish, copy ' + resultsGlob + ' back and use',
-      '   "Import ECM results" in the app. It takes all of them at once.',
-      '',
-      'Do NOT re-run these scripts to resume. Import the results first, then Export',
-      'ECM again — the app recomputes what is still worth doing and the next list',
-      'will be shorter.',
-    ].join('\r\n') + '\r\n';
-  }
-  return [
-    'RUNNING THESE ON A LINUX SERVER OVER SSH',
-    '========================================',
-    '',
-    'Copy the files up. scp comes with ssh, so if you can log in you can do this —',
-    'no upload site needed:',
-    '',
-    '    scp ' + numbersGlob + ' ' + workerGlob + ' you@server:~/ecm/',
-    '',
-    'Then, on the server:',
-    '',
-    '    ssh you@server',
-    '    cd ~/ecm',
-    '',
-    '    # A minimal Debian/Ubuntu has neither of these:',
-    '    sudo apt-get update && sudo apt-get install -y gmp-ecm',
-    '',
-    '    ls ' + numbersGlob + ' ' + workerGlob + ' | wc -l      # expect ' + files,
-    '',
-    '    # Start one worker per core. setsid + </dev/null is what makes them',
-    '    # survive you logging out; a plain & does not.',
-    '    for i in $(seq 1 ' + n + '); do',
-    '      setsid bash ' + workerGlob.replace('*', '$i') + ' > worker_c$i.log 2>&1 </dev/null &',
-    '    done',
-    '',
-    '    pgrep -c ecm                      # expect ' + n,
-    '',
-    'Then disconnect. To check on it later:',
-    '',
-    '    pgrep -c ecm                      # how many are still running',
-    '    grep -ch Found ' + resultsGlob + '     # factors found so far',
-    '    free -h                           # see below',
-    '',
-    'If free -h shows swap in use, stop a couple of workers. ' + n + ' concurrent',
-    'stage-2 runs on large cofactors can outgrow a small box, and swapping costs',
-    'more than the extra cores gain. On a shared-core VPS, ' + n + ' workers may not',
-    'give ' + n + 'x throughput either.',
-    '',
-    'When they are done, bring the results back the same way:',
-    '',
-    '    scp you@server:~/ecm/' + resultsGlob + ' .',
-    '',
-    'Then use "Import ECM results" in the app — it takes all of them at once.',
-    '',
+  const multi = cores.length > 1;
+  const header = (m, k) => {
+    if (!multi) return [];
+    const h = 'MACHINE ' + m + ' OF ' + cores.length + ' — ' + k + ' CORE' + (k === 1 ? '' : 'S');
+    return [h, '-'.repeat(h.length), ''];
+  };
+  const closing = [
     'Do NOT re-run these scripts to resume. Import the results first, then Export',
     'ECM again — the app recomputes what is still worth doing and the next list',
     'will be shorter.',
-  ].join('\n') + '\n';
+  ];
+  if (!isSh) {
+    const blocks = cores.map((_, i) => {
+      const f = ecmMachineFiles(cores, i + 1, ext);
+      return [...header(i + 1, f.k),
+        '1. Copy ' + f.numbers + ' and ' + f.worker + ' to the target machine',
+        '   (' + f.files + ' files). Any shared folder or USB stick will do.',
+        '',
+        '2. Install GMP-ECM if it is not there. There is no package manager, so take a',
+        '   build from https://gitlab.inria.fr/zimmerma/ecm and put ecm.exe beside the',
+        '   scripts, or anywhere on PATH.',
+        '',
+        '3. Start one worker per core, each in its own window:',
+        ...Array.from({ length: f.k }, (_, c) => '     start "" ' + f.worker.replace('*', String(c + 1))),
+        '',
+        '4. When they finish, copy ' + f.results + ' back and use',
+        '   "Import ECM results" in the app. It takes all of them at once.',
+        ''];
+    });
+    return ['RUNNING THESE ON ANOTHER WINDOWS MACHINE', '========================================', '',
+            ...blocks.flat(), ...closing].join('\r\n') + '\r\n';
+  }
+  const blocks = cores.map((_, i) => {
+    const f = ecmMachineFiles(cores, i + 1, ext), k = f.k;
+    return [...header(i + 1, k),
+      'Copy the files up. scp comes with ssh, so if you can log in you can do this —',
+      'no upload site needed:',
+      '',
+      '    scp ' + f.numbers + ' ' + f.worker + ' you@server:~/ecm/',
+      '',
+      'Then, on the server:',
+      '',
+      '    ssh you@server',
+      '    cd ~/ecm',
+      '',
+      '    # A minimal Debian/Ubuntu has neither of these:',
+      '    sudo apt-get update && sudo apt-get install -y gmp-ecm',
+      '',
+      '    ls ' + f.numbers + ' ' + f.worker + ' | wc -l      # expect ' + f.files,
+      '',
+      '    # Start one worker per core. setsid + </dev/null is what makes them',
+      '    # survive you logging out; a plain & does not.',
+      '    for i in $(seq 1 ' + k + '); do',
+      '      setsid bash ' + f.worker.replace('*', '$i') + ' > worker_c$i.log 2>&1 </dev/null &',
+      '    done',
+      '',
+      '    pgrep -c ecm                      # expect ' + k,
+      '',
+      'Then disconnect. To check on it later:',
+      '',
+      '    pgrep -c ecm                      # how many are still running',
+      '    grep -ch Found ' + f.results + '     # factors found so far',
+      '    free -h                           # see below',
+      '',
+      'If free -h shows swap in use, stop a couple of workers. ' + k + ' concurrent',
+      'stage-2 runs on large cofactors can outgrow a small box, and swapping costs',
+      'more than the extra cores gain. On a shared-core VPS, ' + k + ' workers may not',
+      'give ' + k + 'x throughput either.',
+      '',
+      'When they are done, bring the results back the same way:',
+      '',
+      '    scp you@server:~/ecm/' + f.results + ' .',
+      ''];
+  });
+  return ['RUNNING THESE ON A LINUX SERVER OVER SSH', '========================================', '',
+          ...blocks.flat(),
+          'Then use "Import ECM results" in the app — it takes all of them at once.',
+          '',
+          ...closing].join('\n') + '\n';
+}
+
+// PURE: the same steps for the dialog, as { label, cmd } — one command per line, each
+// with a Copy button — plus { heading } per machine when there is more than one, and
+// plain-text steps where there is nothing to run.
+function ecmRunSteps(isSh, cores, ext) {
+  const out = [];
+  cores.forEach((_, i) => {
+    const m = i + 1, f = ecmMachineFiles(cores, m, ext), k = f.k;
+    if (cores.length > 1) out.push({ heading: 'Machine ' + m + ' of ' + cores.length + ' — ' + k + ' core' + (k === 1 ? '' : 's') });
+    if (isSh) {
+      out.push(
+        { label: 'Copy the files up — scp comes with ssh:', cmd: 'scp ' + f.numbers + ' ' + f.worker + ' you@server:~/ecm/' },
+        { label: 'Log in:', cmd: 'ssh you@server' },
+        { label: 'Go to the folder:', cmd: 'cd ~/ecm' },
+        { label: 'Install GMP-ECM — a minimal Debian or Ubuntu has none:', cmd: 'sudo apt-get update && sudo apt-get install -y gmp-ecm' },
+        { label: 'Check the files arrived — expect ' + f.files + ':', cmd: 'ls ' + f.numbers + ' ' + f.worker + ' | wc -l' },
+        { label: 'Start one worker per core. setsid and </dev/null keep them running after you log out; a plain & does not:',
+          cmd: 'for i in $(seq 1 ' + k + '); do setsid bash ' + f.worker.replace('*', '$i') + ' > worker_c$i.log 2>&1 </dev/null & done' },
+        { label: 'Check they are running — expect ' + k + ' now, fewer as they finish:', cmd: 'pgrep -c ecm' },
+        { label: 'Factors found so far:', cmd: 'grep -ch Found ' + f.results },
+        { label: 'Memory — if swap is in use, stop a couple of workers: swapping costs more than the extra cores gain:', cmd: 'free -h' },
+        { label: 'When they are done, bring the results back — run this on your own machine:', cmd: 'scp you@server:~/ecm/' + f.results + ' .' });
+    } else {
+      out.push(
+        { label: 'Copy ' + f.numbers + ' and ' + f.worker + ' to the machine (' + f.files + ' files) — a shared folder or USB stick will do.' },
+        { label: 'Install GMP-ECM if it is not there: take a build from https://gitlab.inria.fr/zimmerma/ecm and put ecm.exe beside the scripts, or anywhere on PATH.' },
+        { label: 'Start one worker per core, each in its own window — in a Command Prompt in that folder (not PowerShell):',
+          cmd: k === 1 ? 'start "" ' + f.worker.replace('*', '1') : 'for /L %i in (1,1,' + k + ') do start "" ' + f.worker.replace('*', '%i') },
+        { label: 'When they finish, copy ' + f.results + ' back.' });
+    }
+  });
+  return out;
 }
 
 // Probability that finding a factor here FINISHES the number, not just dents it.
@@ -6939,6 +7044,11 @@ async function exportNextRuns() {
           : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about' : ''));
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
+  // How to run them, with Copy buttons — the same steps RUN_ON_SERVER.txt gives.
+  showRunDialog('ECM runs exported', msg + '.', ecmRunSteps(isSh, coresPerMachine, ext),
+    'Then use Import ECM results in the app — it takes all of them at once. Do NOT re-run the scripts to resume: '
+      + 'import first, then Export ECM again — the next list is recomputed, and shorter. These steps are also in '
+      + (isSh ? 'RUN_ON_SERVER.txt' : 'RUN_ON_SERVER_WINDOWS.txt') + '.');
  } catch (err) {
   console.error('exportNextRuns failed:', err);
   alert('Export failed: ' + err.message);
@@ -7047,16 +7157,14 @@ function exportFDBCheckList() {
   // Says what was exported, and nothing about size limits: euler.py has none. The old
   // message appended "above 19,441 digits" and a sentence about FactorDB rejecting
   // 19,442 to EVERY export — including "everything", which had no size limit at all.
-  alert('Exported ' + entries(picked.length) + ' — ' + chosen.label + ' (' + mb(chosen.bytes) + ').\n\n'
-    + (chosen.key === 'submitted'
-        ? 'Importing the results clears the confirmed ones from your pending list.\n\n' : '')
-    + 'Run on any machine with Python 3 — no server needed, and no size limit:\n'
-    + 'euler.py sends large numbers in the request body.\n\n'
-    + '  python3 euler.py check fdb_numbers.txt --labels fdb_labels.txt \\\n'
-    + '      -o fdb_results.json --limit 5\n\n'
-    + 'Start with --limit 5. That is enough to tell you whether these are reachable\n'
-    + 'at all, before committing to the full run. Then drop --limit and add --resume.\n\n'
-    + 'Bring the results back with "Import FDB results".');
+  const check = 'python3 euler.py check fdb_numbers.txt --labels fdb_labels.txt -o fdb_results.json';
+  showRunDialog('FactorDB check list exported',
+    'Exported ' + entries(picked.length) + ' — ' + chosen.label + ' (' + mb(chosen.bytes) + ').'
+      + (chosen.key === 'submitted' ? ' Importing the results clears the confirmed ones from your pending list.' : ''),
+    [{ label: '1. Try five first — shows whether these can be reached at all:', cmd: check + ' --limit 5' },
+     { label: '2. Then the full run — it skips the five already done:', cmd: check + ' --resume' }],
+    'Any machine with Python 3 — no server, no size limit (euler.py sends large numbers in the request body). '
+      + 'Bring fdb_results.json back with Import FDB results.');
 }
 
 // Import what euler.py check produced. Everything is routed through applyFdbResult,
