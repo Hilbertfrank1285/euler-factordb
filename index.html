@@ -260,6 +260,11 @@
   .bar-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); align-self: center; }
   .danger-zone { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border2); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .danger-label { width: 100%; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--red); }
+  .yield-notes { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+  .yield-notes > div { margin-bottom: 6px; }
+  .yield-notes b { color: var(--text); font-weight: 600; }
+  .yield-notes .yn-warn { color: var(--yellow); }
+  .yield-notes .yn-dim { opacity: 0.85; }
   .card-sign { font-size: 10px; font-weight: 400; color: var(--text-muted); letter-spacing: 0.3px;
                margin-left: 8px; vertical-align: middle; }
   .card-label { font-size: 15px; font-weight: 500; color: #fff; margin-bottom: 8px; letter-spacing: -0.3px; }
@@ -1575,6 +1580,30 @@ function migrateRedundantComposites() {
 // 120 digits keeps a test near 9ms, and a wall-clock budget bounds the total.
 const REPAIR_PRIMALITY_MAX_DIGITS = 120;
 const REPAIR_BUDGET_MS = 3000;
+// A record saying C — composite, nothing known — while holding factors contradicts
+// itself. An import used to take FactorDB's C as given while keeping your own factors
+// (FactorDB had not heard of them yet), and a push built from such a record left them
+// out: the push guard caught 121 factors about to be erased from GitHub. Such a record
+// is CF. A C answer also listed the number itself as a "factor" — dropped. Runs at every
+// start: it is cheap, and a record like this can still arrive from older code.
+function repairCompositeRecords() {
+  let fixed = 0, selfDropped = 0;
+  for (const [k, rec] of Object.entries(fdbCache || {})) {
+    if (!rec || rec.status !== 'C' || !Array.isArray(rec.factors) || !rec.factors.length) continue;
+    const own = rec.factors.filter(f => f && f !== '1' && String(f).split('^')[0] !== k);
+    if (own.length < rec.factors.length) selfDropped++;
+    rec.factors = own;
+    if (own.length) { rec.status = 'CF'; fdbFactors[k] = { factors: own }; fixed++; }
+    else delete fdbFactors[k];
+  }
+  if (fixed || selfDropped) {
+    saveFDBCache(fdbCache);
+    addLog('Repaired ' + fixed + ' record(s) marked "composite, nothing known" that held factors — now CF'
+      + (selfDropped ? '; removed the number itself, listed as a "factor", from ' + selfDropped : ''), 'ok');
+  }
+  return { fixed, selfDropped };
+}
+
 function migrateBogusCofactorFactors() {
   if (localStorage.getItem('eulerFDB_bogusCofactorFix_v2')) return;
   let fixed = 0;
@@ -4225,17 +4254,24 @@ function buildSyncPayload() {
 
     const entry = { status, timestamp: v.timestamp, n };
 
-    // C (composite, no known factors) — status only, no factors
-    // FDB returns the full Euler number as its own "factor" for C — useless KB
-    if (status === 'C') { full[nStr] = entry; continue; }
-
     // CF/FF/P/PRP — include prime factors
     // fdbFactors is ALREADY clean (cofactor stripped at FDB-response time) — do NOT re-strip
     // Prefer in-memory fdbFactors, fall back to slim-persisted factors (decoded)
     const fd = num ? (fdbFactors[num] || {}) : {};
     const memFactors  = (fd.factors || []);
     const slimFactors = (v.factors || []).map(_decodeFactor);
-    const primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
+    let primeFactors = (memFactors.length ? memFactors : slimFactors).filter(f => f && f !== '1');
+
+    // C (composite, no known factors) — status only, no factors. FactorDB lists the
+    // full Euler number as its own "factor" for C, which is never kept. But a C record
+    // that holds real factors contradicts itself, and leaving them out would erase them
+    // from GitHub: it goes out as CF, with them. Never lose a factor to a status.
+    if (status === 'C') {
+      const own = primeFactors.filter(f => String(f).split('^')[0] !== num);
+      if (!own.length) { full[nStr] = entry; continue; }
+      entry.status = 'CF';
+      primeFactors = own;
+    }
     if (primeFactors.length) entry.factors = sortFactorsAsc(primeFactors);
     if (v.source)            entry.source  = v.source;
     // Carry what FACTORDB itself reported, and its id for this number.
@@ -4398,6 +4434,8 @@ function mergeFactorRecords(local, remote, valStr) {
   else if (RESOLVED.includes(newer && newer.status) || RESOLVED.includes(older && older.status))
     status = 'CF';                                         // the union outgrew a completeness claim
   else status = (newer && newer.status) || (older && older.status) || null;
+  // C means nothing is known; a record holding factors is CF, whichever side said C.
+  if (status === 'C' && union.length) status = 'CF';
 
   // 'fdb' means FactorDB already holds everything we do — it is what makes the
   // submission export SKIP an entry. If the union added anything to the side that
@@ -5046,6 +5084,13 @@ async function pushGuard() {
     if (!confirm(lossMessage(L))) return stop('Push cancelled — it would have removed data from GitHub that was not deleted here');
     setGHStatus('Restoring from GitHub before pushing…', 'busy');
     if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s version to restore from, so nothing was sent');
+    // Check again. The restore used to be trusted, and once could not undo the loss —
+    // pushing straight after it would have erased exactly what it was meant to keep.
+    const L2 = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere());
+    if (L2.runs.length || L2.factors.length) {
+      return stop('Push stopped: restoring from GitHub did not bring back ' + L2.factors.length
+        + ' factor(s) and ' + L2.runs.length + ' run(s), so nothing was sent — please report this');
+    }
   }
   return { ok: true };
 }
@@ -7023,7 +7068,15 @@ async function importFDBResults(file) {
   catch(e) { alert('Could not read that file as JSON: ' + e.message); return; }
 
   let applied = 0, skipped = 0, notFound = 0, biggest = 0;
-  for (const [label, rec] of Object.entries(data)) {
+  const all = Object.entries(data);
+  let done = 0;
+  for (const [label, rec] of all) {
+    // Every 250 entries: say how far it has got, and let the page breathe — it used to
+    // freeze, with no sign of life, for the whole import.
+    if (++done % 250 === 0) {
+      setStatus('Importing FactorDB results — ' + done.toLocaleString() + ' / ' + all.length.toLocaleString() + '…', '');
+      await new Promise(r => setTimeout(r, 0));
+    }
     const m = String(label).match(/^E?(\d+)$/);
     if (!m) { skipped++; continue; }
     const n = parseInt(m[1]);
@@ -7642,13 +7695,30 @@ async function processEcmLogText(text, sourceLabel) {
 // Returns true when it divides, false when it provably does not, and null when
 // the check can't be performed (unparseable input) so callers can distinguish
 // "verified bad" from "unknown".
+// A decimal string as a BigInt, or null if it is not one. Converting costs ~2.6 ms at
+// 60,000 digits, and importing FactorDB results converted the same E(n) a dozen times
+// per entry — once per factor, twice over — which was 70% of a 5-minute import. Long
+// strings are remembered (the last few: an import works through one entry at a time).
+function bigOfDecimal(str) {
+  const s = String(str);
+  if (s.length < 200) return /^\d+$/.test(s) ? BigInt(s) : null;
+  const memo = bigOfDecimal._m || (bigOfDecimal._m = new Map());
+  if (memo.has(s)) return memo.get(s);
+  const v = /^\d+$/.test(s) ? BigInt(s) : null;
+  if (memo.size >= 8) memo.delete(memo.keys().next().value);
+  memo.set(s, v);
+  return v;
+}
+
 function factorDividesValue(valStr, factorStr) {
   const base = String(factorStr).split('^')[0];
-  if (!/^\d+$/.test(base) || !/^\d+$/.test(String(valStr))) return null;
+  if (!/^\d+$/.test(base)) return null;
   try {
+    const v = bigOfDecimal(valStr);
+    if (v == null) return null;
     const b = BigInt(base);
     if (b <= 1n) return false;
-    return BigInt(valStr) % b === 0n;
+    return v % b === 0n;
   } catch(e) { logSwallowed('factorDividesValue', e); return null; }
 }
 
@@ -7879,10 +7949,11 @@ function applyFdbResult(data, n, numberStr) {
     }
     fdbPrimes = lastIsComposite ? allFdbFactors.slice(0, -1) : allFdbFactors;
   }
-  // Belt and braces: under CF the number is by definition NOT fully factored, so a
+  // Belt and braces: under C or CF the number is by definition NOT fully factored, so a
   // "factor" equal to the queried number is the composite itself and can never be
-  // legitimate. Drop it regardless of how it arrived.
-  if (status === 'CF' && numberStr) {
+  // legitimate. Drop it regardless of how it arrived. (FactorDB's C answer lists the
+  // number itself as its only "factor"; it used to be stored as one.)
+  if ((status === 'CF' || status === 'C') && numberStr) {
     fdbPrimes = fdbPrimes.filter(f => String(f).split('^')[0] !== String(numberStr));
   }
 
@@ -7960,7 +8031,8 @@ function applyFdbResult(data, n, numberStr) {
   // costs one multiplication.
   if (status === 'CF' && numberStr && merged.length > 1) {
     try {
-      const target = BigInt(numberStr);
+      const target = bigOfDecimal(numberStr);
+      if (target == null) throw new Error('not a decimal number');
       let prod = 1n;
       for (const f of merged) {
         const { base, exp } = parseFactorPower(f);
@@ -8053,12 +8125,17 @@ function applyFdbResult(data, n, numberStr) {
     try {
       let prod = 1n;
       for (const f of merged) { const [b, x] = String(f).split('^'); prod *= BigInt(b) ** BigInt(x || 1); }
-      return prod === BigInt(entry.val);
+      return prod === bigOfDecimal(entry.val);
     } catch(err) { logSwallowed('applyFdbResult/verifyFull', err); return false; }
   })();
   // Cache the VERIFIED status. An unproven FF is recorded as CF, so every path that
-  // later reads the cache reaches the same conclusion the entry did.
-  const verifiedStatus = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF' : status;
+  // later reads the cache reaches the same conclusion the entry did. And FactorDB's C —
+  // "composite, nothing known" — while your own factors are kept is CF: FactorDB has
+  // simply not heard of them yet. Recorded as C, a push left those factors out, and
+  // would have erased them from GitHub (the push guard caught 121 about to go).
+  const verifiedStatus = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF'
+                       : (status === 'C' && merged.length) ? 'CF'
+                       : status;
   // What FACTORDB HOLDS, as distinct from who found each factor first.
   //
   // Provenance answers "who found it", and recordDiscovery deliberately keeps the
@@ -12090,8 +12167,8 @@ async function runDataIntegrityCheck(onProgress) {
 // A base that does not divide at all is dropped: keeping a factor that provably
 // does not divide is the worse of the two errors, and step 1 removes those anyway.
 function clampExponentsToValue(list, valStr) {
-  let v;
-  try { v = BigInt(valStr); } catch (e) { return { factors: list || [], clamped: 0, dropped: 0 }; }
+  const v = bigOfDecimal(valStr);
+  if (v == null) return { factors: list || [], clamped: 0, dropped: 0 };
   if (v <= 1n) return { factors: list || [], clamped: 0, dropped: 0 };
   const out = []; let clamped = 0, dropped = 0;
   // A factor equal to the WHOLE NUMBER, when other factors are present.
@@ -13159,49 +13236,35 @@ function showYieldReport() {
         </tbody>
       </table>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-top:8px">
-        ${f.total.toLocaleString()} unfinished entries. This is where the work has GOT TO,
-        which is a different question from what it returned — an entry sitting at t10 has
-        had almost nothing spent on it, and a t15 run costs minutes. Use
-        <strong style="color:var(--text)">↓ Export ECM</strong> with a time budget to work a
-        band down.
+        ${f.total.toLocaleString()} unfinished entries, by the highest level each has reached — where the work
+        has got to, not what it returned. t10 means almost nothing spent; a t15 run takes minutes.
+        <strong style="color:var(--text)">↓ Export ECM</strong> with a time budget works a band down.
       </div>
     </div>`;
     })()}
     <div class="modal-section" id="runStatsSection">${renderRunStatsSection()}</div>
-    <div class="modal-section" style="font-size:11px;color:var(--text-muted);line-height:1.6">
-      <strong style="color:var(--text)">Why two column groups.</strong>
-      Effort is known for all time — it comes from the run log. Finds are only
-      attributable from ${y.startDate}, when per-factor provenance started being
-      recorded; earlier discoveries weren't attributed to a source and can't be
-      recovered. So <em>CPU / find</em> is computed from the tracked columns only.
-      Dividing all-time CPU by attributable-only finds would understate every
-      level's yield, potentially by years of work.
-      <br><br>
-      <strong style="color:var(--text)">How to read this.</strong>
-      <em>CPU / find</em> is what a factor has actually cost you at each level.
-      A level with lots of CPU and no finds isn't necessarily wrong — the odds
-      genuinely are low up there — but it does show where the time is going.
-      The gap between the two groups is simply how much work predates tracking.
-      ${y.undatedRuns ? `<br><br><span style="color:var(--yellow)"><strong>${y.undatedRuns.toLocaleString()} run(s) carry no date</strong>, so they cannot be placed in time and are
-      excluded from the right-hand columns — which is why those can look empty while
-      finds are populated. Dates were not recorded on imported runs until recently,
-      and merging new curves into an existing run did not refresh them (both fixed).
-      Re-importing a log stamps the runs it touches, and everything imported from now
-      on is dated, so these columns fill in as you go.</span>` : ''}
-      <br><br>
-      <strong style="color:var(--text)">Reliability.</strong>
-      Runs and curves come straight from your recorded run log and are exact.
-      CPU time is estimated by the same (calibrated) model used everywhere else,
-      not measured per run.
-      <em>Found</em> is now counted from the append-only discovery history, which
-      records provenance per factor at the moment of discovery — so it's exact,
-      and no longer confused by FactorDB touching an entry after your ECM found
-      something on it.
-      ${y.fdbFinds ? `<br><br>${y.fdbFinds} known factor(s) came from FactorDB rather than your own runs, and are excluded from the yield above.` : ''}
-      ${y.unattributed ? `<br><br><span style="color:var(--yellow)">${y.unattributed} of your find(s) are on numbers with no run log, so they can't be assigned to a level.</span>` : ''}
-      ${y.sieveFinds ? `<br><br>${y.sieveFinds} factor(s) came from the small-prime sieve, which costs no ECM time — counted as your own work but kept out of the levels above, so they don't flatter whichever level happened to share the number.` : ''}
-      ${y.approxPricedRuns ? `<br><br><span style="color:var(--text-muted)">${y.approxPricedRuns.toLocaleString()} run(s) are on entries that are now fully factored, so the cofactor they actually worked on is no longer recoverable. Those are priced against the full value — an upper bound, so those rows understate yield rather than overstating it. Runs with a measured runtime are unaffected.</span>` : ''}
-      ${y.preHistory ? `<br><br><span style="color:var(--text-muted)">${y.preHistory} factor(s) predate the history store and have no provenance recorded, so they're excluded entirely. Only discoveries made from now on can be attributed — the old changelog was capped at 100 entries and can't be reconstructed.</span>` : ''}
+    <div class="modal-section yield-notes">
+      <div><b>Two column groups.</b> Effort comes from the run log, for all time; finds are known only from
+        ${y.startDate}, when each factor's source began being recorded — the gap between the groups is work done
+        before then. So CPU / FIND uses the right-hand columns: all-time CPU over those finds would understate
+        yield, possibly by years.</div>
+      <div><b>Reading it.</b> CPU / FIND is what a factor has cost at each level. Heavy CPU with no finds at high
+        levels is normal — the odds are low — but shows where the time goes.</div>
+      ${y.undatedRuns ? `<div class="yn-warn"><b>${y.undatedRuns.toLocaleString()} run(s) have no date</b>, so they are left out
+        of the right-hand columns, which can then look empty while FOUND is filled. Older imports weren't dated;
+        re-importing a log dates the runs it touches, and new imports always are.</div>` : ''}
+      <div><b>Reliability.</b> Runs and curves are exact (run log). CPU is estimated by the calibrated model, not
+        measured per run. FOUND is exact: each factor's source is recorded when it is found, so FactorDB updating
+        an entry later cannot muddle it.</div>
+      ${y.fdbFinds ? `<div>${y.fdbFinds} factor(s) came from FactorDB, not your runs — excluded.</div>` : ''}
+      ${y.unattributed ? `<div class="yn-warn">${y.unattributed} of your find(s) are on numbers with no run log, so they have no level.</div>` : ''}
+      ${y.sieveFinds ? `<div>${y.sieveFinds} factor(s) came from the small-prime sieve (no ECM time): your work, but kept out of
+        the levels so they don't flatter whichever level shared the number.</div>` : ''}
+      ${y.approxPricedRuns ? `<div class="yn-dim">${y.approxPricedRuns.toLocaleString()} run(s) are on entries now fully factored,
+        whose cofactor is gone: they are priced on the full value — an upper bound, so those rows understate yield,
+        never overstate it. Runs with a measured time are unaffected.</div>` : ''}
+      ${y.preHistory ? `<div class="yn-dim">${y.preHistory} factor(s) predate the history store and have no recorded source —
+        excluded, and unrecoverable (the old changelog kept only 100 entries).</div>` : ''}
     </div>`;
 
   document.getElementById('modalTitle').textContent = 'ECM yield by level';
@@ -13448,6 +13511,7 @@ setTimeout(async () => {
     try { migrateSigmaHashes(); } catch(e) { logSwallowed('migrate/sigmaHashes', e); }  // one-time raw-sigma→hash compaction (storage size fix)
     try { migrateFalseFdbUnknown(); } catch(e) { logSwallowed('migrate/falseUnknown', e); }  // one-time: marks written by network failures, not by FactorDB
     try { migrateBogusCofactorFactors(); } catch(e) { logSwallowed('migrate/bogusCofactor', e); }  // undo the CF cofactor-as-prime bug
+    try { repairCompositeRecords(); } catch(e) { logSwallowed('repair/compositeRecords', e); }  // C holding factors is CF — every start
     // The seed-import feature was one-time-only and has been removed now that both
     // seeds are in. Its tracking key would otherwise linger indefinitely; the flag
     // it maintained (_seedAddedNew) was written and cleared but never actually
