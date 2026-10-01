@@ -1593,17 +1593,30 @@ const REPAIR_BUDGET_MS = 3000;
 // itself. An import used to take FactorDB's C as given while keeping your own factors
 // (FactorDB had not heard of them yet), and a push built from such a record left them
 // out: the push guard caught 121 factors about to be erased from GitHub. Such a record
-// is CF. A C answer also listed the number itself as a "factor" — dropped. Runs at every
-// start: it is cheap, and a record like this can still arrive from older code.
+// is CF. A C answer also listed the number itself as a "factor" — dropped, from any
+// record holding it beside real factors too. Runs at every start: it is cheap, and a
+// record like this can still arrive from older code.
 function repairCompositeRecords() {
   let fixed = 0, selfDropped = 0;
   for (const [k, rec] of Object.entries(fdbCache || {})) {
-    if (!rec || rec.status !== 'C' || !Array.isArray(rec.factors) || !rec.factors.length) continue;
+    if (!rec || !Array.isArray(rec.factors) || !rec.factors.length) continue;
     const own = rec.factors.filter(f => f && f !== '1' && String(f).split('^')[0] !== k);
-    if (own.length < rec.factors.length) selfDropped++;
-    rec.factors = own;
-    if (own.length) { rec.status = 'CF'; fdbFactors[k] = { factors: own }; fixed++; }
-    else delete fdbFactors[k];
+    const hadSelf = own.length < rec.factors.filter(f => f && f !== '1').length;
+    if (rec.status === 'C') {
+      if (own.length < rec.factors.length) selfDropped++;
+      rec.factors = own;
+      if (own.length) { rec.status = 'CF'; fdbFactors[k] = { factors: own }; fixed++; }
+      else delete fdbFactors[k];
+    } else if (hadSelf && own.length) {
+      // E(n) itself beside real factors — whatever the status. A record that went
+      // C [E(n)] and then gained sieve or ECM finds kept it: 90 CF records on GitHub
+      // carried one, ~57,000 digits each. It was never a factor.
+      rec.factors = own; fdbFactors[k] = { factors: own }; selfDropped++;
+    } else if (hadSelf && rec.status === 'CF') {
+      // CF holding only E(n) itself: nothing is known — that is C. (A prime's record
+      // listing only itself is left alone: there it is not a mistake.)
+      rec.factors = []; rec.status = 'C'; delete fdbFactors[k]; selfDropped++;
+    }
   }
   if (fixed || selfDropped) {
     saveFDBCache(fdbCache);
@@ -4414,7 +4427,11 @@ function mergeFactorRecords(local, remote, valStr) {
   //
   // Only when the union actually GREW: if the sides agree there is nothing to
   // re-check, which keeps the primality tests off the common path.
-  const grew = union.length > collapseFactorPowers(clean(local)).length;
+  // Anything new is checked against the value: a new factor, or a higher exponent on
+  // one already here. Counting distinct factors missed the second — 31 and a peer's
+  // 31^2 collapse to one — so an overclaimed exponent went in unchecked.
+  const localSet = new Set(collapseFactorPowers(clean(local)).map(String));
+  const grew = union.some(f => !localSet.has(String(f)));
   if (grew && valStr && /^\d+$/.test(String(valStr))) {
     const before = union.length;
     const kept = clampExponentsToValue(union, valStr);
@@ -4434,8 +4451,11 @@ function mergeFactorRecords(local, remote, valStr) {
   // replayFDBCache promotes a cached FF straight to 'full' without re-checking the
   // arithmetic — so a wrong one here becomes a wrong entry on every device.
   const RESOLVED = ['FF', 'P', 'PRP'];
+  // A completeness claim survives only if the union is exactly the claimant's own
+  // factors. Comparing counts let an FF claiming 31^2, checked down to 31, keep FF.
+  const unionKey = JSON.stringify(union.map(String));
   const stillProves = (rec) => RESOLVED.includes(rec && rec.status)
-    && collapseFactorPowers(clean(rec)).length === union.length;
+    && JSON.stringify(sortFactorsAsc(collapseFactorPowers(clean(rec))).map(String)) === unionKey;
 
   let status;
   if (stillProves(newer))      status = newer.status;      // its proof survives the union
@@ -4456,14 +4476,14 @@ function mergeFactorRecords(local, remote, valStr) {
     ? 'import'
     : ((newer && newer.source) || (older && older.source) || null);
 
-  return {
+  const out = {
     ...older,
     ...newer,
     // The two spreads above are what preserve an fdbId held by only one side: a
     // spread adds keys, it never deletes them, so the older record's id survives a
     // newer record that lacks one. (An explicit fdbId line here was pure
     // duplication — a mutation that deleted it left every assertion green.)
-    ...(union.length ? { factors: union } : {}),
+    factors: union,
     status,
     source,
     // "When did we last learn something about this entry" — so a re-pull of the
@@ -4471,6 +4491,11 @@ function mergeFactorRecords(local, remote, valStr) {
     timestamp: Math.max(lTs, rTs) || (newer && newer.timestamp) || (older && older.timestamp),
     n: (newer && newer.n != null) ? newer.n : (older && older.n),
   };
+  // Always the checked union. Setting it only when non-empty meant that when the check
+  // refused everything, the record kept the refused factors from the newer side —
+  // "C, holding a factor that does not divide E(n)".
+  if (!union.length) delete out.factors;
+  return out;
 }
 
 // Merge remote into local — remote wins for FDB cache (newer timestamp), local wins for ECM logs
@@ -4976,7 +5001,7 @@ function factorsFromPayload(payload) {
 }
 
 // PURE: what a push would remove from GitHub that was not deleted here.
-function pushLosses(base, localEcm, localFactors, del) {
+function pushLosses(base, localEcm, localFactors, del, values) {
   const lost = { runs: [], factors: [] };
   if (!base) return lost;
   del = del || { runs: new Set(), entries: new Set() };
@@ -4997,6 +5022,9 @@ function pushLosses(base, localEcm, localFactors, del) {
     for (const f of have) { try { prod *= BigInt(f); } catch (e) { /* not a number — contributes nothing */ } }
     for (const f of fs) {
       if (have.includes(f)) continue;
+      // E(n) itself was never a factor (FactorDB's C answer listed it as one, and the
+      // repair removes it). Its absence is not a loss — values are E(n), by entry.
+      if (values && values[n] && String(f) === String(values[n])) continue;
       let implied = false;
       try { const F = BigInt(f); implied = F > 1n && prod % F === 0n; } catch (e) { /* unparseable — not implied */ }
       if (!implied) lost.factors.push({ n: Number(n), f });
@@ -5088,14 +5116,14 @@ async function pushGuard() {
     setGHStatus('GitHub changed since this browser last synced — merging first…', 'busy');
     if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s latest version to merge, so nothing was sent');
   }
-  const L = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere());
+  const L = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere(), eulerValues);
   if (L.runs.length || L.factors.length) {
     if (!confirm(lossMessage(L))) return stop('Push cancelled — it would have removed data from GitHub that was not deleted here');
     setGHStatus('Restoring from GitHub before pushing…', 'busy');
     if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s version to restore from, so nothing was sent');
     // Check again. The restore used to be trusted, and once could not undo the loss —
     // pushing straight after it would have erased exactly what it was meant to keep.
-    const L2 = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere());
+    const L2 = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere(), eulerValues);
     if (L2.runs.length || L2.factors.length) {
       return stop('Push stopped: restoring from GitHub did not bring back ' + L2.factors.length
         + ' factor(s) and ' + L2.runs.length + ' run(s), so nothing was sent — please report this');
@@ -8861,12 +8889,16 @@ function computeYieldByLevel() {
     if (!Array.isArray(r) || r.length < 5) continue;
     const [hn, ts, dig, src] = r;
     if (src === 'f') { fdbFinds++; continue; }   // FactorDB's, not ours — not our yield
-    if (src !== 'e' && src !== 'm' && src !== 's') continue;
+    if (src !== 'e' && src !== 'm' && src !== 's' && src !== 'p') continue;
     totalFinds++;
     ownByN.set(hn, (ownByN.get(hn) || 0) + 1);
     const sizeBucket = bucketForDigits(dig);
     findSizes[sizeBucket] = (findSizes[sizeBucket] || 0) + 1;
     if (src === 's') { sieveFinds.finds++; continue; }   // sieve, not ECM effort
+    // A P±1 find says so itself: the log import has recorded them as 'p' since it
+    // learned to tell (older ones are 'e', told apart by the run log just below).
+    // Skipping 'p' left the report's P±1 row short of every find since then.
+    if (src === 'p') { pm1.finds++; continue; }
     const att = (ecmD[String(hn)] || []);
     const hadEcm = att.some(a => a.method === 'ECM');
     const hadPm1 = att.some(a => a.method === 'P-1' || a.method === 'P+1');
@@ -9228,6 +9260,15 @@ function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, 
   applyFilters(); renderStats();
 }
 
+// PURE: a typed factor in canonical form — "00123" → "123", "05^02" → "5^2", "5^1" → "5".
+// Stored as typed, "00123" came back as "123" after a reload, and its history entry —
+// keyed on "00123" — no longer matched: the factor then read "before tracking began".
+function canonicalFactor(parsed) {
+  const m = /^(\d+)\^(\d+)$/.exec(String(parsed.display));
+  if (m) { const k = parseInt(m[2], 10); return BigInt(m[1]).toString() + (k === 1 ? '' : '^' + k); }
+  return parsed.value.toString();
+}
+
 async function verifyAndAddFactor(n) {
   const input = document.getElementById('manualFactorInput_' + n);
   const msg   = document.getElementById('factorVerifyMsg_' + n);
@@ -9247,7 +9288,7 @@ async function verifyAndAddFactor(n) {
   try {
     const parsed    = parseFactorExpr(raw);
     const factorBig = parsed.value;
-    const factorStr = parsed.display; // keep original form e.g. "5^5" 
+    const factorStr = canonicalFactor(parsed); // "5^5" stays a power; "00123" becomes "123"
 
     if (factorBig < 2n) { msg.innerHTML = '<span style="color:var(--red)">⚠ Must be ≥ 2</span>'; return; }
 
