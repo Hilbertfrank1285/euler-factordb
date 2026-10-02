@@ -654,7 +654,7 @@
   <span class="bar-sep"></span>
   <span class="bar-label">Data</span>
   <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)"
-    title="Download every entry — all of them, not just this page — as a CSV file: factors, cofactor size, difficulty, FactorDB status and run count">
+    title="Download every entry — all of them, not just this page — as a CSV file: factors, cofactor size, FactorDB status and run count">
     ↓ Export CSV
   </button>
   <!-- Clearing lives under ⚙ ("Danger zone"), away from the buttons used every day. -->
@@ -693,13 +693,12 @@
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
     <span style="font-size:10px;color:var(--text-muted)">Sort:</span>
-    <button class="sort-btn active" id="sortNBtn" onclick="toggleSortN()">E(n) ↑</button>
-    <button class="sort-btn" id="sortDiffBtn" onclick="toggleSortDiff()">Difficulty ↑</button>
+    <button class="sort-btn active" id="sortNBtn" onclick="toggleSortN()" title="Sort by n. Lowest first; click again for highest first.">E(n) ↑</button>
     <button class="sort-btn" id="sortCofBtn" onclick="toggleSortCofactor()" title="Sort by the size of what is left to factor — the cofactor's digits. Smallest first; click again for largest. Fully factored entries go last.">Cofactor ↑</button>
     <button class="sort-btn" id="sortFacBtn" onclick="toggleSortFactors()" title="Sort by how many factors are known — each prime once, whatever its power. Most first; click again for fewest.">Factors ↓</button>
-    <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()">CPU ↓</button>
-    <button class="sort-btn" id="sortFdbBtn" onclick="toggleSortFdb()">FDB date ↓</button>
-    <button class="sort-btn" id="sortNextRunBtn" onclick="toggleSortNextRun()" title="Sort by CPU time of the fastest recommended next run">Next run ↑</button>
+    <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()" title="Sort by the CPU time already spent on each entry. Most first; click again for least. Entries with no runs recorded go last.">CPU ↓</button>
+    <button class="sort-btn" id="sortFdbBtn" onclick="toggleSortFdb()" title="Sort by when FactorDB was last checked for each entry. Most recent first; click again for oldest. Entries never checked go last.">FDB date ↓</button>
+    <button class="sort-btn" id="sortNextRunBtn" onclick="toggleSortNextRun()" title="Sort by the CPU time of each entry's fastest recommended next run. Fastest first; click again for slowest. Entries with nothing recommended go last.">Next run ↑</button>
   </div>
 </div>
 
@@ -2615,7 +2614,7 @@ let cancelRequested = false;
 // apart from an outage. A stored value from a previous session says nothing about
 // whether the connection is up.
 let _sessionMaxOkDigits = 0;
-let sortMode     = 'default'; // 'default' | 'diff-asc' | 'diff-desc'
+let sortMode     = 'default'; // 'default' | 'n-desc' | 'cof-*' | 'nfac-*' | 'cpu-*' | 'fdb-*' | 'nextrun-*'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // REPLAY — restore FDB discoveries from cache into allEntries on page load
@@ -5683,21 +5682,6 @@ function toggleSortNextRun() {
   applyFilters();
 }
 
-function toggleSortDiff() {
-  // If not currently sorting by diff, start with asc; else toggle asc/desc
-  if (sortMode !== 'diff-asc' && sortMode !== 'diff-desc') {
-    sortMode = 'diff-asc';
-  } else {
-    sortMode = sortMode === 'diff-asc' ? 'diff-desc' : 'diff-asc';
-  }
-  const btn    = document.getElementById('sortDiffBtn');
-  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-  const nBtn   = document.getElementById('sortNBtn');
-  if (nBtn) nBtn.textContent = 'E(n) ↑';
-  if (btn)  { btn.textContent = sortMode === 'diff-asc' ? 'Difficulty ↑' : 'Difficulty ↓'; btn.classList.add('active'); }
-  applyFilters();
-}
-
 // Read both range inputs, clamp them sanely, and rebuild the grid.
 // (Previously the max input only ran applyFilters — which ignores the range —
 // so changing the max didn't actually narrow the displayed range.)
@@ -5991,8 +5975,8 @@ function exportFDBSubmission() {
     //
     // Expansion turns 5^3 into 5*5*5, so a stored exponent that does not divide
     // becomes a line claiming the number has more copies of a prime than it does —
-    // "E(n)=71*71*839" when only one 71 divides. euler.py verify refuses the
-    // surplus now, but the app should not be sending it: the script is the last
+    // "E(n)=71*71*839" when only one 71 divides. euler.py submit's check refuses
+    // the surplus now, but the app should not be sending it: that check is the last
     // gate, not the first, and a file full of claims that get refused wastes the
     // run and reads like a fault in the submitter.
     //
@@ -8067,12 +8051,10 @@ function exportCSV() {
 
   const rows = [
     ['n', 'sign', ...factorCols, 'cofactor', 'cofactor_digits', 'val_digits',
-     'difficulty_score', 'difficulty_label', 'fdb_status', 'fdb_checked', 'ecm_attempts', 'note']
+     'fdb_status', 'fdb_checked', 'ecm_attempts', 'note']
   ];
   for (const e of allEntries) {
     const digits  = getCofactorDigits(e);
-    const diff    = digits ? getDifficultyForEntry(e) : null;
-    const dlbl    = diff ? difficultyLabel(diff.score).label : '';
     const fdbKey  = e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : e.val;
     const fdbRes  = fdbKey ? fdbCache[fdbKey] : null;
     const ecmAtt  = (ecmData[String(e.n)] || []).length;
@@ -8096,8 +8078,6 @@ function exportCSV() {
       e.cofactor || '',
       e.cofactor ? e.cofactor.length : '',
       e.val ? e.val.length : '',
-      diff ? diff.score.toFixed(2) : '',
-      dlbl,
       fdbStatus,
       fdbRes ? new Date(fdbRes.timestamp).toISOString().slice(0,10) : '',
       ecmAtt,
@@ -9591,33 +9571,7 @@ function applyFilters() {
     return matchFilter && matchSearch;
   });
   // Sort
-  if (sortMode === 'diff-asc' || sortMode === 'diff-desc') {
-    const ecmData = loadECM();
-
-    // Status category order for grouping (fully factored always last when sorting by difficulty)
-    const statusOrder = { full: 0, partial: 1, composite: 2, attempted: 3, unknown: 4 };
-
-    // Precompute each entry's difficulty score ONCE (the comparator runs O(n log n)
-    // times; computeDifficulty now does a Dickman integration, so calling it inside
-    // the comparator was the main sort cost). Cache on a transient _diffScore field.
-    for (const e of filtered) {
-      const d = getCofactorDigits(e);
-      e._diffScore = d ? computeDifficulty(d, ecmData[String(e.n)] || []).score : null;
-    }
-
-    filtered.sort((a, b) => {
-      const catA = statusOrder[a.status] ?? 5;
-      const catB = statusOrder[b.status] ?? 5;
-      if (catA !== catB) return catA - catB;
-
-      // Entries with no cofactor (e.g. fully factored) sort by n
-      if (a._diffScore == null && b._diffScore == null) return a.n - b.n;
-      if (a._diffScore == null) return 1;
-      if (b._diffScore == null) return -1;
-
-      return sortMode === 'diff-asc' ? a._diffScore - b._diffScore : b._diffScore - a._diffScore;
-    });
-  } else if (sortMode === 'n-desc') {
+  if (sortMode === 'n-desc') {
     filtered.sort((a, b) => b.n - a.n);
   } else if (sortMode === 'cpu-asc' || sortMode === 'cpu-desc') {
     filtered.sort((a, b) => {
@@ -9703,20 +9657,6 @@ function getNextRunForEntry(e) {
 function getNextRunTimeForEntry(e) {
   const rec = getNextRunForEntry(e);
   return rec ? (rec.cpuTime || 0) : null;
-}
-
-function getDifficultyForEntry(e) {
-  if (e.status === 'full') return null;
-  const digits   = getCofactorDigits(e);
-  if (!digits) return null;
-  const ecmData  = loadECM();
-  const attempts = ecmData[String(e.n)] || [];
-  try {
-    return getCachedDifficulty(e.n, digits, attempts);
-  } catch(err) {
-    console.warn('getDifficultyForEntry error for E(' + e.n + '):', err);
-    return null;
-  }
 }
 
 // Get last FDB check info for an entry (used in modal, tile, and sorting).
@@ -9819,16 +9759,6 @@ function renderGrid() {
       lazy.dataset.filled = '1';
 
       let html = '';
-      // Difficulty score
-      if (e.status !== 'full') {
-        try {
-          const diff = getDifficultyForEntry(e);
-          if (diff && diff.score != null) {
-            const dl = difficultyLabel(diff.score);
-            html += `<div style="font-size:9px;color:${dl.color};margin-top:4px;letter-spacing:0.3px">⬡ ${diff.score.toFixed(2)} — ${dl.label}</div>`;
-          }
-        } catch(e) { logSwallowed('tile/difficulty', e); }
-      }
 
       // CPU time
       try {
@@ -10377,33 +10307,6 @@ function openModal(n) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ECM / FACTORING ATTEMPT TRACKER
 // ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DIFFICULTY SCORE
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Returns a difficulty score [0.00 - 10.00] for a given cofactor size and
-// the factoring attempts already logged. Lower = easier/more promising to attack.
-// Cache: { n: { score, base, nfsReduction, ecmReduction, pm1Reduction, ecmCoverage, pm1Coverage, cofactorDigits, _ts } }
-const difficultyCache = {};
-const DIFFICULTY_CACHE_MAX = 500;
-
-function getCachedDifficulty(n, digits, attempts) {
-  const cached = difficultyCache[n];
-  if (cached && cached.cofactorDigits === digits) {
-    cached._ts = Date.now(); // update access time
-    return cached;
-  }
-  // Evict oldest entry if at capacity
-  const keys = Object.keys(difficultyCache);
-  if (keys.length >= DIFFICULTY_CACHE_MAX) {
-    const oldest = keys.reduce((a, b) => (difficultyCache[a]._ts||0) < (difficultyCache[b]._ts||0) ? a : b);
-    delete difficultyCache[oldest];
-  }
-  const result = computeDifficulty(digits, attempts);
-  difficultyCache[n] = { ...result, cofactorDigits: digits, _ts: Date.now() };
-  return difficultyCache[n];
-}
 
 // Estimate CPU time on a single fast core (~Zen3/Zen4 @ 4.5GHz / 7900) in seconds
 // Empirically calibrated against GMP-ECM 7.0.6 benchmarks
@@ -11061,107 +10964,6 @@ function recommendNextRun(digits, attempts, provenDigits) {
   return candidates.slice(0, 3);
 }
 
-function computeDifficulty(digits, attempts) {
-  if (!digits || digits <= 1) return { score:0, base:0, nfsReduction:0, ecmReduction:0, pm1Reduction:0, ecmCoverage:0, pm1Coverage:0 };
-
-  // ── Base difficulty from size (logarithmic) ──────────────────────────────
-  // log10(digits) / log10(2500) × 10 → ~2.3 at 20d, ~5.0 at 100d, ~7.5 at 500d, ~10 at 2500d
-  // Anchored scale: 0=trivial(15d), 5=RSA-1024(300d), 10=intractable(10000d+)
-  const D_base = Math.min(Math.log10(Math.max(digits, 1)) / Math.log10(10000) * 10, 10);
-
-  // ── NFS accessibility reduction ──────────────────────────────────────────
-  // Numbers ≤ 200d are theoretically attackable with world-class NFS
-  // Numbers ≤ 100d are routinely factored with NFS
-  // Scale: full reduction at 0d, zero reduction at 200d+
-  const nfsReduction = digits <= 200
-    ? 0.8 * Math.max(0, (200 - digits) / 200)
-    : 0;
-
-  // ── ECM coverage reduction ───────────────────────────────────────────────
-  // How well have we covered the practical ECM range (20-65 digits)?
-  // For each 5d bucket, compute P(found if exists) and weight by importance
-  const ecmAttempts = (attempts || []).filter(a => a.method === 'ECM' && a.b1);
-
-  const b1ToTargetD = b1ToDigits; // shared table-inversion helper
-
-  const curvesPerD = {};
-  for (const a of ecmAttempts) {
-    const td = b1ToTargetD(a.b1);
-    const c  = parseInt(a.curves) || 0;
-    for (let d = td - 3; d <= td + 3; d++) curvesPerD[d] = (curvesPerD[d] || 0) + c;
-  }
-
-  // Weighted coverage: smaller factors are more likely to exist → weight more
-  // Weight for d-digit range: proportional to 1/d (smaller = more likely)
-  // ecmLevels(), not a hardcoded array. This was the FOURTH site to spell the
-  // ladder out and start it at 20 — §Fix 1 unified three of them and missed this
-  // one, because the guard checked that ecmLevels() was correct rather than that
-  // anything used it.
-  //
-  // The cost was real: 500 curves at t10 plus 500 at t15 credited exactly ZERO
-  // coverage, so every entry whose work is at the low levels — 4,574 of them by
-  // the frontier count — had its difficulty overstated.
-  const ecmRange = ecmLevels();
-  let weightedCoverage = 0, totalWeight = 0;
-  for (const d of ecmRange) {
-    const weight  = 1 / d;               // smaller factors more likely
-    const curves  = curvesPerD[d] || 0;
-    const pFind   = curves ? ecmProbability(d, curves) : 0;
-    weightedCoverage += weight * pFind;
-    totalWeight      += weight;
-  }
-  const ecmCoverage    = totalWeight > 0 ? weightedCoverage / totalWeight : 0;
-  const ecmReduction   = 1.5 * ecmCoverage; // max 1.5 point reduction for full ECM coverage
-
-  // ── P-1/P+1 coverage reduction ───────────────────────────────────────────
-  const pm1Attempts = (attempts || []).filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
-  let pm1Coverage = 0;
-  if (pm1Attempts.length) {
-    // Same floor problem. P±1's practical reach tops out lower than ECM's, so the
-    // 40-digit ceiling stays — but the bottom comes from the shared ladder.
-    const pm1Range = ecmLevels().filter(d => d <= 40);
-    let wCov = 0, wTot = 0;
-    for (const d of pm1Range) {
-      const w = 1 / d;
-      wCov += w * bestPm1Prob(d, pm1Attempts);
-      wTot += w;
-    }
-    pm1Coverage = wTot > 0 ? wCov / wTot : 0;
-  }
-  const pm1Reduction = 0.5 * pm1Coverage; // max 0.5 point reduction
-
-  // ── Final score ───────────────────────────────────────────────────────────
-  // Reductions only matter when the number is small enough to be meaningfully
-  // affected by ECM/P-1 work. For very large numbers (D_base near 10),
-  // ruling out small factors barely changes the difficulty.
-  // Scale reductions by how much of the problem space they cover:
-  // at 300d a 65d factor is 22% of the number — meaningful
-  // at 80000d a 65d factor is 0.08% of the number — irrelevant
-  const reductionScale = Math.max(0, 1 - D_base / 10);  // 1.0 at 0d, 0 at 10000d+
-  const scaledReductions = (nfsReduction + ecmReduction + pm1Reduction) * reductionScale;
-  const score = Math.max(0, Math.min(10, D_base - scaledReductions));
-
-  return {
-    score:         Math.round(score * 100) / 100,
-    base:          Math.round(D_base * 100) / 100,
-    nfsReduction:  Math.round(nfsReduction * 100) / 100,
-    ecmReduction:  Math.round(ecmReduction * 100) / 100,
-    pm1Reduction:  Math.round(pm1Reduction * 100) / 100,
-    ecmCoverage:   Math.round(ecmCoverage * 1000) / 10,  // as %
-    pm1Coverage:   Math.round(pm1Coverage * 1000) / 10,
-  };
-}
-
-function difficultyLabel(score) {
-  if (score < 2)  return { label: 'Trivial',     color: 'var(--green)' };
-  if (score < 3.5)return { label: 'Easy',        color: '#7ed321' };
-  if (score < 5)  return { label: 'Moderate',    color: 'var(--yellow)' };
-  if (score < 6.5)return { label: 'Hard',        color: '#ff9f43' };
-  if (score < 8)  return { label: 'Very Hard',   color: 'var(--red)' };
-  if (score < 9)  return { label: 'Extreme',     color: '#ff6b9d' };
-  return              { label: 'Intractable',    color: '#b44fff' };
-}
-
 // Compute the remaining cofactor of an entry: E(n) with all known prime factors
 // divided out. Returns { big, str, digits } or null. Handles prime-power factors
 // ("5^2"). This is the number ECM should actually run on — dividing out known
@@ -11179,8 +10981,8 @@ function difficultyLabel(score) {
 // number beats N of them. When that product does NOT divide — an overstated
 // exponent, a duplicate, a factor that is simply wrong — it falls back to dividing
 // one factor at a time, so every GOOD factor still comes out. Skipping that would
-// report the whole value as the cofactor and distort difficulty and every
-// recommendation downstream.
+// report the whole value as the cofactor and distort every recommendation
+// downstream.
 function _parseFactorTerm(f) {
   const mm = /^(\d+)\^(\d+)$/.exec(String(f));
   return { base: mm ? mm[1] : String(f), exp: mm ? parseInt(mm[2]) : 1 };
@@ -11348,32 +11150,8 @@ function buildECMSection(n, e) {
   const ecmData  = loadECM();
   const attempts = (ecmData[String(n)] || []);
   const digits   = getCofactorDigits(e);
-  let diffHtml = '', recommendHtml = '', probHtml = '', tableHtml = '', formHtml = '';
+  let recommendHtml = '', probHtml = '', tableHtml = '', formHtml = '';
 
-  // Difficulty score banner
-  if (digits) {
-    const diff  = computeDifficulty(digits, attempts);
-    if (diff && diff.score !== undefined && diff.score !== null) {
-    const dlbl  = difficultyLabel(diff.score);
-    diffHtml = `<div style="display:flex;align-items:center;gap:16px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);margin-bottom:14px;flex-wrap:wrap">
-      <div>
-        <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Difficulty Score</div>
-        <div style="font-size:26px;font-weight:600;color:${dlbl.color};letter-spacing:-1px">${diff.score.toFixed(2)}<span style="font-size:12px;margin-left:6px;font-weight:400">/10</span></div>
-        <div style="font-size:12px;color:${dlbl.color};margin-top:2px">${dlbl.label}</div>
-      </div>
-      <div style="flex:1;min-width:200px">
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Score breakdown</div>
-        <div style="font-size:11px;color:var(--text-dim);line-height:1.8">
-          Base (${digits}d cofactor): <span style="color:var(--text)">+${diff.base}</span><br>
-          NFS accessibility (${digits}d ${digits<=100?'≤100d':'≤200d'} range): <span style="color:var(--green)">−${diff.nfsReduction}</span><br>
-          ECM coverage (${diff.ecmCoverage}% of 20-65d range): <span style="color:var(--green)">−${diff.ecmReduction}</span><br>
-          P±1 coverage (${diff.pm1Coverage}% of 20-40d range): <span style="color:var(--green)">−${diff.pm1Reduction}</span>
-        </div>
-      </div>
-
-    </div>`;
-  }
-  } // end if (digits) — diff banner
 
   // Probability table for cofactor
   if (digits) {
@@ -11758,7 +11536,7 @@ function buildECMSection(n, e) {
     }
   }
 
-  return diffHtml + recommendHtml + probHtml + tableHtml + methodHtml + formHtml;
+  return recommendHtml + probHtml + tableHtml + methodHtml + formHtml;
 }
 
 // Refresh grid/stats after ECM log changes
@@ -11947,8 +11725,7 @@ function applyBulkECM() {
     // the same work. And its key was method+B1+B2+curves, while the rest of the
     // project identifies an attempt by method+B1 alone — so bulk-logging 100 curves
     // and then 200 at the same bound made two rows, which double-counts the curves
-    // in the yield report and is exactly what `euler.py verify` flags as a
-    // duplicate attempt.
+    // in the yield report.
     //
     // normalizeEcmAttempts keys on method|parseB1(b1) and merges curves by MAX,
     // which is the right reading of two reports of the same bound.
