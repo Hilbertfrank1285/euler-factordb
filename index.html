@@ -695,6 +695,8 @@
     <span style="font-size:10px;color:var(--text-muted)">Sort:</span>
     <button class="sort-btn active" id="sortNBtn" onclick="toggleSortN()">E(n) ↑</button>
     <button class="sort-btn" id="sortDiffBtn" onclick="toggleSortDiff()">Difficulty ↑</button>
+    <button class="sort-btn" id="sortCofBtn" onclick="toggleSortCofactor()" title="Sort by the size of what is left to factor — the cofactor's digits. Smallest first; click again for largest. Fully factored entries go last.">Cofactor ↑</button>
+    <button class="sort-btn" id="sortFacBtn" onclick="toggleSortFactors()" title="Sort by how many factors are known — each prime once, whatever its power. Most first; click again for fewest.">Factors ↓</button>
     <button class="sort-btn" id="sortCpuBtn" onclick="toggleSortCpu()">CPU ↓</button>
     <button class="sort-btn" id="sortFdbBtn" onclick="toggleSortFdb()">FDB date ↓</button>
     <button class="sort-btn" id="sortNextRunBtn" onclick="toggleSortNextRun()" title="Sort by CPU time of the fastest recommended next run">Next run ↑</button>
@@ -5624,6 +5626,38 @@ function toggleSortFdb() {
   applyFilters();
 }
 
+// PURE: how many factors an entry has — each listed prime once, whatever its power.
+function knownFactorCount(e) {
+  return new Set(((e && e.factors) || []).filter(f => f && f !== '1').map(f => String(f).split('^')[0])).size;
+}
+
+// PURE: order two entries by a value that may be missing — missing last in either
+// direction, ties by n — so a sort never scatters the entries it cannot place.
+function compareByValue(a, b, va, vb, desc) {
+  const ha = va != null && isFinite(va), hb = vb != null && isFinite(vb);
+  if (!ha && !hb) return a.n - b.n;
+  if (!ha) return 1;
+  if (!hb) return -1;
+  if (va !== vb) return desc ? vb - va : va - vb;
+  return a.n - b.n;
+}
+
+function toggleSortCofactor() {
+  sortMode = sortMode === 'cof-asc' ? 'cof-desc' : 'cof-asc';   // smallest cofactor first by default
+  const btn = document.getElementById('sortCofBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'cof-asc' ? 'Cofactor ↑' : 'Cofactor ↓'; btn.classList.add('active'); }
+  applyFilters();
+}
+
+function toggleSortFactors() {
+  sortMode = sortMode === 'nfac-desc' ? 'nfac-asc' : 'nfac-desc';   // most factors first by default
+  const btn = document.getElementById('sortFacBtn');
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  if (btn) { btn.textContent = sortMode === 'nfac-desc' ? 'Factors ↓' : 'Factors ↑'; btn.classList.add('active'); }
+  applyFilters();
+}
+
 function toggleSortCpu() {
   if (sortMode !== 'cpu-asc' && sortMode !== 'cpu-desc') {
     sortMode = 'cpu-desc'; // most CPU first by default
@@ -9604,6 +9638,12 @@ function applyFilters() {
       if (nb == null) return -1;
       return sortMode === 'nextrun-asc' ? na - nb : nb - na;
     });
+  } else if (sortMode === 'cof-asc' || sortMode === 'cof-desc') {
+    // the cofactor's size, worked out once per entry (the comparator runs n log n times)
+    const cof = new Map(filtered.map(e => [e, getCofactorDigits(e)]));
+    filtered.sort((a, b) => compareByValue(a, b, cof.get(a), cof.get(b), sortMode === 'cof-desc'));
+  } else if (sortMode === 'nfac-asc' || sortMode === 'nfac-desc') {
+    filtered.sort((a, b) => compareByValue(a, b, knownFactorCount(a), knownFactorCount(b), sortMode === 'nfac-desc'));
   } else if (sortMode === 'fdb-asc' || sortMode === 'fdb-desc') {
     filtered.sort((a, b) => {
       const ia = getFdbCheckInfo(a);
