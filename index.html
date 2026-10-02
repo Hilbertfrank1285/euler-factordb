@@ -560,6 +560,10 @@
 
 <!-- Visitor mode: this browser has no GitHub token, so it cannot push. Shown by
      updateVisitorMode(); says plainly that changes stay here and GitHub is untouched. -->
+<div class="visitor-banner" id="staleTabBanner" role="alert" style="display:none">
+  <span><strong>A newer version of this app has been deployed.</strong> Reload this page — until you do,
+  this tab will not push. Nothing is lost: your changes stay in this browser and go up after the reload.</span>
+</div>
 <div class="visitor-banner" id="visitorBanner" role="note">
   <span>You're viewing <strong id="visitorOwner">hilbertfrank1285</strong>'s data. Anything you change here
   stays in this browser — the data on GitHub is not affected.</span>
@@ -5095,7 +5099,37 @@ async function pullBothFromGitHub() {
 }
 
 // Runs before every push. Returns { ok, mainSha } — ok false means do not push.
+// ── An old tab must not push ───────────────────────────────────────────────────
+// Many sync bugs here came from a tab still running older code after a new version was
+// deployed, writing data the old way (C records without their factors; the old two-file
+// layout). A tab notes which version of the page it loaded — GitHub Pages' ETag, or its
+// Last-Modified date — and before every push asks again: if a newer one is live, it
+// refuses. Where that cannot be told (offline, a local file), it does not block.
+let _loadedPageTag = null;
+async function pageTag() {
+  if (typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return null;
+  try {
+    const r = await fetch(location.href.split('#')[0], { method: 'HEAD', cache: 'no-store' });
+    return r.ok ? (r.headers.get('etag') || r.headers.get('last-modified') || null) : null;
+  } catch (e) { logSwallowed('pageTag', e); return null; }
+}
+// PURE: has a newer page been deployed since this tab loaded? Only when both are known.
+function pageVersionChanged(loaded, current) { return !!loaded && !!current && loaded !== current; }
+function showStaleTabBanner() {
+  const el = document.getElementById('staleTabBanner');
+  if (el) el.style.display = 'flex';   // the class hides it by default, like the visitor banner
+}
+
 async function pushGuard() {
+  // Before anything else: is this tab running the version that is deployed?
+  const nowTag = await pageTag();
+  if (pageVersionChanged(_loadedPageTag, nowTag)) {
+    showStaleTabBanner();
+    const why = 'Push stopped: a newer version of the app is deployed and this tab still runs the old one — reload it. Nothing was sent; your changes are kept here.';
+    setGHStatus(why, 'err'); addLog(why, 'warn');
+    return { ok: false };
+  }
+  if (!_loadedPageTag) _loadedPageTag = nowTag;   // not known at load: the first one seen will do
   if (!_syncBase) _syncBase = loadSyncBase();
   const b = _syncBase || {};
   // Has GitHub changed since this browser last synced? In the chunked layout: any file
@@ -6172,6 +6206,34 @@ function fillRunBudget(ranked, budget) {
 // Built from the SAME values the scripts were built from — the real file names and
 // the real core count — so it can be pasted rather than adapted. A generic note has
 // to be translated every time, and that is where the mistakes come from.
+// PURE: deal the ranked runs out to the workers. At most a sixth of each machine's
+// workers (rounded down, at least one) are given P-1/P+1 runs, so no more than that
+// many can be in stage 2 at once — 2 of 12: twelve P-1 runs on large numbers at once took more
+// than 32 GB, and capping each with -maxmem instead made GMP-ECM refuse them. Every run
+// keeps its full default B2. P±1 runs go first, each to the least-loaded worker allowed
+// them; ECM runs then go wherever is least loaded, filling the other workers first.
+// Each worker's list is put back in ranked order, so stopping early still means the
+// best work was done.
+function dealRunsToWorkers(runs, coresPerMachine) {
+  const workers = [];
+  coresPerMachine.forEach((cores, mi) => {
+    const lanes = Math.max(1, Math.floor(cores / 6));
+    for (let c = 0; c < cores; c++) workers.push({ machine: mi + 1, localCore: c + 1, pm1: c < lanes, load: 0, idx: [] });
+  });
+  const isPm1 = (r) => r.method === 'P-1' || r.method === 'P+1';
+  const give = (r, i, pool) => {
+    let best = pool[0];
+    for (const w of pool) if (w.load < best.load) best = w;
+    best.idx.push(i);
+    best.load += Math.max(0, Number(r.cpuTime) || 0);
+  };
+  const lanes = workers.filter(w => w.pm1);
+  runs.forEach((r, i) => { if (isPm1(r)) give(r, i, lanes); });
+  runs.forEach((r, i) => { if (!isPm1(r)) give(r, i, workers); });
+  return workers.map(w => ({ machine: w.machine, localCore: w.localCore, pm1: w.pm1, load: w.load,
+                             runs: w.idx.sort((a, b) => a - b).map(i => runs[i]) }));
+}
+
 // PURE: the files one machine's share of an ECM export was written under. A one-core
 // export uses the plain names; anything more is per machine and core.
 function ecmMachineFiles(cores, m, ext) {
@@ -6683,6 +6745,11 @@ async function exportNextRuns() {
   // Build the command lines for ONE run (3 lines: blank, progress echo, the ecm
   // pipe). importFile is per-core so parallel workers never clobber each other.
   function runLines(r, label, total, importFile, numbersFile, idx) {
+    // No -maxmem. Measured with GMP-ECM 7.0.5: under a per-worker cap (2,184 MB) a
+    // default-B2 P-1 stage 2 on a 10,000- or 33,000-digit number is REFUSED ("cannot
+    // choose suitable P value"); fitting it takes a 32-132x smaller B2, which costs
+    // 42-58% of P-1's chance per run; and real memory ran 1.7x GMP-ECM's own estimate,
+    // so the cap is not a hard limit anyway. Memory is to be handled with B2 in view.
     const args =
       r.method === 'ECM' ? `-v -c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
       r.method === 'P-1' ? `-v -pm1 ${b1int(r)}` :
@@ -6718,6 +6785,11 @@ async function exportNextRuns() {
   // byte-compatible with what the Windows batch produces and the app's importer
   // needs no special handling.
   function runLinesSh(r, label, total, importFile, numbersFile, idx) {
+    // No -maxmem. Measured with GMP-ECM 7.0.5: under a per-worker cap (2,184 MB) a
+    // default-B2 P-1 stage 2 on a 10,000- or 33,000-digit number is REFUSED ("cannot
+    // choose suitable P value"); fitting it takes a 32-132x smaller B2, which costs
+    // 42-58% of P-1's chance per run; and real memory ran 1.7x GMP-ECM's own estimate,
+    // so the cap is not a hard limit anyway. Memory is to be handled with B2 in view.
     const args =
       r.method === 'ECM' ? `-v -c ${r.rawCurves || parseInt(String(r.curves).replace(/[^0-9]/g,'')) || 1} ${b1int(r)}` :
       r.method === 'P-1' ? `-v -pm1 ${b1int(r)}` :
@@ -6748,8 +6820,9 @@ async function exportNextRuns() {
 
   // Assign each run to a global core index round-robin (runs are value-sorted, so
   // round-robin keeps every core's total time balanced).
-  const coreRuns = Array.from({ length: totalCores }, () => []);
-  top.forEach((r, i) => coreRuns[i % totalCores].push(r));
+  // At most a sixth of each machine's workers take P-1/P+1 runs — see dealRunsToWorkers.
+  const dealt = dealRunsToWorkers(top, coresPerMachine);
+  const coreRuns = dealt.map(w => w.runs);
 
   // Map global core index → which machine + that machine's local core number.
   const coreOwner = []; // [{machine, localCore}]
@@ -6914,6 +6987,16 @@ async function exportNextRuns() {
     }
   }
 
+  {
+    const pm1Runs = top.filter(r => r.method === 'P-1' || r.method === 'P+1').length;
+    const lanes = dealt.filter(w => w.pm1), others = dealt.filter(w => !w.pm1);
+    const longest = (ws) => ws.reduce((m, w) => Math.max(m, w.load), 0);
+    if (pm1Runs && totalCores > 1) {
+      sum.push('P-1/P+1: ' + pm1Runs + ' run(s), on at most ' + lanes.length + ' of ' + totalCores
+        + ' cores (a sixth of each machine, so their stage 2 cannot exhaust memory) · busiest of those cores '
+        + fmtCpuTime(longest(lanes)) + (others.length ? ', busiest other core ' + fmtCpuTime(longest(others)) : ''));
+    }
+  }
   if (budget.kind === 'time') {
     sum.push('Budget: ' + fmtCpuTime(budget.seconds) + ' requested · '
       + fmtCpuTime(filled.seconds) + ' filled ('
@@ -7062,6 +7145,8 @@ async function exportNextRuns() {
     : '';
   const msg = (multi
     ? 'Exported ' + top.length + ' runs across ' + totalCores + ' cores / ' + coresPerMachine.length + ' machine(s) → ' + filesToDownload.length + ' files'
+      + (top.some(r => r.method === 'P-1' || r.method === 'P+1')
+          ? ' · P-1/P+1 on at most ' + dealt.filter(w => w.pm1).length + ' of those cores, for memory' : '')
     : 'Exported ' + top.length + ' runs (≈' + fmtCpuTime(totalSec) + ' total) → ecm_runs' + ext + ' + ecm_runs_summary.txt') + rangeStr
     // Report what the weighting actually did, so its effect is visible rather than
     // silently folded into the ordering.
@@ -9808,7 +9893,7 @@ function renderPagination() {
 
 // Cached total-CPU sum — only recomputed when ECM data changes (see invalidateCpuTotal).
 let _cpuTotalCache = null;
-function invalidateCpuTotal() { _cpuTotalCache = null; }
+function invalidateCpuTotal() { _cpuTotalCache = null; _timeCorrections = null; }   // ECM changed: re-learn the time corrections too
 function computeTotalCpuSec() {
   if (_cpuTotalCache !== null) return _cpuTotalCache;
   const ecmD = loadECM();
@@ -10435,7 +10520,20 @@ function estimateCpuSecondsRaw(method, b1, b2, curves, cofactorDigits) {
   // the B1=110M point it was directly verified against) — better than a
   // confirmed-wrong constant, but still an approximation, not a certainty.
   const b2eff = b2 || (method === 'ECM' ? ecmDefaultB2(b1) : pm1DefaultB2(b1));
-  const stage2 = stage1 * Math.sqrt(b2eff / b1) / 285.97 * Math.sqrt(d / 100);
+  let stage2;
+  if (method === 'ECM') {
+    stage2 = stage1 * Math.sqrt(b2eff / b1) / 285.97 * Math.sqrt(d / 100);
+  } else {
+    // P±1 stage 2, fitted to two measured P-1 runs at B1=3e6 on one machine: E(3524),
+    // 10,272 digits — step 1 415 s, step 2 186 s; E(9778), 32,848 digits — step 1 2,029 s,
+    // step 2 1,380 s. Stage 2 is 0.45× and 0.68× stage 1 there (GMP-ECM's default B2
+    // keeps it below stage 1), where the ECM-shaped formula above said 2.3× and 4.1×:
+    // every large P±1 estimate came out 2–3× too long. Stage 1 was within 12%. Below
+    // 10,272 digits the ratio flattens to the old formula's 0.39 at 289 digits, and B2
+    // scales it as before, relative to the default B2 at B1=3e6 where it was measured.
+    const R = 0.449 * Math.pow(Math.max(d, 50) / 10272, d >= 10272 ? 0.357 : 0.041);
+    stage2 = stage1 * R * Math.sqrt((b2eff / b1) / (pm1DefaultB2(3e6) / 3e6));
+  }
 
   const perCurve = stage1 + stage2;
 
@@ -10445,11 +10543,107 @@ function estimateCpuSecondsRaw(method, b1, b2, curves, cofactorDigits) {
   return perCurve * totalCurves;
 }
 
-// Public entry point — same signature every existing caller already uses, now
-// scaled by whatever the accumulated real measurements say the model is off by.
+// ── Time estimates learned from your own runs ──────────────────────────────────
+// One factor — the median of import-time samples — used to correct every estimate.
+// On 6,494 measured runs whose number had not changed size since, ECM took 1.8-2.6x
+// those estimates at every size, and the error depends on B1 too: ECM at B1=532 ran
+// 2.15x, at 2,420 1.69x; P-1 at B1=250k 2.07x, at 3M 1.16x. A "12-hour" export ran
+// about a day. So each estimate now takes its correction from the runs most like it.
+
+// PURE: the half-decade a positive number falls in (10,272 digits → 8; B1=3e6 → 12).
+function halfDecade(x) { return x > 0 ? Math.floor(Math.log10(x) * 2) : null; }
+
+// PURE: from samples { method, digits, b1, ratio, at } — ratio is the actual time over
+// the model's raw estimate, at is when the run happened — the median ratio for each
+// method, method+size, method+B1 and method+size+B1 that has at least `min` runs, each
+// from its most recent `keep` runs, so it follows a change in how you run.
+function buildTimeCorrections(samples, opts) {
+  const keep = (opts && opts.keep) || 200, min = (opts && opts.min) || 8;
+  const groups = new Map();
+  const add = (key, x) => { if (!groups.has(key)) groups.set(key, []); groups.get(key).push(x); };
+  for (const x of samples || []) {
+    if (!x || !x.method || !(x.ratio > 0.05 && x.ratio < 20)) continue;
+    const d = halfDecade(x.digits), b = halfDecade(x.b1);
+    add(x.method, x);
+    if (d != null) add(x.method + '|d' + d, x);
+    if (b != null) add(x.method + '|b' + b, x);
+    if (d != null && b != null) add(x.method + '|d' + d + '|b' + b, x);
+  }
+  const table = {};
+  for (const [key, list] of groups) {
+    if (list.length < min) continue;
+    const r = list.slice().sort((x, y) => (y.at || 0) - (x.at || 0)).slice(0, keep).map(x => x.ratio).sort((x, y) => x - y);
+    const mid = r.length >> 1;   // a true median: with an even count, the mean of the two middle values
+    table[key] = { factor: r.length % 2 ? r[mid] : (r[mid - 1] + r[mid]) / 2, runs: list.length };
+  }
+  return table;
+}
+
+// PURE: the correction for one estimate, from the most specific group with enough runs:
+// same method, size and B1; then size; then B1; then the method; else the fallback.
+function correctionFor(table, method, digits, b1, fallback) {
+  if (table) {
+    const d = halfDecade(digits), b = halfDecade(b1);
+    for (const key of [method + '|d' + d + '|b' + b, method + '|d' + d, method + '|b' + b, method]) {
+      if (table[key]) return table[key].factor;
+    }
+  }
+  return fallback;
+}
+
+// The table, from every measured run whose number has not changed size since it ran
+// (a factor found later makes today's cofactor the wrong size to price it at).
+let _timeCorrections = null;
+function timeCorrections() {
+  if (_timeCorrections) return _timeCorrections;
+  if (!allEntries || !allEntries.length) return null;     // not loaded yet: do not cache
+  const newest = new Map();
+  for (const r of loadHistory()) if (Array.isArray(r)) newest.set(r[0], Math.max(newest.get(r[0]) || 0, r[1] || 0));
+  const samples = [];
+  for (const [nStr, attempts] of Object.entries(loadECM())) {
+    const n = parseInt(nStr), e = entryByN(n), digits = e ? getCofactorDigits(e) : null;
+    if (!digits) continue;
+    for (const a of attempts || []) {
+      if (!a || !(a.ms > 0)) continue;
+      const day = a.lastRun || a.date;
+      const at = day ? Date.parse(String(day).slice(0, 10) + 'T23:59:59Z') / 1000 : NaN;
+      if (!isFinite(at) || (newest.get(n) || 0) > at) continue;
+      const pm1 = a.method === 'P-1' || a.method === 'P+1';
+      const b1 = parseB1(a.b1), curves = pm1 ? 1 : (parseInt(a.curves) || 0);
+      if (!b1 || !curves) continue;
+      const raw = estimateCpuSecondsRaw(a.method, b1, a.b2 ? parseB1(a.b2) : null, curves, digits);
+      if (raw > 0) samples.push({ method: a.method, digits, b1, ratio: (a.ms / 1000) / raw, at });
+    }
+  }
+  _timeCorrections = { table: buildTimeCorrections(samples), samples: samples.length };
+  return _timeCorrections;
+}
+
+// Public entry point — same signature every existing caller already uses: the model,
+// times what runs like this one have actually taken on this machine.
 function estimateCpuSeconds(method, b1, b2, curves, cofactorDigits) {
   const raw = estimateCpuSecondsRaw(method, b1, b2, curves, cofactorDigits);
-  return raw == null ? null : raw * calibFactor();
+  if (raw == null) return null;
+  let tc = null;
+  try { tc = timeCorrections(); } catch (e) { logSwallowed('estimate/timeCorrections', e); }
+  return raw * correctionFor(tc && tc.table, method, cofactorDigits, b1, calibFactor());
+}
+
+// The learned corrections, for the yield report: by method and size.
+function renderTimeCorrections() {
+  let tc = null;
+  try { tc = timeCorrections(); } catch (e) { logSwallowed('render/timeCorrections', e); }
+  if (!tc || !tc.table) return '';
+  const label = (d) => { const r = (x) => Number(x.toPrecision(2)).toLocaleString(); return r(Math.pow(10, d / 2)) + '–' + r(Math.pow(10, (d + 1) / 2)); };
+  const rows = [];
+  for (const m of ['ECM', 'P-1', 'P+1']) for (let d = 2; d <= 11; d++) {
+    const g = tc.table[m + '|d' + d];
+    if (g) rows.push('<tr><td>' + m + '</td><td>' + label(d) + '</td><td>' + g.runs.toLocaleString() + '</td><td>×' + g.factor.toFixed(2) + '</td></tr>');
+  }
+  if (!rows.length) return '';
+  return '<div class="modal-section"><div class="modal-section-label">Time estimates — learned from ' + tc.samples.toLocaleString() + ' of your runs</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:11px;text-align:left"><thead><tr><th>method</th><th>digits</th><th>runs</th><th>actual ÷ model</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>'
+    + '<div class="yield-notes"><div>Each estimate is the model\'s, times what runs of the same method, size and B1 have actually taken here — from the latest 200 of each kind, so it follows changes in how you run. With fewer than 8 such runs, the overall factor (×' + calibFactor().toFixed(2) + ') is used.</div></div></div>';
 }
 
 function fmtCpuTime(seconds) {
@@ -13392,6 +13586,7 @@ function showYieldReport() {
     </div>`;
     })()}
     <div class="modal-section" id="runStatsSection">${renderRunStatsSection()}</div>
+    ${renderTimeCorrections()}
     <div class="modal-section yield-notes">
       <div><b>Two column groups.</b> Effort comes from the run log, for all time; finds are known only from
         ${y.startDate}, when each factor's source began being recorded — the gap between the groups is work done
@@ -13646,6 +13841,7 @@ setTimeout(async () => {
   // Phase 2: pull from GitHub (merges remote into the local store)
   // githubPull internally re-renders — that's fine, we'll re-render again below
   try {
+    pageTag().then(t => { _loadedPageTag = t; }).catch(() => {});   // which version this tab runs — see pushGuard
     await maybeAutoPull(true);  // skip pull's own render — Phase 3 below renders once
   } catch(e) {
     logSwallowed('init/maybeAutoPull', e);
