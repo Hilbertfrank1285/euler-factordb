@@ -6267,7 +6267,8 @@ function ecmMachineFiles(cores, m, ext) {
 // 1's file names with the TOTAL core count, so for "24,16,8" it copied only machine
 // 1's files, expected 96 where 48 exist, started workers 1–48 on a 24-core box, and
 // never mentioned machines 2 and 3.
-function serverNotes(isSh, cores, ext) {
+function serverNotes(isSh, cores, ext, opts) {
+  const login = cleanLogin(opts && opts.login), sudo = /^root@/.test(login) ? '' : 'sudo ';
   const multi = cores.length > 1;
   const header = (m, k) => {
     if (!multi) return [];
@@ -6303,32 +6304,38 @@ function serverNotes(isSh, cores, ext) {
   const blocks = cores.map((_, i) => {
     const f = ecmMachineFiles(cores, i + 1, ext), k = f.k;
     return [...header(i + 1, k),
-      'Copy the files up. scp comes with ssh, so if you can log in you can do this —',
-      'no upload site needed:',
+      'From your own computer, in the folder your browser saved the files in (usually',
+      'Downloads), make the folder on the server and copy the files up. scp comes with',
+      'ssh, so if you can log in you can do this — no upload site needed:',
       '',
-      '    scp ' + f.numbers + ' ' + f.worker + ' you@server:~/ecm/',
+      '    ssh ' + login + ' "mkdir -p ~/ecm"',
+      '    scp ' + f.numbers + ' ' + f.worker + ' ' + login + ':~/ecm/',
+      '',
+      'On Windows, scp cannot expand the * — let PowerShell list the files instead:',
+      '',
+      '    scp (Get-ChildItem ' + f.numbers + ', ' + f.worker + ').Name ' + login + ':~/ecm/',
       '',
       'Then, on the server:',
       '',
-      '    ssh you@server',
+      '    ssh ' + login,
       '    cd ~/ecm',
       '',
-      '    # A minimal Debian/Ubuntu has neither of these:',
-      '    sudo apt-get update && sudo apt-get install -y gmp-ecm',
+      '    # First time only: a minimal Debian/Ubuntu has no GMP-ECM.',
+      '    ' + sudo + 'apt-get update && ' + sudo + 'apt-get install -y gmp-ecm',
       '',
       '    ls ' + f.numbers + ' ' + f.worker + ' | wc -l      # expect ' + f.files,
       '',
-      '    # Start one worker per core. setsid + </dev/null is what makes them',
-      '    # survive you logging out; a plain & does not.',
-      '    for i in $(seq 1 ' + k + '); do',
-      '      setsid bash ' + f.worker.replace('*', '$i') + ' > worker_c$i.log 2>&1 </dev/null &',
-      '    done',
+      '    # Start every worker. setsid + < /dev/null is what makes them survive you',
+      '    # logging out; a plain & does not.',
+      '    for f in ' + f.worker + '; do setsid bash "$f" > "${f%.sh}.log" 2>&1 < /dev/null & done',
       '',
       '    pgrep -c ecm                      # expect ' + k,
       '',
-      'Then disconnect. To check on it later:',
+      'Then disconnect (exit). To check on it later:',
       '',
       '    pgrep -c ecm                      # how many are still running',
+      '    tail -f ' + f.worker.replace(/\.sh$/, '.log').replace('*', '1') + '   # one worker, live (Ctrl+C stops watching)',
+      '    grep -c "Step 2 took" ' + f.worker.replace(/\.sh$/, '.log') + '   # finished curves, per worker',
       '    grep -ch Found ' + f.results + '     # factors found so far',
       '    free -h                           # see below',
       '',
@@ -6337,9 +6344,15 @@ function serverNotes(isSh, cores, ext) {
       'more than the extra cores gain. On a shared-core VPS, ' + k + ' workers may not',
       'give ' + k + 'x throughput either.',
       '',
-      'When they are done, bring the results back the same way:',
+      'To stop early without losing finished curves — the scripts first, so no new',
+      'run starts, then the curves:',
       '',
-      '    scp you@server:~/ecm/' + f.results + ' .',
+      "    pkill -f 'bash " + f.worker.split('*')[0].replace(/\.sh$/, '') + "'; pkill -x ecm",
+      '',
+      'Bring the results back the same way, from your own computer — any time, even',
+      'while they run (curves already imported are not counted twice):',
+      '',
+      '    scp ' + login + ':~/ecm/' + f.results + ' .',
       ''];
   });
   return ['RUNNING THESE ON A LINUX SERVER OVER SSH', '========================================', '',
@@ -6349,27 +6362,46 @@ function serverNotes(isSh, cores, ext) {
           ...closing].join('\n') + '\n';
 }
 
+// PURE: a server login safe to put into a command — user@host and nothing else —
+// or the placeholder, so nothing odd ever lands inside a command you paste.
+function cleanLogin(s) {
+  const t = String(s || '').trim();
+  return /^[A-Za-z0-9._-]+@[A-Za-z0-9.:\[\]-]+$/.test(t) ? t : 'you@server';
+}
+
 // PURE: the same steps for the dialog, as { label, cmd } — one command per line, each
 // with a Copy button — plus { heading } per machine when there is more than one, and
 // plain-text steps where there is nothing to run.
-function ecmRunSteps(isSh, cores, ext) {
+function ecmRunSteps(isSh, cores, ext, opts) {
+  const login = cleanLogin(opts && opts.login), localWin = !!(opts && opts.localWin);
+  const sudo = /^root@/.test(login) ? '' : 'sudo ';
   const out = [];
   cores.forEach((_, i) => {
     const m = i + 1, f = ecmMachineFiles(cores, m, ext), k = f.k;
     if (cores.length > 1) out.push({ heading: 'Machine ' + m + ' of ' + cores.length + ' — ' + k + ' core' + (k === 1 ? '' : 's') });
     if (isSh) {
+      const logs = f.worker.replace(/\.sh$/, '.log'), log1 = logs.replace('*', '1');
+      const stopPat = 'bash ' + f.worker.split('*')[0].replace(/\.sh$/, '');
       out.push(
-        { label: 'Copy the files up — scp comes with ssh:', cmd: 'scp ' + f.numbers + ' ' + f.worker + ' you@server:~/ecm/' },
-        { label: 'Log in:', cmd: 'ssh you@server' },
+        { label: 'On your own computer — create the folder on the server:', cmd: 'ssh ' + login + ' "mkdir -p ~/ecm"' },
+        ...(localWin
+          ? [{ label: 'Go to the folder your browser saved the files in (usually Downloads) — in PowerShell:', cmd: 'cd $HOME\\Downloads' },
+             { label: 'Copy them up (PowerShell lists the files for scp, which cannot expand the * on Windows):',
+               cmd: 'scp (Get-ChildItem ' + f.numbers + ', ' + f.worker + ').Name ' + login + ':~/ecm/' }]
+          : [{ label: 'Copy them up, from the folder your browser saved them in:', cmd: 'scp ' + f.numbers + ' ' + f.worker + ' ' + login + ':~/ecm/' }]),
+        { label: 'Log in:', cmd: 'ssh ' + login },
         { label: 'Go to the folder:', cmd: 'cd ~/ecm' },
-        { label: 'Install GMP-ECM — a minimal Debian or Ubuntu has none:', cmd: 'sudo apt-get update && sudo apt-get install -y gmp-ecm' },
+        { label: 'First time only — install GMP-ECM (a minimal Debian or Ubuntu has none):', cmd: sudo + 'apt-get update && ' + sudo + 'apt-get install -y gmp-ecm' },
         { label: 'Check the files arrived — expect ' + f.files + ':', cmd: 'ls ' + f.numbers + ' ' + f.worker + ' | wc -l' },
-        { label: 'Start one worker per core. setsid and </dev/null keep them running after you log out; a plain & does not:',
-          cmd: 'for i in $(seq 1 ' + k + '); do setsid bash ' + f.worker.replace('*', '$i') + ' > worker_c$i.log 2>&1 </dev/null & done' },
-        { label: 'Check they are running — expect ' + k + ' now, fewer as they finish:', cmd: 'pgrep -c ecm' },
+        { label: 'Start every worker. setsid and < /dev/null keep them running after you log out; a plain & does not:',
+          cmd: 'for f in ' + f.worker + '; do setsid bash "$f" > "${f%.sh}.log" 2>&1 < /dev/null & done' },
+        { label: 'Check they are running — expect ' + k + ', fewer as they finish. Then log out with exit; they carry on:', cmd: 'pgrep -c ecm' },
+        { label: 'Later — watch one worker live (Ctrl+C stops watching, not the worker):', cmd: 'tail -f ' + log1 },
+        { label: 'Finished curves so far, per worker:', cmd: 'grep -c "Step 2 took" ' + logs },
         { label: 'Factors found so far:', cmd: 'grep -ch Found ' + f.results },
         { label: 'Memory — if swap is in use, stop a couple of workers: swapping costs more than the extra cores gain:', cmd: 'free -h' },
-        { label: 'When they are done, bring the results back — run this on your own machine:', cmd: 'scp you@server:~/ecm/' + f.results + ' .' });
+        { label: 'To stop early without losing finished curves — the scripts first, so no new run starts, then the curves:', cmd: "pkill -f '" + stopPat + "'; pkill -x ecm" },
+        { label: 'Bring the results back — on your own computer, any time, even while they run (curves already imported are not counted twice):', cmd: 'scp ' + login + ':~/ecm/' + f.results + ' .' });
     } else {
       out.push(
         { label: 'Copy ' + f.numbers + ' and ' + f.worker + ' to the machine (' + f.files + ' files) — a shared folder or USB stick will do.' },
@@ -6734,6 +6766,20 @@ async function exportNextRuns() {
   if (platAns === null) return; // cancelled
   const isSh = /^(linux|sh|bash|l)$/i.test(platAns.trim());
   localStorage.setItem(PLATFORM_KEY, isSh ? 'sh' : 'bat');
+  // The server the steps are for — remembered, so their commands come ready to paste.
+  let login = '';
+  if (isSh) {
+    const LOGIN_KEY = 'eulerFDB_serverLogin_v1';
+    let lastLogin = '';
+    try { lastLogin = localStorage.getItem(LOGIN_KEY) || ''; } catch (e) { logSwallowed('export/loginRead', e); }
+    const ans = prompt('The server to run these on, as user@host (for example root@152.53.112.123).\n\n'
+      + 'The steps will use it, ready to paste. Leave blank for a placeholder.', lastLogin);
+    if (ans === null) return;
+    login = cleanLogin(ans) === 'you@server' ? '' : ans.trim();
+    try { localStorage.setItem(LOGIN_KEY, login); } catch (e) { logSwallowed('export/loginSave', e); }
+  }
+  // Which shell your own computer copies the files from: on Windows, scp needs PowerShell's help.
+  const localWin = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent || '');
   // Line endings are NOT cosmetic here. A .sh written with CRLF fails on Linux
   // with "bad interpreter: /bin/bash^M", and — more insidiously — a numbers file
   // with CRLF makes `sed -n 'Np'` emit a trailing \r, which gets passed into ecm
@@ -6826,10 +6872,14 @@ async function exportNextRuns() {
       `echo`,
       `echo "[${q(label)}] ${q(note)}"`,
       `echo '# run ${q(label)} ${q(note)}' >> ${importFile}`,
+      // Both filters are line-buffered: the second used to hold its lines until about
+      // 4 KB piled up or the run ended, so the import file showed nothing mid-run, and
+      // killing a worker lost the finished curves it held (measured: 3 of 3 lost). Now
+      // each curve lands in the import file as it finishes — import it any time.
       // sed line index is 1-based; idx is 0-based. tee /dev/stderr echoes the kept
       // lines to the console while the second grep writes the narrower set to the
       // import file — mirroring the Windows Write-Host + Add-Content split.
-      `sed -n '${idx + 1}p' ${numbersFile} | "$ECM" ${args} 2>&1 | grep -E --line-buffered '${keep}' | tee /dev/stderr | grep -E '${imp}' >> ${importFile}`,
+      `sed -n '${idx + 1}p' ${numbersFile} | "$ECM" ${args} 2>&1 | grep -E --line-buffered '${keep}' | tee /dev/stderr | grep -E --line-buffered '${imp}' >> ${importFile}`,
     ];
   }
 
@@ -7149,7 +7199,7 @@ async function exportNextRuns() {
   // than adapted. A generic note would have to be translated every time, which is
   // where mistakes come from.
   filesToDownload.push({ name: 'RUN_ON_SERVER' + (isSh ? '.txt' : '_WINDOWS.txt'),
-                         text: serverNotes(isSh, coresPerMachine, ext) });
+                         text: serverNotes(isSh, coresPerMachine, ext, { login }) });
 
   // Download every generated file, staggered — browsers block/drop downloads fired
   // in the same tick.
@@ -7176,7 +7226,7 @@ async function exportNextRuns() {
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
   // How to run them, with Copy buttons — the same steps RUN_ON_SERVER.txt gives.
-  showRunDialog('ECM runs exported', msg + '.', ecmRunSteps(isSh, coresPerMachine, ext),
+  showRunDialog('ECM runs exported', msg + '.', ecmRunSteps(isSh, coresPerMachine, ext, { login, localWin }),
     'Then use Import ECM results in the app — it takes all of them at once. Do NOT re-run the scripts to resume: '
       + 'import first, then Export ECM again — the next list is recomputed, and shorter. These steps are also in '
       + (isSh ? 'RUN_ON_SERVER.txt' : 'RUN_ON_SERVER_WINDOWS.txt') + '.');
