@@ -252,6 +252,13 @@
     100% { transform: translateX(200%); }
   }
 
+  .ff-banner { position: sticky; top: 0; z-index: 50; align-items: center; gap: 10px 18px; flex-wrap: wrap;
+               padding: 14px 18px; margin: 0 0 8px; background: var(--green); color: #fff; border-radius: 6px;
+               box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 15px; }
+  .ff-banner .ff-big { font-size: 20px; font-weight: 700; }
+  .ff-banner .ff-entry { font: inherit; font-size: 18px; font-weight: 700; color: #fff; cursor: pointer; padding: 2px 8px;
+                         background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.55); border-radius: 4px; }
+  .ff-banner .ff-ok { margin-left: auto; font-weight: 700; padding: 6px 18px; cursor: pointer; }
   .visitor-banner { display: none; align-items: center; gap: 6px 14px; flex-wrap: wrap; padding: 8px 16px;
                     background: var(--surface2); border-bottom: 1px solid var(--border2); font-size: 12px; color: var(--text-dim); }
   .visitor-banner strong { color: var(--text); font-weight: 500; }
@@ -560,6 +567,7 @@
 
 <!-- Visitor mode: this browser has no GitHub token, so it cannot push. Shown by
      updateVisitorMode(); says plainly that changes stay here and GitHub is untouched. -->
+<div class="ff-banner" id="ffBanner" role="alert" style="display:none"></div>
 <div class="visitor-banner" id="staleTabBanner" role="alert" style="display:none">
   <span><strong>A newer version of this app has been deployed.</strong> Reload this page — until you do,
   this tab will not push. Nothing is lost: your changes stay in this browser and go up after the reload.</span>
@@ -6335,7 +6343,7 @@ function serverNotes(isSh, cores, ext, opts) {
       '',
       '    pgrep -c ecm                      # how many are still running',
       '    tail -f ' + f.worker.replace(/\.sh$/, '.log').replace('*', '1') + '   # one worker, live (Ctrl+C stops watching)',
-      '    grep -c "Step 2 took" ' + f.worker.replace(/\.sh$/, '.log') + '   # finished curves, per worker',
+      '    grep -c "Step 2 took" ' + f.results + '   # finished curves, per worker',
       '    grep -ch Found ' + f.results + '     # factors found so far',
       '    free -h                           # see below',
       '',
@@ -6397,7 +6405,7 @@ function ecmRunSteps(isSh, cores, ext, opts) {
           cmd: 'for f in ' + f.worker + '; do setsid bash "$f" > "${f%.sh}.log" 2>&1 < /dev/null & done' },
         { label: 'Check they are running — expect ' + k + ', fewer as they finish. Then log out with exit; they carry on:', cmd: 'pgrep -c ecm' },
         { label: 'Later — watch one worker live (Ctrl+C stops watching, not the worker):', cmd: 'tail -f ' + log1 },
-        { label: 'Finished curves so far, per worker:', cmd: 'grep -c "Step 2 took" ' + logs },
+        { label: 'Finished curves so far, per worker:', cmd: 'grep -c "Step 2 took" ' + f.results },
         { label: 'Factors found so far:', cmd: 'grep -ch Found ' + f.results },
         { label: 'Memory — if swap is in use, stop a couple of workers: swapping costs more than the extra cores gain:', cmd: 'free -h' },
         { label: 'To stop early without losing finished curves — the scripts first, so no new run starts, then the curves:', cmd: "pkill -f '" + stopPat + "'; pkill -x ecm" },
@@ -6876,10 +6884,13 @@ async function exportNextRuns() {
       // 4 KB piled up or the run ended, so the import file showed nothing mid-run, and
       // killing a worker lost the finished curves it held (measured: 3 of 3 lost). Now
       // each curve lands in the import file as it finishes — import it any time.
-      // sed line index is 1-based; idx is 0-based. tee /dev/stderr echoes the kept
+      // tee >(cat >&2), not tee /dev/stderr: tee REOPENS /dev/stderr, emptying the log
+      // at every run, so the log held only the current run — its headers gone, and a
+      // count of finished curves in it far below the truth (55 against 343).
+      // sed line index is 1-based; idx is 0-based. tee >(cat >&2) echoes the kept
       // lines to the console while the second grep writes the narrower set to the
       // import file — mirroring the Windows Write-Host + Add-Content split.
-      `sed -n '${idx + 1}p' ${numbersFile} | "$ECM" ${args} 2>&1 | grep -E --line-buffered '${keep}' | tee /dev/stderr | grep -E --line-buffered '${imp}' >> ${importFile}`,
+      `sed -n '${idx + 1}p' ${numbersFile} | "$ECM" ${args} 2>&1 | grep -E --line-buffered '${keep}' | tee >(cat >&2) | grep -E --line-buffered '${imp}' >> ${importFile}`,
     ];
   }
 
@@ -9932,6 +9943,62 @@ function computeTotalCpuSec() {
   return total;
 }
 
+// ── A number fully factored: say so, loudly ────────────────────────────────────
+// Whatever brings it — an ECM import, FactorDB results, a factor added by hand, a pull
+// of what your server found — the stats are redrawn, and this compares the fully
+// factored entries with those you were already told about. New ones get a big banner,
+// with the live count; it stays (even across reloads) until you press OK.
+const FF_SEEN_KEY = 'eulerFDB_ffSeen_v1';
+let _appReady = false;     // set when startup has drawn its complete state — never judge a half-loaded one
+let _ffPending = null;     // what OK will record as seen
+
+// PURE: the entries fully factored now that were not among those already seen. With
+// nothing seen yet (a first visit, or the first load with this), nothing is announced.
+function newlyFullyFactored(currentNs, seenNs) {
+  const cur = [...new Set(currentNs)].sort((a, b) => a - b);
+  if (!Array.isArray(seenNs)) return { fresh: [], first: true };
+  const seen = new Set(seenNs);
+  return { fresh: cur.filter(n => !seen.has(n)), first: false };
+}
+
+function loadFfSeen() {
+  try { const raw = localStorage.getItem(FF_SEEN_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (e) { logSwallowed('ff/seenRead', e); return null; }
+}
+function saveFfSeen(ns) {
+  try { localStorage.setItem(FF_SEEN_KEY, JSON.stringify(ns)); } catch (e) { logSwallowed('ff/seenSave', e); }
+}
+
+function announceNewlyFullyFactored() {
+  if (!_appReady || !allEntries || !allEntries.length) return;
+  const cur = allEntries.filter(e => e.status === 'full').map(e => e.n);
+  const seen = loadFfSeen();
+  const { fresh, first } = newlyFullyFactored(cur, seen);
+  if (first) { saveFfSeen(cur.slice().sort((a, b) => a - b)); return; }
+  if (!fresh.length) return;
+  // Seen only grows: a moment's dip in the count can never cause a second announcement.
+  _ffPending = [...new Set([...(seen || []), ...cur])].sort((a, b) => a - b);
+  showFullyFactoredBanner(fresh, cur.length);
+}
+
+function showFullyFactoredBanner(fresh, total) {
+  const el = document.getElementById('ffBanner');
+  if (!el) return;
+  const shown = fresh.slice(0, 12).map(n => '<button class="ff-entry" onclick="openModal(' + n + ')" title="Open E(' + n + ')">E(' + n + ')</button>').join(' ');
+  el.innerHTML = '<div class="ff-big">🎉 ' + (fresh.length === 1 ? 'Fully factored:' : fresh.length + ' entries newly fully factored:') + ' ' + shown
+    + (fresh.length > 12 ? ' <span>+' + (fresh.length - 12) + ' more</span>' : '') + '</div>'
+    + '<div class="ff-total">Now <strong>' + total.toLocaleString() + '</strong> fully factored.</div>'
+    + '<button class="ff-ok" onclick="dismissFullyFactored()">OK</button>';
+  el.style.display = 'flex';
+}
+
+function dismissFullyFactored() {
+  if (_ffPending) saveFfSeen(_ffPending);
+  _ffPending = null;
+  const el = document.getElementById('ffBanner');
+  if (el) el.style.display = 'none';
+}
+
 function renderStats() {
   // Single pass over allEntries for all status counts (was 6 separate .filter() passes)
   const ecmD = loadECM();
@@ -9996,6 +10063,7 @@ function renderStats() {
     ${calibHtml}
     ${storageHtml}
   `;
+  try { announceNewlyFullyFactored(); } catch (e) { logSwallowed('ff/announce', e); }
 }
 
 function goPage(p) {
@@ -13750,6 +13818,7 @@ setTimeout(async () => {
       }
     }
     applyFilters();                    // render grid with promoted entries
+    _appReady = true;                  // complete now: from here a new fully factored entry is announced
     renderStats();                     // refresh stats counts
 
     console.log('localStorage breakdown:', getStorageBreakdown());
