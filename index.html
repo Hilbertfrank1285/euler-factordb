@@ -696,7 +696,7 @@
     <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
       title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
     <button class="filter-btn new-since" data-filter="new"
-      title="Entries that got new factors or runs from GitHub since you last opened them">NEW<span class="filter-count" id="newCount"></span></button>
+      title="Entries that gained a factor since you last opened them — from an ECM import, FactorDB results, a factor added by hand, the sieve, or another machine. Opening an entry clears its mark.">NEW<span class="filter-count" id="newCount"></span></button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
@@ -4134,15 +4134,11 @@ function sameEcmContent(a, b) { return ecmContentKey(a) === ecmContentKey(b); }
 // The merge step of an ECM pull — the same for chunks (ranges = the pulled blocks) and
 // the old single file (ranges = null: all of it).
 function mergePulledEcm(remoteEcm, ranges) {
-  const newsKeys = Object.keys(remoteEcm || {});
-  const curvesBefore = localHasEcmData() ? curvesByEntry(loadECM(), newsKeys) : null;
   const before = JSON.stringify(loadECM());
   // Runs deleted here and not yet pushed stay deleted, whatever GitHub still holds.
   const merged = applyDeletionsToEcm(mergeEcmData(remoteEcm), deletedHere());
   const changed = JSON.stringify(merged) !== before;
-  if (changed && curvesBefore) {
-    try { recordNews(pullNews(null, null, curvesBefore, curvesByEntry(merged, newsKeys))); } catch (e) { logSwallowed('newSince/curves', e); }
-  }
+  // Runs from GitHub are not marked NEW: NEW means a new factor (see markNewFactor).
   if (changed) {
     // Does GitHub need any of this? Only if the merge holds something GitHub's file
     // lacks. When the new runs came FROM GitHub — logged from another browser or
@@ -5189,17 +5185,24 @@ async function pushGuard() {
   return { ok: true };
 }
 
-// ── What's new since your last visit ─────────────────────────────────────────
-// A pull that brings in factors or runs — from your other machines — marks the entries
-// it touched: a NEW badge on the tile, and a line in the entry's modal saying what came
-// in. Opening the entry clears it. A browser starting from nothing (a first visit, or
-// after "Clear all local data") marks nothing: every entry would be "new".
+// ── NEW: gained a factor since you last opened it ────────────────────────────
+// Any route that adds a factor an entry did not hold marks it — an ECM or P±1 import
+// (a split or kept composite too), FactorDB results, a factor added by hand, the sieve,
+// a pull from your other machines: a NEW badge on the tile, and a line in the entry's
+// window saying what came in. Opening the entry clears it. Curves are not news: every
+// import adds runs to hundreds of entries, and NEW used to mark them all — while only
+// pulls marked anything, so for one browser doing all the imports it showed nothing.
+// A browser starting from nothing (a first visit, or after "Clear all local data")
+// marks nothing on a pull: every entry would be "new".
 const NEW_SINCE_KEY = 'eulerFDB_newSince_v1';
 let _newSince = null;
 function loadNewSince() {
   if (_newSince) return _newSince;
-  try { _newSince = JSON.parse(kvGet(NEW_SINCE_KEY) || '{}') || {}; } catch (e) { _newSince = {}; }
-  return _newSince;
+  let m = {};
+  try { m = JSON.parse(kvGet(NEW_SINCE_KEY) || '{}') || {}; } catch (e) { m = {}; }
+  // Marks from before NEW meant "a new factor" may hold only curves: they mean nothing now.
+  for (const [n, x] of Object.entries(m)) if (!x || !Array.isArray(x.factors) || !x.factors.length) delete m[n];
+  return (_newSince = m);
 }
 function saveNewSince(m) {
   _newSince = m;
@@ -5215,50 +5218,42 @@ function updateNewCount() {
   el.textContent = k ? ' ' + k : '';
   if (el.parentElement && el.parentElement.classList) el.parentElement.classList.toggle('has-new', k > 0);
 }
-// PURE: what a pull added, entry by entry — factors that were not there before, and curves.
-function pullNews(beforeFactors, afterFactors, beforeCurves, afterCurves) {
+// PURE: the factors a pull added, entry by entry — ones that were not there before.
+function pullNews(beforeFactors, afterFactors) {
   const out = {};
   for (const [n, fs] of Object.entries(afterFactors || {})) {
     const had = new Set((beforeFactors || {})[n] || []);
     const added = (fs || []).filter(f => !had.has(f));
-    if (added.length) (out[n] = out[n] || {}).factors = added;
+    if (added.length) out[n] = { factors: added };
   }
-  for (const [n, c] of Object.entries(afterCurves || {})) {
-    const d = c - (((beforeCurves || {})[n]) || 0);
-    if (d > 0) (out[n] = out[n] || {}).curves = d;
-  }
-  return out;
-}
-function curvesByEntry(ecm, keys) {
-  const out = {};
-  for (const n of keys) out[n] = ((ecm || {})[n] || []).reduce((t, a) => t + (parseInt(a.curves) || 0), 0);
   return out;
 }
 function pickEntries(map, keys) { const out = {}; for (const k of keys) if (map && map[k]) out[k] = map[k]; return out; }
-// PURE: marks build up until seen — factors as a set, curves as a sum.
+// PURE: marks build up until seen — the new factors, as a set.
 function addNewsTo(marks, news, now) {
   const out = Object.assign({}, marks);
   for (const [n, x] of Object.entries(news || {})) {
-    const m = Object.assign({ factors: [], curves: 0 }, out[n] || {});
-    if (x.factors) m.factors = Array.from(new Set([...(m.factors || []), ...x.factors]));
-    if (x.curves) m.curves = (m.curves || 0) + x.curves;
-    m.at = now;
-    out[n] = m;
+    if (!x || !x.factors || !x.factors.length) continue;
+    const had = (out[n] && out[n].factors) || [];
+    out[n] = { factors: Array.from(new Set([...had, ...x.factors.map(String)])), at: now };
   }
   return out;
 }
-// PURE: the mark as words — "1 new factor (23d) · 400 more curves".
+// PURE: the mark as words — "2 new factors (14d, 15d)".
 function newSinceText(mark) {
-  const parts = [], f = (mark && mark.factors) || [];
-  if (f.length) parts.push(f.length + ' new factor' + (f.length === 1 ? '' : 's') + ' (' + f.map(x => String(x).length + 'd').join(', ') + ')');
-  if (mark && mark.curves) parts.push(Number(mark.curves).toLocaleString() + ' more curve' + (mark.curves === 1 ? '' : 's'));
-  return parts.join(' · ');
+  const f = (mark && mark.factors) || [];
+  return f.length ? f.length + ' new factor' + (f.length === 1 ? '' : 's') + ' (' + f.map(x => String(x).length + 'd').join(', ') + ')' : '';
 }
 function recordNews(news) {
   const k = Object.keys(news || {});
   if (!k.length) return;
   saveNewSince(addNewsTo(loadNewSince(), news, Date.now()));
-  addLog('New from GitHub: ' + k.length + ' entr' + (k.length === 1 ? 'y has' : 'ies have') + ' new factors or runs — marked NEW', 'ok');
+  addLog('New from GitHub: ' + k.length + ' entr' + (k.length === 1 ? 'y gained' : 'ies gained') + ' factors — marked NEW', 'ok');
+}
+// One new factor on one entry — called where a factor the entry did not hold is added,
+// never from the discovery history, which lacks factors recorded before it existed.
+function markNewFactor(n, factor) {
+  saveNewSince(addNewsTo(loadNewSince(), { [String(n)]: { factors: [String(factor).split('^')[0]] } }, Date.now()));
 }
 function markSeen(n) {
   const m = loadNewSince();
@@ -5314,7 +5309,7 @@ function mergePulledMain(payload, skipRender, recordBase) {
   const pulledCount = Object.keys(fdbCache || {}).length;
   setGHStatus('✓ Pulled from GitHub — ' + pulledCount + ' entries merged', 'ok');
   if (factorsBefore) {
-    try { recordNews(pullNews(factorsBefore, pickEntries(factorsFromPayload(buildSyncPayload()), newsKeys), null, null)); }
+    try { recordNews(pullNews(factorsBefore, pickEntries(factorsFromPayload(buildSyncPayload()), newsKeys))); }
     catch (e) { logSwallowed('newSince/factors', e); }
   }
   // Back to exactly what was pending BEFORE the pull. What the pull brought in came
@@ -8114,6 +8109,7 @@ function recordEcmFactor(entry, factorStr, method, opts) {
   // Every log find used to be 'e', so a factor a P-1 run found was labelled "your ECM".
   const code = (method === 'P-1' || method === 'P+1') ? 'p' : 'e';
   try { recordDiscovery(n, factorStr, code); } catch(e) { logSwallowed('recordEcmFactor/history', e); }
+  try { markNewFactor(n, factorStr); } catch(e) { logSwallowed('recordEcmFactor/new', e); }   // past the 'dup' check: new to the entry
 
   // Log to changelog data layer (panel removed, but sync payload still carries it).
   try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]')); } catch(e) { logSwallowed('recordEcmFactor/changelog', e); }
@@ -8385,6 +8381,14 @@ function applyFdbResult(data, n, numberStr) {
   try {
     for (const f of fdbPrimes) recordDiscovery(n, f, 'f');
   } catch(e) { logSwallowed('applyFdbResult/history', e); }
+  // NEW: what FactorDB brought that the entry did not hold. Judged against the entry's
+  // own factors, not the history — that lacks factors recorded before it existed.
+  if (entry) {
+    try {
+      const had = new Set(priorOwn.map(f => String(f).split('^')[0]));
+      for (const f of merged) { const b = String(f).split('^')[0]; if (!had.has(b)) markNewFactor(n, b); }
+    } catch(e) { logSwallowed('applyFdbResult/new', e); }
+  }
 
   // Source: 'fdb' only if FDB covers every prime base we hold, at >= the power
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
@@ -9415,6 +9419,7 @@ function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, 
   // invisible to the yield report, the finds column and factorProvenance. It
   // showed as belonging to nobody.
   try { recordDiscovery(n, factorStr, prov); } catch (err) { logSwallowed('manualAdd/prov', err); }
+  try { markNewFactor(n, factorStr); } catch (err) { logSwallowed('manualAdd/new', err); }
 
   // MERGE into the cache record, do not replace it.
   //
@@ -9823,7 +9828,7 @@ function renderGrid() {
 
     const newMark = loadNewSince()[String(e.n)];
     const newBadge = newMark
-      ? `<span class="card-badge badge-new" title="New since your last visit: ${escHtml(newSinceText(newMark))}">NEW</span>` : '';
+      ? `<span class="card-badge badge-new" title="Since you last opened it: ${escHtml(newSinceText(newMark))}">NEW</span>` : '';
     return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative" data-n="${e.n}">
       <div class="card-label">E(${e.n})<span class="card-sign" title="E(${e.n}) is ${signWord}">${signWord}</span></div>
       ${badge}${aheadBadge}${newBadge}
@@ -10343,7 +10348,7 @@ function openModal(n) {
       + '</div>';
   }
   const newMarkM = loadNewSince()[String(n)];
-  const newHtml   = newMarkM ? `<div class="new-since-line">✦ New since your last visit: ${escHtml(newSinceText(newMarkM))}</div>` : '';
+  const newHtml   = newMarkM ? `<div class="new-since-line">✦ Since you last opened it: ${escHtml(newSinceText(newMarkM))}</div>` : '';
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${escHtml(e.note)}</div>` : '';
 
   // Unknown + FactorDB check
@@ -13126,6 +13131,7 @@ function applySieveFindings() {
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('sieveApply/val', err); continue; }
     const add = [];
+    const hadBases = new Set((e.factors || []).map(x => String(x).split('^')[0]));
     for (const h of f.hits) {
       // Re-verify: the data may have changed since the scan, and writing a factor
       // that does not divide is exactly the class of bug this app has had before.
@@ -13134,6 +13140,7 @@ function applySieveFindings() {
       } catch(err) { logSwallowed('sieveApply/verify', err); rejected++; continue; }
       add.push(h.exp > 1 ? h.p + '^' + h.exp : h.p);
       try { recordDiscovery(f.n, h.p, 's'); } catch(err) { logSwallowed('sieveApply/history', err); }
+      if (!hadBases.has(String(h.p))) { try { markNewFactor(f.n, h.p); } catch(err) { logSwallowed('sieveApply/new', err); } }
       applied++;
     }
     if (!add.length) continue;
