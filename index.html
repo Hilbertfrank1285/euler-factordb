@@ -1198,7 +1198,12 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
   return { findings, scanned, skipped, covered, candidates: cands.length };
 }
 
-function factorizeSmall(n) {
+// How long the import may spend splitting one composite factor GMP-ECM reports.
+// Brent's rho split a real one — 28 digits, two primes of 14 and 15 digits found by
+// the same curve — in 1.5-4.8 s; the old 800 ms never could, and the factor was lost.
+const COMPOSITE_SPLIT_MS = 8000;
+
+function factorizeSmall(n, budgetMs = 800) {
   const out = [];
   if (n < 2n) return out;
   // small trial division
@@ -1221,21 +1226,30 @@ function factorizeSmall(n) {
   // make the whole import look hung. A wall-clock deadline gives a predictable
   // bound regardless of how hard the composite turns out to be.
   const rho = (m, deadline) => {
+    // Brent's rho, as the comment above promises: the differences are multiplied
+    // together and ONE gcd is taken per batch of 128 steps — the gcd every step that
+    // this used to take was most of its cost. When a batch overshoots (the product
+    // hits 0 mod m), it steps back through that batch one at a time.
     if (m % 2n === 0n) return 2n;
     while (Date.now() < deadline) {
       const c = 1n + BigInt(Math.floor(Math.random() * 1e9)) % (m - 1n);
-      let x = 2n, y = 2n, d = 1n;
-      const f = (v) => (v * v + c) % m;
-      let guard = 0;
-      while (d === 1n) {
-        x = f(x);
-        y = f(f(y));
-        d = gcd(absBig(x - y), m);
-        // Checking Date.now() every iteration would itself be real overhead across
-        // millions of iterations, so only check every 4096.
-        if ((++guard & 0xFFF) === 0 && Date.now() >= deadline) return null;
+      let y = 2n, r = 1, q = 1n, g = 1n, x = 0n, ys = 0n;
+      while (g === 1n) {
+        x = y;
+        for (let i = 0; i < r; i++) y = (y * y + c) % m;
+        for (let k = 0; k < r && g === 1n; k += 128) {
+          ys = y;
+          const lim = Math.min(128, r - k);
+          for (let i = 0; i < lim; i++) { y = (y * y + c) % m; q = (q * absBig(x - y)) % m; }
+          g = gcd(q, m);
+          if (Date.now() >= deadline) return null;
+        }
+        r *= 2;
       }
-      if (d !== 1n && d !== m) return d;
+      if (g === m) {
+        do { ys = (ys * ys + c) % m; g = gcd(absBig(x - ys), m); } while (g === 1n);
+      }
+      if (g !== m) return g;
     }
     return null; // deadline reached without finding a factor
   };
@@ -1243,7 +1257,7 @@ function factorizeSmall(n) {
   // Recursively split with a work stack, sharing ONE overall time budget across
   // every split attempt — not a fresh budget per attempt, so total time spent on
   // any single composite (however many pieces it splits into) stays bounded.
-  const deadline = Date.now() + 800;
+  const deadline = Date.now() + budgetMs;
   const stack = [n];
   let steps = 0;
   while (stack.length) {
@@ -7353,10 +7367,11 @@ function exportFDBCheckList() {
   showRunDialog('FactorDB check list exported',
     'Exported ' + entries(picked.length) + ' — ' + chosen.label + ' (' + mb(chosen.bytes) + ').'
       + (chosen.key === 'submitted' ? ' Importing the results clears the confirmed ones from your pending list.' : ''),
-    [{ label: '1. Try five first — shows whether these can be reached at all:', cmd: check + ' --limit 5' },
-     { label: '2. Then the full run — it skips the five already done:', cmd: check + ' --resume' }],
-    'Any machine with Python 3 — no server, no size limit (euler.py sends large numbers in the request body). '
-      + 'Bring fdb_results.json back with Import FDB results.');
+    // One command. No trial run; and no --resume, which would skip every number already
+    // in fdb_results.json — the answers of an OLD check, if one is left in the folder.
+    [{ label: 'Run it — on any machine with Python 3:', cmd: check }],
+    'No server, no size limit — a large number is asked for by name, as E(n), and the answer checked against the number itself — and progress is saved after every number: '
+      + 'if it is interrupted, run the same line with --resume added to carry on. Bring fdb_results.json back with Import FDB results.');
 }
 
 // Import what euler.py check produced. Everything is routed through applyFdbResult,
@@ -7890,7 +7905,9 @@ async function processEcmLogText(text, sourceLabel) {
     for (const f of blk.factors.values()) {
       if (f.composite) {
         let primes = null;
-        try { primes = factorizeSmall(BigInt(f.value)); } catch(_) { primes = null; }
+        setStatus('Splitting a composite factor of E(' + owner.n + ') (' + f.value.length + 'd)…');
+        await new Promise(r => setTimeout(r, 0));   // let the status show before the work starts
+        try { primes = factorizeSmall(BigInt(f.value), COMPOSITE_SPLIT_MS); } catch(_) { primes = null; }
         let viaFdb = false;
         if ((!primes || !primes.length) && !fdbBreakerOpen()) {
           // Skip entirely once the breaker is open. The breaker already prevents the
@@ -7925,7 +7942,15 @@ async function processEcmLogText(text, sourceLabel) {
           }
           if (recorded.length) summary.push('• E(' + owner.n + ') ← composite ' + f.value + ' split into ' + recorded.join(' × ') + (viaFdb ? ' (via FactorDB)' : ''));
         } else {
-          summary.push('• E(' + owner.n + ') found COMPOSITE ' + f.value + ' (' + f.value.length + 'd) — could not split (tried locally + FactorDB), run logged');
+          // KEEP it. It is a true divisor of E(n) — real progress that shrinks the
+          // cofactor — just not split yet. It used to be dropped here, with only a
+          // line in this summary, despite the comment above promising it was kept.
+          // Stored as one factor, Check data flags it and splits it when it can.
+          const kept = recordEcmFactor(owner, f.value, blk.method, { composite: true });
+          if (kept === 'new') factorsNew++;
+          else if (kept === 'dup') factorsDup++;
+          summary.push('• E(' + owner.n + ') ← composite ' + f.value + ' (' + f.value.length + 'd) KEPT as one factor — '
+            + 'it could not be split yet (tried locally + FactorDB); ⚕ Check data will split it later');
         }
         continue;
       }
@@ -8022,7 +8047,7 @@ function factorDividesValue(valStr, factorStr) {
   } catch(e) { logSwallowed('factorDividesValue', e); return null; }
 }
 
-function recordEcmFactor(entry, factorStr, method) {
+function recordEcmFactor(entry, factorStr, method, opts) {
   const n = entry.n;
   const parsePow = f => { const mm = /^(\d+)\^(\d+)$/.exec(String(f)); return mm ? { base: mm[1], exp: +mm[2] } : { base: String(f), exp: 1 }; };
 
@@ -8053,7 +8078,9 @@ function recordEcmFactor(entry, factorStr, method) {
     const vBig = BigInt(entry.val);
     let prod = 1n;
     for (const f of merged) { const { base, exp } = parsePow(f); prod *= BigInt(base) ** BigInt(exp); }
-    if (prod === vBig)      status = 'full';      // fully factored
+    // Fully factored only when nothing known-composite remains: an unsplit composite
+    // kept as a factor still needs splitting, however completely the factors multiply.
+    if (prod === vBig)      status = (opts && opts.composite) ? 'partial' : 'full';
     else if (vBig % prod === 0n) status = 'partial';   // some primes known, cofactor remains
     else status = entry.status; // shouldn't happen (factor divides value), keep as-is
   } catch { /* keep current status */ }
@@ -10297,29 +10324,22 @@ function openModal(n) {
   // three lines after setting it — so the loading state was dead code that could
   // never render. Only visible once the variable was declared and both writes
   // could be read as one flow.
-  // The value opens FactorDB by FactorDB's own ID when the app knows it: a short URL
-  // that always resolves. It used to put the ENTIRE number in the address — for a
-  // 72,613-digit E(n), a 73 KB URL that FactorDB refuses, so clicking the value did
-  // nothing useful on exactly the entries where you most want to look. That length
-  // limit is what capped the old in-browser check. The query form is kept only for a
-  // number short enough to fit; otherwise the box is plain text and says nothing about
-  // clicking.
+  // The value opens FactorDB: by FactorDB's own id when the app knows it, otherwise by
+  // NAME. FactorDB evaluates E(n) itself (OEIS A000111 — for even n exactly this E(n)),
+  // so ?query=E(n) works at any size. Putting the whole number in the address stopped at
+  // FactorDB's URL limit (~32,000 digits): the biggest entries — the ones you most want
+  // to look at — had no link at all.
   if (e.val) {
     const rec = fdbCache[e.val];
     const fdbLink = (rec && rec.fdbIdExact)
       ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbIdExact)
-      : (e.val.length <= currentQueryCap()
-          ? 'https://factordb.com/index.php?query=' + encodeURIComponent(e.val) : null);
+      : 'https://factordb.com/?query=' + encodeURIComponent('E(' + n + ')');
     const copyBtn = '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>';
     valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value'
-      + (fdbLink ? ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span>'
-                 : ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— too long to look up by value; '
-                 + 'run euler.py check to fetch its FactorDB link</span>')
+      + ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span>'
       + '</div>'
-      + (fdbLink
-          ? '<a class="value-box cofactor-link" href="' + fdbLink + '" target="_blank" rel="noopener" style="position:relative">'
-            + copyBtn + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a>'
-          : '<div class="value-box" style="position:relative">' + copyBtn + '<strong>' + e.val + '</strong></div>')
+      + '<a class="value-box cofactor-link" href="' + fdbLink + '" target="_blank" rel="noopener" style="position:relative">'
+      + copyBtn + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a>'
       + '</div>';
   }
   const newMarkM = loadNewSince()[String(n)];
