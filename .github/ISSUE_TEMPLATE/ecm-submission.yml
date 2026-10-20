@@ -1,0 +1,36 @@
+name: ECM results submission
+description: Send ECM results to the owner for review. Make the submission file first, with "Contribute results" on the website.
+title: "[ECM submission] "
+labels: ["ecm-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for contributing! The owner reviews every submission and accepts it in full, in part, or not at all, and replies here.
+        Factors are always checked against E(n). Curves are taken on trust, so please describe what you ran in your note.
+  - type: input
+    id: contributor
+    attributes:
+      label: Your name
+      description: How you would like to be credited, and optionally how to reach you.
+    validations:
+      required: true
+  - type: textarea
+    id: note
+    attributes:
+      label: Note to the owner
+      description: What you ran, on what hardware, and anything else worth knowing.
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Filled in by the website.
+  - type: textarea
+    id: file
+    attributes:
+      label: Submission file
+      description: Drag the downloaded ecm-submission-….json file into this box.
+    validations:
+      required: true
