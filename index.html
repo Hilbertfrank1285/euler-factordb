@@ -561,6 +561,22 @@
   .ecm-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 0 4px; }
   .ecm-delete:hover { color: var(--red); }
 
+/* submissions: a contributor's results, reviewed */
+.sub-totals { font-weight: 600; margin: 6px 0 10px; }
+.sub-entry { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 6px; padding: 6px 10px; margin: 6px 0; }
+.sub-entry ul { margin: 4px 0 0 18px; padding: 0; font-size: 12px; }
+.sub-ok { border-left-color: var(--green); } .sub-warn { border-left-color: var(--yellow); } .sub-bad { border-left-color: var(--red); }
+.sub-head { cursor: pointer; } .sub-dim { color: var(--text-muted); font-size: 12px; }
+.sub-bad-t { color: var(--red); } .sub-warn-t { color: var(--yellow); }
+.sub-unmatched { color: var(--red); font-size: 12px; margin: 6px 0; }
+.sub-from { background: var(--surface2); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+.sub-note { white-space: pre-wrap; margin-top: 4px; font-style: italic; }
+.sub-next { background: var(--surface2); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.contrib-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.contrib-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.contrib-form label.sub-inline { flex-direction: row; align-items: center; gap: 6px; }
+.contrib-form input:not([type=checkbox]), .contrib-form textarea { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 5px; font: inherit; }
+.sub-ledger { font-size: 12px; padding-left: 18px; }
 </style>
 </head>
 <body>
@@ -629,6 +645,10 @@
     style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations. Also accepts a results_ecm.json backup, which is merged into the ECM store rather than replacing it.">
     ↑ Import ECM results
   </button>
+  <button class="poll-btn" id="contribBtn" onclick="contributeResults()" style="display:none;background:var(--surface2)"
+    title="Ran ECM on these numbers? Send your results to the owner: this checks them and makes a submission file for a GitHub issue. Nothing changes here or on GitHub until the owner accepts.">🤝 Contribute results</button>
+  <button class="poll-btn" id="submissionsBtn" onclick="openSubmissions()" style="display:none;background:var(--surface2)"
+    title="Review ECM results other people sent you: every factor and run checked, then accept all, part, or none. Each decision is kept with the sender's name and note.">📥 Submissions</button>
 
   <span class="bar-sep"></span>
   <span class="bar-label">FactorDB</span>
@@ -1857,6 +1877,9 @@ function saveECM(d) {
         // `ms` is the real measured run time. Dropping it would quietly downgrade
         // exact CPU figures back to estimates on the next save.
         if (a.ms > 0) out.ms = a.ms;
+        // Curves a contributor ran (their sigmas): counted for planning, kept out of
+        // the time model. Dropped here, they would quietly become "yours".
+        if (Array.isArray(a.xs) && a.xs.length) out.xs = a.xs;
         return out;
       });
     }
@@ -3941,6 +3964,10 @@ function updateVisitorMode() {
   const v = isVisitor();
   const banner = document.getElementById('visitorBanner');
   if (banner) banner.style.display = v ? 'flex' : 'none';
+  // Visitors contribute; the owner reviews what they send.
+  const cb = document.getElementById('contribBtn'), sb = document.getElementById('submissionsBtn');
+  if (cb) cb.style.display = v ? '' : 'none';
+  if (sb) sb.style.display = v ? 'none' : '';
   const who = document.getElementById('visitorOwner');
   if (who) who.textContent = loadGHSettings().user || 'hilbertfrank1285';
   const push = document.getElementById('ghPushBtn'), local = document.getElementById('ghLocalLabel');
@@ -4057,6 +4084,7 @@ function normalizeEcmAttempts(attempts) {
     if (!hit) { seen.set(key, a); out.push(a); continue; }
     const u = new Set([...(hit.sigmas||[]), ...(a.sigmas||[])]);
     if (u.size) hit.sigmas = Array.from(u);
+    if ((a.xs && a.xs.length) || (hit.xs && hit.xs.length)) hit.xs = Array.from(new Set([...(hit.xs||[]), ...(a.xs||[])]));
     hit.curves = String(Math.max(parseInt(hit.curves)||0, parseInt(a.curves)||0, u.size));
     // Measured time merges the same way curves do — MAX, not sum. This branch
     // treats the two records as overlapping reports of the same work (that's why
@@ -4091,6 +4119,7 @@ function mergeEcmInto(local, remoteEcm) {
       if (hs.length || as.length) {
         const u = new Set(hs); for (const s of as) u.add(s);
         hit.sigmas = Array.from(u);
+        if ((a.xs && a.xs.length) || (hit.xs && hit.xs.length)) hit.xs = Array.from(new Set([...(hit.xs||[]), ...(a.xs||[])]));
         hit.curves = String(Math.max(u.size, parseInt(hit.curves)||0, parseInt(a.curves)||0));
       } else {
         const hc = parseInt(hit.curves) || 0, ac = parseInt(a.curves) || 0;
@@ -4357,6 +4386,8 @@ function buildSyncPayload() {
     // would recreate exactly the problem it exists to solve. Deduped on merge by
     // (n, factorHash), so repeated pull/push cycles converge rather than grow.
     history: loadHistory(),
+    // Decisions on other people's submissions, with their names and notes.
+    contributions: loadContributions(),
     // Entries confirmed fully factored on FactorDB whose missing prime is too large
     // to verify locally. Shared so the acknowledgement does not have to be repeated
     // on every machine.
@@ -4632,6 +4663,7 @@ function mergeSyncPayload(remote) {
   // recomputing it locally.
   if (Array.isArray(remote.history) && remote.history.length) {
     try { mergeHistory(remote.history); } catch(e) { logSwallowed('merge/history', e); }
+    try { mergeContributions(remote.contributions); } catch(e) { logSwallowed('merge/contributions', e); }
   }
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
@@ -7434,6 +7466,426 @@ function downloadText(filename, text) {
 // Entry point: let the user load a results file (drag-drop happens via the drop
 // zone; this opens a file picker) OR fall back to pasting. Both feed the same
 // parser. A file avoids prompt()'s length limit and is far less error-prone.
+// ══ Contributions: ECM results from other people ═════════════════════════════
+// Someone without your token runs ECM and sends you the results. Nothing they send
+// touches your data until you accept it. Their logs travel as one submission file,
+// made by "Contribute results" and attached to a GitHub issue. You open it under
+// "Submissions": every factor is checked against E(n), every run's input number too,
+// curves you already have are recognised by their sigma, and timings far faster than
+// your machines manage are flagged. You accept all of it, part of it, or none; each
+// decision goes into a ledger that travels with your data (meta.json), with the
+// contributor's name and note. Factors are proof. Curves that found nothing are not —
+// ECM leaves no proof of work — so they are worth exactly the sender's honesty.
+const SUBMISSION_KIND = 'euler-ecm-submission';
+const CONTRIB_KEY = 'eulerFDB_contributions_v1';
+const SUBMISSION_REPO_DEFAULT = 'hilbertfrank1285/euler-factordb';
+// A run this many times faster than your own machines would do it is flagged.
+const SUBMISSION_TOO_FAST = 0.2;
+
+function loadContributions() {
+  try { const a = JSON.parse(kvGet(CONTRIB_KEY) || '[]'); return Array.isArray(a) ? a.filter(r => r && r.id) : []; }
+  catch (e) { return []; }
+}
+function saveContributions(list) {
+  try { kvSet(CONTRIB_KEY, JSON.stringify(list)); } catch (e) { logSwallowed('contrib/save', e); }
+  markDirty('contributions');
+}
+// PURE: two ledgers as one, by submission id; where both decided, the later decision stands.
+function mergeContributionLists(local, remote) {
+  const out = new Map();
+  for (const r of [...(local || []), ...(remote || [])]) {
+    if (!r || !r.id) continue;
+    const had = out.get(r.id);
+    if (!had || String(r.decided || '') > String(had.decided || '')) out.set(r.id, r);
+  }
+  return Array.from(out.values()).sort((a, b) => String(a.decided || '').localeCompare(String(b.decided || '')));
+}
+function mergeContributions(remote) {
+  if (!Array.isArray(remote) || !remote.length) return;
+  const local = loadContributions(), merged = mergeContributionLists(local, remote);
+  if (JSON.stringify(merged) !== JSON.stringify(local)) {
+    try { kvSet(CONTRIB_KEY, JSON.stringify(merged)); } catch (e) { logSwallowed('contrib/merge', e); }
+  }
+}
+
+// PURE: the submission file — the contributor's logs, name and note, as one JSON.
+function buildSubmission(files, by, note, created) {
+  const name = String((by && by.name) || '').trim(), text = String(note || '').trim();
+  if (!name) throw new Error('Please give your name — it is how you will be credited.');
+  if (!text) throw new Error('Please write a note to the owner: what you ran, and on what.');
+  const fl = (files || []).map(f => ({ name: String(f.name || 'log.txt'), text: String(f.text || '') })).filter(f => f.text);
+  if (!fl.length) throw new Error('No result files to send.');
+  const all = name + '|' + created + '|' + fl.map(f => f.name + '\n' + f.text).join('\n');
+  return { kind: SUBMISSION_KIND, v: 1, id: 'S' + _hashStr(all) + _hashStr(all + '#'), created,
+    by: { name: name.slice(0, 80), contact: String((by && by.contact) || '').trim().slice(0, 120) },
+    note: text.slice(0, 4000), files: fl };
+}
+// PURE: a submission file read back — or why it is not one.
+function readSubmission(raw) {
+  let o;
+  try { o = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return { error: 'Not a submission file (it is not JSON).' }; }
+  if (!o || o.kind !== SUBMISSION_KIND) return { error: 'Not an ECM submission file.' };
+  if (o.v !== 1) return { error: 'Made by a newer version of the website (format ' + o.v + ') — reload the page and try again.' };
+  if (!o.id || !o.by || !String(o.by.name || '').trim() || !Array.isArray(o.files) || !o.files.length
+      || !o.files.every(f => f && typeof f.text === 'string')) return { error: 'The submission file is incomplete.' };
+  return { sub: o };
+}
+function submissionFileName(sub) {
+  const who = String(sub.by.name).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'contributor';
+  return 'ecm-submission-' + who + '-' + String(sub.created).slice(0, 10) + '.json';
+}
+function submissionRepo() {
+  let s = {}; try { s = loadGHSettings() || {}; } catch (e) { s = {}; }
+  return (s.user && s.repo) ? s.user + '/' + s.repo : SUBMISSION_REPO_DEFAULT;
+}
+// PURE: GitHub's new-issue page, with the issue form filled in from the submission.
+function submissionIssueUrl(sub, summaryText, repo) {
+  const q = new URLSearchParams({
+    template: 'ecm-submission.yml',
+    title: '[ECM submission] ' + sub.by.name + ' — ' + summaryText,
+    contributor: sub.by.name + (sub.by.contact ? ' (' + sub.by.contact + ')' : ''),
+    note: String(sub.note).slice(0, 1500),
+    summary: summaryText + '\nSubmission id: ' + sub.id,
+  });
+  return 'https://github.com/' + repo + '/issues/new?' + q.toString();
+}
+// PURE: only a plain https link is kept as the issue link.
+function cleanIssueUrl(s) { s = String(s || '').trim(); return /^https:\/\/[^\s"'<>]+$/.test(s) ? s : ''; }
+
+// E(n) without its known factors — what a run has to search — or null if the factors do not fit.
+function cofactorBig(n, vBig) {
+  const e = entryByN(n), fs = (e && e.factors) || [];
+  let prod = 1n;
+  try { for (const f of fs) { const [b, k] = String(f).split('^'); prod *= BigInt(b) ** BigInt(k || 1); } } catch (err) { return null; }
+  return (prod > 0n && vBig % prod === 0n) ? vBig / prod : null;
+}
+// The E(n) a block's input number belongs to: equal to E(n), or dividing it and still
+// holding the whole unfactored cofactor — a run on anything else searched nothing
+// useful. The comment line names an E(n) too, but it is the sender's: only a hint of
+// where to look first.
+function submissionOwner(blk, cache) {
+  if (!blk.numberIsClean) return { n: null, ok: false, why: 'the input number is not readable' };
+  const num = blk.number;
+  if (cache.has(num)) return cache.get(num);
+  let res = { n: null, ok: false, why: 'it divides no E(n) here' };
+  let bBig = null; try { bBig = BigInt(num); } catch (e) { bBig = null; }
+  const tryN = (n) => {
+    const v = eulerValues[n];
+    if (!v || num.length > v.length) return false;
+    const vBig = bigOfDecimal(v);
+    if (vBig % bBig !== 0n) return false;
+    const cof = cofactorBig(n, vBig);
+    res = (cof == null || bBig % cof === 0n) ? { n, ok: true, why: '' }
+        : { n, ok: false, why: 'the number lacks part of the unfactored cofactor — the run searched the wrong number' };
+    return true;
+  };
+  if (bBig != null && bBig > 1n && !(blk.commentN != null && tryN(blk.commentN))) {
+    for (const k of Object.keys(eulerValues)) if (tryN(parseInt(k))) break;
+  }
+  cache.set(num, res);
+  return res;
+}
+// "Covered to tN": the highest level at the 63% target, or proven empty by the sieve.
+function coveredTo(e, digits, attempts, sd) {
+  let covered = 0;
+  for (const r of computeCostToFinish(e, digits, attempts)) {
+    if (r.have >= COST_TARGET_LO || (sd > 0 && r.d <= sd)) covered = Math.max(covered, r.d);
+  }
+  return covered;
+}
+function recLabel(rec) { return rec ? rec.method + ' B1=' + rec.b1 + (rec.curves ? ', ' + rec.curves + ' curves' : '') : 'nothing'; }
+
+// What a submission would do — computed, never applied. The hooks let tests replace
+// the time model and the planner.
+function reviewSubmission(sub, hooks) {
+  hooks = hooks || {};
+  const estimate  = hooks.estimate  || ((m, b1, b2, c, d) => estimateCpuSeconds(m, b1, b2, c, d));
+  const recommend = hooks.recommend || ((d, att, sd) => recommendNextRun(d, att, sd));
+  const covered   = hooks.covered   || ((e, d, att, sd) => coveredTo(e, d, att, sd));
+  const ecm = loadECM(), cache = new Map(), byN = new Map(), unmatched = [];
+  const seenSig = new Map(), seenPm1 = new Set();
+  (sub.files || []).forEach((file, fi) => {
+    parseEcmLogBlocks(file.text).blocks.forEach((blk, bi) => {
+      const key = fi + ':' + bi, own = submissionOwner(blk, cache);
+      if (own.n == null) {
+        unmatched.push({ key, file: file.name, number: String(blk.number).slice(0, 14), digits: blk.declaredDigits || String(blk.number).length, why: own.why });
+        return;
+      }
+      const n = own.n, e = entryByN(n), digits = e ? getCofactorDigits(e) : null;
+      if (!byN.has(n)) byN.set(n, { n, runs: [], factors: [], fresh: [] });
+      const ent = byN.get(n);
+      const sigmas = Array.from(blk.sigmas || []);
+      const method = sigmas.length ? 'ECM' : blk.method;      // as the import decides
+      const pm1 = method === 'P-1' || method === 'P+1';
+      const b1n = blk.b1 ? parseB1(blk.b1) : null;
+      const rk = n + '|' + method + '|' + b1n;
+      const have = (ecm[String(n)] || []).find(a => a.method === method && parseB1(a.b1) === b1n);
+      let fresh = 0, freshSig = [];
+      if (own.ok && b1n) {
+        if (!pm1) {
+          if (!seenSig.has(rk)) seenSig.set(rk, new Set((have && have.sigmas) || []));
+          const seen = seenSig.get(rk);
+          freshSig = sigmas.filter(s => !seen.has(s));
+          freshSig.forEach(s => seen.add(s));
+          fresh = freshSig.length;
+        } else if (!have && !seenPm1.has(rk) && (blk.hadProgress || blk.sawStep2)) fresh = 1;
+        if (pm1) seenPm1.add(rk);
+        if (fresh) ent.fresh.push({ method, b1: blk.b1, b2: blk.b2, b1n, sigmas: freshSig, curves: fresh });
+      }
+      let timing = 'none', ratio = null;
+      const usable = pm1 ? 1 : sigmas.length;
+      if (blk.timeMs > 0 && usable > 0 && b1n && digits) {
+        const exp = estimate(method, b1n, blk.b2 ? parseB1(blk.b2) : null, usable, digits);
+        if (exp > 0) { ratio = (blk.timeMs / 1000) / exp; timing = ratio < SUBMISSION_TOO_FAST ? 'fast' : 'ok'; }
+      } else if (blk.timeMs > 0) timing = 'ok';
+      ent.runs.push({ key, file: file.name, method, b1: blk.b1, curves: pm1 ? 1 : (sigmas.length || blk.curves), fresh,
+        check: own.ok ? 'ok' : 'wrong', why: own.why, timing, ratio, ms: blk.timeMs || 0, nosigma: !pm1 && !sigmas.length });
+      for (const f of blk.factors.values()) {
+        let divides = false, prime = false;
+        try { const fb = BigInt(f.value); divides = fb > 1n && bigOfDecimal(eulerValues[n]) % fb === 0n; } catch (err) { divides = false; }
+        try { prime = !f.composite && isProbablePrime(BigInt(f.value)); } catch (err) { prime = false; }
+        const known = ((e && e.factors) || []).some(x => String(x).split('^')[0] === f.value);
+        if (!ent.factors.some(x => x.value === f.value)) ent.factors.push({ value: f.value, digits: f.value.length, divides, prime, known, composite: !!f.composite, key });
+      }
+    });
+  });
+  const entries = [];
+  for (const ent of byN.values()) {
+    const e = entryByN(ent.n), digits = e ? getCofactorDigits(e) : null;
+    let sd = 0; try { sd = sieveDepthDigits(ent.n) || 0; } catch (err) { sd = 0; }
+    const before = normalizeEcmAttempts(JSON.parse(JSON.stringify(ecm[String(ent.n)] || [])));
+    const after = JSON.parse(JSON.stringify(before));
+    for (const fr of ent.fresh) {
+      const hit = after.find(a => a.method === fr.method && parseB1(a.b1) === fr.b1n);
+      if (hit) { hit.curves = String((parseInt(hit.curves) || 0) + fr.curves); hit.sigmas = [...(hit.sigmas || []), ...fr.sigmas]; }
+      else after.push({ method: fr.method, b1: fr.b1, b2: fr.b2 || '', curves: fr.method === 'ECM' ? String(fr.curves) : '', sigmas: fr.sigmas.slice() });
+    }
+    let impact = null;
+    if (digits && ent.fresh.length) {
+      try {
+        impact = { coveredBefore: covered(e, digits, before, sd), coveredAfter: covered(e, digits, after, sd),
+                   nextBefore: recLabel((recommend(digits, before, sd) || [])[0]), nextAfter: recLabel((recommend(digits, after, sd) || [])[0]) };
+      } catch (err) { logSwallowed('review/impact', err); }
+    }
+    const newF = ent.factors.filter(f => f.divides && !f.known);
+    let full = false;
+    try {
+      if (newF.length && newF.every(f => f.prime)) {
+        const cof = cofactorBig(ent.n, bigOfDecimal(eulerValues[ent.n]));
+        if (cof != null) { let rest = cof; for (const f of newF) { const b = BigInt(f.value); while (rest % b === 0n) rest /= b; } full = rest === 1n; }
+      }
+    } catch (err) { full = false; }
+    const bad  = ent.runs.some(r => r.check !== 'ok') || ent.factors.some(f => !f.divides);
+    const warn = ent.runs.some(r => r.timing !== 'ok' || r.nosigma) || ent.factors.some(f => f.divides && !f.prime);
+    entries.push({ n: ent.n, digits, runs: ent.runs, factors: ent.factors, impact, full,
+      fresh: ent.runs.reduce((t, r) => t + r.fresh, 0), newFactors: newF.length, verdict: bad ? 'bad' : warn ? 'warn' : 'ok' });
+  }
+  entries.sort((a, b) => a.n - b.n);
+  const sum = (f) => entries.reduce((t, x) => t + f(x), 0);
+  return { id: sub.id, by: sub.by, note: sub.note, created: sub.created, entries, unmatched,
+    totals: { entries: entries.length, runs: sum(x => x.runs.length), fresh: sum(x => x.fresh), newFactors: sum(x => x.newFactors) } };
+}
+// PURE: "3 entries · 1,240 new curves · 1 new factor".
+function submissionSummaryText(review) {
+  const t = review.totals, pl = (k, w, s) => k.toLocaleString() + ' ' + w + (k === 1 ? '' : s);
+  return pl(t.entries, 'entr', 'ies').replace('entr', t.entries === 1 ? 'entry' : 'entr') + ' · ' + pl(t.fresh, 'new curve', 's') + ' · ' + pl(t.newFactors, 'new factor', 's');
+}
+
+// Accept: exactly the chosen entries' valid runs go through the normal import — as a
+// contribution, so the curves count for planning but stay out of your time model —
+// and the ledger records what that actually added (a before/after comparison, so
+// curves you already had are never credited twice).
+async function acceptSubmission(sub, review, ns, factorsOnly, issue) {
+  const pick = new Set((ns || []).map(Number)), okKeys = new Map();
+  let ms = 0;
+  for (const ent of review.entries) if (pick.has(ent.n)) for (const r of ent.runs) if (r.check === 'ok') { okKeys.set(r.key, ent.n); ms += r.ms; }
+  const snap = () => {
+    const ecm = loadECM(), runs = {}, facs = {};
+    for (const n of pick) {
+      for (const a of ecm[String(n)] || []) runs[n + '|' + a.method + '|' + parseB1(a.b1)] = { n, method: a.method, b1: a.b1, curves: a.method === 'ECM' ? (parseInt(a.curves) || 0) : 1 };
+      const e = entryByN(n); facs[n] = new Set(((e && e.factors) || []).map(f => String(f).split('^')[0]));
+    }
+    return { runs, facs };
+  };
+  const before = snap();
+  for (const [fi, file] of (sub.files || []).entries()) {
+    await processEcmLogText(file.text, 'submission ' + sub.id + ' from ' + sub.by.name, {
+      contribution: { id: sub.id, name: sub.by.name }, quiet: true, factorsOnly: !!factorsOnly,
+      ownerOf: (bi) => (okKeys.has(fi + ':' + bi) ? okKeys.get(fi + ':' + bi) : null),
+      only: (bi, n) => n != null && okKeys.has(fi + ':' + bi) });
+  }
+  const after = snap(), added = { runs: [], factors: [] };
+  for (const [k, r] of Object.entries(after.runs)) {
+    const was = before.runs[k] ? before.runs[k].curves : 0;
+    if (r.curves > was) added.runs.push({ n: r.n, method: r.method, b1: r.b1, curves: r.curves - was });
+  }
+  for (const n of pick) for (const f of after.facs[n]) if (!before.facs[n].has(f)) added.factors.push({ n, f });
+  const everything = review.entries.filter(x => x.verdict !== 'bad').every(x => pick.has(x.n));
+  const rec = { id: sub.id, by: sub.by, note: sub.note, created: sub.created, decided: new Date().toISOString(),
+    decision: everything && !factorsOnly ? 'accepted' : 'partial', added, cpuMs: factorsOnly ? 0 : ms,
+    files: (sub.files || []).map(f => f.name) };
+  const link = cleanIssueUrl(issue); if (link) rec.issue = link;
+  saveContributions([...loadContributions().filter(r => r.id !== sub.id), rec]);
+  return rec;
+}
+function rejectSubmission(sub, reason, issue) {
+  const rec = { id: sub.id, by: sub.by, note: sub.note, created: sub.created, decided: new Date().toISOString(),
+    decision: 'rejected', reason: String(reason || '').trim().slice(0, 1000), files: (sub.files || []).map(f => f.name) };
+  const link = cleanIssueUrl(issue); if (link) rec.issue = link;
+  saveContributions([...loadContributions().filter(r => r.id !== sub.id), rec]);
+  return rec;
+}
+
+// ── the two dialogs ──
+function showDialogHtml(title, html) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = '<div class="modal-section">' + html + '</div>';
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+function pickFiles(accept, multiple, then) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = accept; inp.multiple = !!multiple;
+  inp.onchange = async () => {
+    const files = Array.from(inp.files || []);
+    if (!files.length) return;
+    const list = [];
+    for (const f of files) list.push({ name: f.name, text: await f.text() });
+    then(list);
+  };
+  inp.click();
+}
+// The review as HTML — the same for the sender (to fix problems before sending) and
+// for you (with a checkbox per entry). Everything the sender wrote is escaped.
+function reviewHtml(review, forOwner, decided) {
+  const ic = { ok: '✓', warn: '⚠', bad: '✗' };
+  const fmtTiming = (r) => r.timing === 'fast' ? '⚠ about ' + Math.round(1 / r.ratio) + '× faster than your machines manage — implausible'
+    : r.timing === 'none' ? '⚠ no timings in the log' : '';
+  let h = '<div class="sub-totals">' + escHtml(submissionSummaryText(review)) + '</div>';
+  if (review.unmatched.length) {
+    h += '<div class="sub-unmatched">✗ ' + review.unmatched.length + ' run' + (review.unmatched.length === 1 ? '' : 's')
+      + ' on numbers that are not E(n) values here — ignored:<ul>'
+      + review.unmatched.slice(0, 8).map(u => '<li>' + escHtml(u.number) + '… (' + u.digits + 'd) in ' + escHtml(u.file) + ' — ' + escHtml(u.why) + '</li>').join('')
+      + (review.unmatched.length > 8 ? '<li>…and ' + (review.unmatched.length - 8) + ' more</li>' : '') + '</ul></div>';
+  }
+  for (const x of review.entries) {
+    const box = forOwner ? '<input type="checkbox" class="sub-pick" value="' + x.n + '"' + (x.verdict === 'ok' ? ' checked' : '')
+      + (x.verdict === 'bad' && !x.runs.some(r => r.check === 'ok') ? ' disabled' : '') + (decided ? ' disabled' : '') + '> ' : '';
+    h += '<div class="sub-entry sub-' + x.verdict + '"><label class="sub-head">' + box + '<strong>E(' + x.n + ')</strong>'
+      + (x.digits ? ' <span class="sub-dim">' + x.digits.toLocaleString() + '-digit cofactor</span>' : '') + ' <span class="sub-ic">' + ic[x.verdict] + '</span></label><ul>';
+    for (const r of x.runs) {
+      h += '<li>' + escHtml(r.method) + ' B1=' + escHtml(String(r.b1)) + (r.method === 'ECM' ? ' · ' + r.curves.toLocaleString() + ' curve' + (r.curves === 1 ? '' : 's') : '')
+        + (r.check === 'ok' ? ' · <strong>' + r.fresh.toLocaleString() + ' new</strong>' + (r.fresh < r.curves && r.method === 'ECM' ? ' (the rest you already have)' : '') : '')
+        + (r.check !== 'ok' ? ' · <span class="sub-bad-t">✗ ' + escHtml(r.why) + '</span>' : '')
+        + (fmtTiming(r) ? ' · <span class="sub-warn-t">' + fmtTiming(r) + '</span>' : '')
+        + (r.nosigma ? ' · <span class="sub-warn-t">⚠ no sigma lines: curves cannot be checked against yours</span>' : '') + '</li>';
+    }
+    for (const f of x.factors) {
+      h += '<li>factor ' + escHtml(f.value.length > 24 ? f.value.slice(0, 12) + '…' + f.value.slice(-8) : f.value) + ' (' + f.digits + 'd) · '
+        + (!f.divides ? '<span class="sub-bad-t">✗ does not divide E(' + x.n + ')</span>'
+           : (f.prime ? 'prime' : f.composite ? 'composite — will be split, or kept' : 'probable composite') + (f.known ? ' · already known' : ' · <strong>new</strong>')) + '</li>';
+    }
+    if (x.impact) h += '<li class="sub-dim">covered to t' + x.impact.coveredBefore + ' → t' + x.impact.coveredAfter
+      + ' · next run: ' + escHtml(x.impact.nextBefore) + ' → ' + escHtml(x.impact.nextAfter) + '</li>';
+    if (x.full) h += '<li><strong>🎉 completes the factorization of E(' + x.n + ')</strong></li>';
+    h += '</ul></div>';
+  }
+  return h;
+}
+
+let _contribDraft = null;
+function contributeResults() {
+  if (!Object.keys(eulerValues).length) { alert('Euler values still loading — please wait and try again.'); return; }
+  pickFiles('.txt,.log,text/plain', true, (list) => {
+    _contribDraft = { files: list, review: reviewSubmission({ id: 'draft', by: { name: '' }, note: '', files: list }) };
+    showDialogHtml('Contribute ECM results', reviewHtml(_contribDraft.review, false, false)
+      + '<p class="sub-dim">This is what the owner will see. ✗ and ⚠ are worth fixing before you send — the owner decides what to accept.</p>'
+      + '<div class="contrib-form">'
+      + '<label>Your name — how you will be credited<input id="contribName" maxlength="80"></label>'
+      + '<label>Contact (optional) — GitHub handle or e-mail<input id="contribContact" maxlength="120"></label>'
+      + '<label>Note to the owner — what you ran, on what hardware, anything worth knowing<textarea id="contribNote" rows="4" maxlength="4000"></textarea></label>'
+      + '<button class="poll-btn" onclick="createSubmission()">Create submission</button></div>'
+      + '<div id="contribDone"></div>');
+  });
+}
+function createSubmission() {
+  const d = _contribDraft; if (!d) return;
+  const v = (id) => (document.getElementById(id) || {}).value || '';
+  let sub;
+  try { sub = buildSubmission(d.files, { name: v('contribName'), contact: v('contribContact') }, v('contribNote'), new Date().toISOString()); }
+  catch (e) { alert(e.message); return; }
+  downloadText(submissionFileName(sub), JSON.stringify(sub));
+  const url = submissionIssueUrl(sub, submissionSummaryText(d.review), submissionRepo());
+  window.open(url, '_blank', 'noopener');
+  const done = document.getElementById('contribDone');
+  if (done) done.innerHTML = '<div class="sub-next"><strong>Two steps left:</strong> GitHub\'s new-issue page has opened in a new tab, '
+    + 'filled in (<a href="' + escHtml(url) + '" target="_blank" rel="noopener">open it again</a>). Drag the file just downloaded — <code>'
+    + escHtml(submissionFileName(sub)) + '</code> — into its last box, and press <em>Submit new issue</em>. '
+    + 'No GitHub account? E-mail the file to the owner instead.</div>';
+}
+
+let _reviewing = null;
+function openSubmissions() {
+  const list = loadContributions().slice().reverse();
+  const row = (r) => '<li><strong>' + escHtml(r.by && r.by.name || '?') + '</strong> · ' + escHtml(String(r.decided || '').slice(0, 10)) + ' · '
+    + (r.decision === 'rejected' ? '✗ rejected' + (r.reason ? ': ' + escHtml(r.reason) : '')
+       : (r.decision === 'partial' ? '◐ partly accepted' : '✓ accepted') + ' — ' + ((r.added && r.added.runs) || []).reduce((t, x) => t + x.curves, 0).toLocaleString()
+         + ' curves, ' + ((r.added && r.added.factors) || []).length + ' factors')
+    + (r.issue ? ' · <a href="' + escHtml(r.issue) + '" target="_blank" rel="noopener">issue</a>' : '') + '</li>';
+  showDialogHtml('Submissions', '<p>Results other people send you arrive as a submission file, usually attached to a GitHub issue on '
+    + escHtml(submissionRepo()) + '. Download the file, then open it here: nothing changes until you accept.</p>'
+    + '<button class="poll-btn" onclick="pickSubmissionFile()">Open a submission file…</button>'
+    + '<h4>Decided</h4>' + (list.length ? '<ul class="sub-ledger">' + list.map(row).join('') + '</ul>' : '<p class="sub-dim">None yet.</p>'));
+}
+function pickSubmissionFile() {
+  pickFiles('.json,application/json', false, (list) => {
+    const got = readSubmission(list[0].text);
+    if (got.error) { alert(got.error); return; }
+    _reviewing = { sub: got.sub, review: reviewSubmission(got.sub) };
+    renderSubmissionReview();
+  });
+}
+function renderSubmissionReview(outcome) {
+  const { sub, review } = _reviewing;
+  const decided = loadContributions().find(r => r.id === sub.id);
+  let h = '<div class="sub-from"><div><strong>' + escHtml(sub.by.name) + '</strong>' + (sub.by.contact ? ' · ' + escHtml(sub.by.contact) : '')
+    + ' · sent ' + escHtml(String(sub.created || '').slice(0, 10)) + '</div><div class="sub-note">' + escHtml(sub.note) + '</div></div>';
+  if (outcome) h += '<div class="sub-next">' + outcome + '</div>';
+  else if (decided) h += '<div class="sub-next">Already decided on ' + escHtml(String(decided.decided).slice(0, 10)) + ': '
+    + (decided.decision === 'rejected' ? 'rejected' : decided.decision === 'partial' ? 'partly accepted' : 'accepted') + '.</div>';
+  h += reviewHtml(review, true, !!decided || !!outcome);
+  if (!decided && !outcome) {
+    h += '<div class="contrib-form">'
+      + '<label>GitHub issue link (optional, kept with the decision)<input id="subIssue" placeholder="https://github.com/…/issues/12"></label>'
+      + '<label class="sub-inline"><input type="checkbox" id="subFactorsOnly"> Factors only — leave out the curves (they cannot be verified)</label>'
+      + '<button class="poll-btn" onclick="acceptReviewed()">✓ Accept the ticked entries</button>'
+      + '<label>Reason, if you reject it<textarea id="subReason" rows="2" maxlength="1000"></textarea></label>'
+      + '<button class="poll-btn" onclick="rejectReviewed()">✗ Reject</button></div>';
+  }
+  showDialogHtml('Review submission', h);
+}
+async function acceptReviewed() {
+  if (!_reviewing) return;
+  const ns = Array.from(document.querySelectorAll('.sub-pick:checked')).map(el => parseInt(el.value));
+  if (!ns.length) { alert('Tick at least one entry to accept — or reject the submission.'); return; }
+  const factorsOnly = !!(document.getElementById('subFactorsOnly') || {}).checked;
+  const issue = (document.getElementById('subIssue') || {}).value || '';
+  setStatus('Accepting the submission from ' + _reviewing.sub.by.name + '…');
+  const rec = await acceptSubmission(_reviewing.sub, _reviewing.review, ns, factorsOnly, issue);
+  const curves = rec.added.runs.reduce((t, x) => t + x.curves, 0);
+  addLog('Accepted submission ' + rec.id + ' from ' + rec.by.name + ': ' + curves + ' curves, ' + rec.added.factors.length + ' factors', 'ok');
+  renderSubmissionReview('<strong>' + (rec.decision === 'partial' ? 'Partly accepted' : 'Accepted') + ':</strong> ' + curves.toLocaleString() + ' new curves and '
+    + rec.added.factors.length + ' new factor' + (rec.added.factors.length === 1 ? '' : 's') + ' added, credited to ' + escHtml(rec.by.name)
+    + '. It goes to GitHub with your next push.' + (rec.issue ? ' Reply on <a href="' + escHtml(rec.issue) + '" target="_blank" rel="noopener">the issue</a> to let them know.' : ''));
+}
+function rejectReviewed() {
+  if (!_reviewing) return;
+  const reason = (document.getElementById('subReason') || {}).value || '';
+  if (!confirm('Reject the submission from ' + _reviewing.sub.by.name + '? Nothing from it will be added.')) return;
+  const rec = rejectSubmission(_reviewing.sub, reason, (document.getElementById('subIssue') || {}).value || '');
+  addLog('Rejected submission ' + rec.id + ' from ' + rec.by.name + (rec.reason ? ': ' + rec.reason : ''), 'warn');
+  renderSubmissionReview('<strong>Rejected.</strong> Nothing was added.' + (rec.issue ? ' Reply on <a href="' + escHtml(rec.issue) + '" target="_blank" rel="noopener">the issue</a> with your reason.' : ''));
+}
+
 function importECMResults() {
   if (Object.keys(eulerValues).length === 0) {
     alert('Euler values still loading — please wait and try again.');
@@ -7563,13 +8015,10 @@ function importEcmFromFiles(files) {
 
 // Backward-compatible single-file entry point (still used by the paste fallback
 // path and anywhere a single File is available).
-async function processEcmLogText(text, sourceLabel) {
-  if (!text) return;
-
-  const lines = text.split(/\r?\n/);
-  // Numbers whose attempt list has already been de-duplicated during this import.
-  const normalizedKeys = new Set();
-
+// PURE: a GMP-ECM log as run blocks — what processEcmLogText imports, and what the
+// review of a contributor's submission inspects without importing anything.
+function parseEcmLogBlocks(text) {
+  const lines = String(text || '').split(/\r?\n/);
   // Parse the log into run-blocks. GMP-ECM verbose prints, per invocation:
   //   Input number is <N> (<D> digits)
   //   Using B1=<B1>, B2=<B2>, polynomial ..., sigma=...    (or "P-1"/"P+1" variants)
@@ -7686,6 +8135,21 @@ async function processEcmLogText(text, sourceLabel) {
       if (cur.pendingSigma) { cur.sigmas.add(cur.pendingSigma); cur.pendingSigma = null; }
     }
   }
+  return { blocks, totalTimeMs };
+}
+
+async function processEcmLogText(text, sourceLabel, opts) {
+  if (!text) return;
+  opts = opts || {};
+  // A contributor's submission, accepted by you: curves count for planning, but their
+  // time never feeds YOUR time model (another machine) — and their sigmas are listed
+  // in the run's xs, so your own per-curve time stays computable.
+  const contrib = opts.contribution || null;
+
+  // Numbers whose attempt list has already been de-duplicated during this import.
+  const normalizedKeys = new Set();
+
+  const { blocks, totalTimeMs } = parseEcmLogBlocks(text);
 
   if (!blocks.length) {
     alert('No GMP-ECM run blocks found.\nExpected lines like "Input number is ... (NN digits)" and "Using B1=...".');
@@ -7716,14 +8180,18 @@ async function processEcmLogText(text, sourceLabel) {
     return e;
   };
 
-  for (const blk of blocks) {
+  for (const [bi, blk] of blocks.entries()) {
     let nOwner = null;
     // 1. PREFERRED: the run-comment already told us exactly which E(n) this run was
     // for (we wrote that comment ourselves at export time) — trust it directly
     // rather than re-deriving it from GMP-ECM's echoed-back number, which some
     // Windows/PowerShell console pipelines can garble on very long lines even
     // though GMP-ECM itself never truncates this output.
-    if (blk.commentN != null && eulerValues[blk.commentN] != null) {
+    if (opts.ownerOf) {
+      // A reviewed submission: each block's E(n) was checked from the input number
+      // itself — the comment line is the contributor's, and is not trusted.
+      nOwner = opts.ownerOf(bi);
+    } else if (blk.commentN != null && eulerValues[blk.commentN] != null) {
       nOwner = blk.commentN;
     } else if (blk.numberIsClean && valByNum.has(blk.number)) {
       nOwner = valByNum.get(blk.number);
@@ -7738,6 +8206,7 @@ async function processEcmLogText(text, sourceLabel) {
         }
       }
     }
+    if (opts.only && !opts.only(bi, nOwner)) continue;   // a part you did not accept
     if (nOwner == null) {
       const digitsNote = blk.declaredDigits ? blk.declaredDigits + 'd' : blk.number.length + ' chars';
       unmatched++; summary.push('• run on ' + blk.number.slice(0,12) + '… (' + digitsNote + ') — no matching E(n)' + (blk.numberIsClean ? '' : ' (number looked garbled in the log — no run-comment tag to fall back on)'));
@@ -7760,7 +8229,7 @@ async function processEcmLogText(text, sourceLabel) {
     // separate sessions SUM correctly (20 then 80 -> 100) while re-importing the same
     // log is idempotent (the same sigmas are already counted, so nothing is added).
     // Falls back to the "Run K out of M" count when a log lacks sigma lines.
-    if (blk.b1) {
+    if (blk.b1 && !opts.factorsOnly) {
       const key = String(owner.n);
       if (!ecmData[key]) ecmData[key] = [];
       // Collapse anything an EARLIER import already duplicated, before looking for
@@ -7787,7 +8256,7 @@ async function processEcmLogText(text, sourceLabel) {
       //           nudges the ratio slightly high — harmless against a median).
       //   P±1   → needs stage 2 to have completed, since the model prices a full
       //           stage1+stage2 run; a stage-1-only run would look artificially fast.
-      if (blk.timeMs > 0) {
+      if (blk.timeMs > 0 && !contrib) {
         const isPm1blk = (blk.method === 'P-1' || blk.method === 'P+1');
         const usableCurves = isPm1blk ? 1 : blkSigmas.length;
         const complete = isPm1blk ? blk.sawStep2 : (blkSigmas.length > 0);
@@ -7821,8 +8290,10 @@ async function processEcmLogText(text, sourceLabel) {
           // Accumulate unique sigmas; curve count = size of the accumulated set.
           const seen = new Set(existing.sigmas || []);
           const before = seen.size;
+          const fresh = contrib ? blkSigmas.filter(s => !seen.has(s)) : null;
           for (const s of blkSigmas) seen.add(s);
           existing.sigmas = Array.from(seen);
+          if (fresh && fresh.length) existing.xs = Array.from(new Set([...(existing.xs || []), ...fresh]));
           seenGrew = seen.size > before; // did this block add real new work?
           // If we have sigma tracking, curves = unique sigmas seen (more accurate than
           // the run-counter). Keep the larger of (sigma count, recorded curves) so a
@@ -7852,7 +8323,7 @@ async function processEcmLogText(text, sourceLabel) {
         // this block contributed genuinely NEW sigmas — otherwise re-importing
         // the same log would inflate the recorded time while curves (correctly,
         // being a set union) stayed flat.
-        if (blk.timeMs > 0 && addedWork) {
+        if (blk.timeMs > 0 && addedWork && !contrib) {
           existing.ms = (existing.ms || 0) + blk.timeMs;
         }
         // Record WHEN this attempt was last extended. `date` is only set when an
@@ -7876,9 +8347,10 @@ async function processEcmLogText(text, sourceLabel) {
           // ms = REAL measured wall time for this run, summed from its own
           // "Step N took Xms" lines. One number per attempt, and it makes CPU
           // totals exact instead of modelled wherever it's present.
-          ...(blk.timeMs > 0 ? { ms: blk.timeMs } : {}),
+          ...(blk.timeMs > 0 && !contrib ? { ms: blk.timeMs } : {}),
+          ...(contrib && blkSigmas.length ? { xs: blkSigmas.slice() } : {}),
           poly: '', I: '', tool: 'GMP-ECM', source: 'log',
-          note: 'imported from log',
+          note: contrib ? 'contributed by ' + contrib.name : 'imported from log',
           date: new Date().toISOString().slice(0,10),
           lastRun: new Date().toISOString().slice(0,10),
         });
@@ -7931,7 +8403,7 @@ async function processEcmLogText(text, sourceLabel) {
         if (primes && primes.length) {
           const recorded = [];
           for (const p of primes) {
-            const res = recordEcmFactor(owner, p.toString(), blk.method);
+            const res = recordEcmFactor(owner, p.toString(), blk.method, { by: contrib && contrib.name });
             if (res === 'new') { factorsNew++; recorded.push(p.toString()); }
             else if (res === 'dup') { factorsDup++; }
           }
@@ -7941,7 +8413,7 @@ async function processEcmLogText(text, sourceLabel) {
           // cofactor — just not split yet. It used to be dropped here, with only a
           // line in this summary, despite the comment above promising it was kept.
           // Stored as one factor, Check data flags it and splits it when it can.
-          const kept = recordEcmFactor(owner, f.value, blk.method, { composite: true });
+          const kept = recordEcmFactor(owner, f.value, blk.method, { composite: true, by: contrib && contrib.name });
           if (kept === 'new') factorsNew++;
           else if (kept === 'dup') factorsDup++;
           summary.push('• E(' + owner.n + ') ← composite ' + f.value + ' (' + f.value.length + 'd) KEPT as one factor — '
@@ -7949,7 +8421,7 @@ async function processEcmLogText(text, sourceLabel) {
         }
         continue;
       }
-      const res = recordEcmFactor(owner, f.value, blk.method);
+      const res = recordEcmFactor(owner, f.value, blk.method, { by: contrib && contrib.name });
       if (res === 'new')      { factorsNew++; summary.push('• E(' + owner.n + ') ← factor ' + f.value + ' (' + f.value.length + 'd)'); }
       else if (res === 'dup') { factorsDup++; }
     }
@@ -7999,6 +8471,7 @@ async function processEcmLogText(text, sourceLabel) {
 
   addLog(msg, runsRecorded ? 'ok' : 'warn');
   setStatus(msg, runsRecorded ? 'ok' : 'warn');
+  if (opts.quiet) return { runsRecorded, factorsNew, factorsDup, totalCurves, unmatched, summary };
   alert(msg + (statsLine ? '\n' + statsLine : '') + (calibLine ? '\n' + calibLine : '') + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
     + (summary.length ? '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : '') : ''));
 }
@@ -8043,6 +8516,7 @@ function factorDividesValue(valStr, factorStr) {
 }
 
 function recordEcmFactor(entry, factorStr, method, opts) {
+  const by = (opts && opts.by) ? ' — contributed by ' + opts.by : '';
   const n = entry.n;
   const parsePow = f => { const mm = /^(\d+)\^(\d+)$/.exec(String(f)); return mm ? { base: mm[1], exp: +mm[2] } : { base: String(f), exp: 1 }; };
 
@@ -8112,7 +8586,7 @@ function recordEcmFactor(entry, factorStr, method, opts) {
   try { markNewFactor(n, factorStr); } catch(e) { logSwallowed('recordEcmFactor/new', e); }   // past the 'dup' check: new to the entry
 
   // Log to changelog data layer (panel removed, but sync payload still carries it).
-  try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]')); } catch(e) { logSwallowed('recordEcmFactor/changelog', e); }
+  try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]') + by); } catch(e) { logSwallowed('recordEcmFactor/changelog', e); }
 
   // The cofactor just shrank — the cached "fastest next run" and total-CPU sum for
   // this entry are stale (both are derived from getCofactorDigits).
@@ -10380,11 +10854,7 @@ function openModal(n) {
         // "Covered to tN": the highest level at the 63% target — one expected find if
         // a factor of that size exists — or proven empty by the sieve.
         let covered = 0;
-        try {
-          for (const r of computeCostToFinish(e, dg, att)) {
-            if (r.have >= COST_TARGET_LO || (sd > 0 && r.d <= sd)) covered = Math.max(covered, r.d);
-          }
-        } catch (err) { logSwallowed('modal/summary/coverage', err); }
+        try { covered = coveredTo(e, dg, att, sd); } catch (err) { logSwallowed('modal/summary/coverage', err); }
         let next = '';
         try {
           const rec = (recommendNextRun(dg, att, sd) || [])[0];
@@ -10695,8 +11165,9 @@ function timeCorrections() {
       const at = day ? Date.parse(String(day).slice(0, 10) + 'T23:59:59Z') / 1000 : NaN;
       if (!isFinite(at) || (newest.get(n) || 0) > at) continue;
       const pm1 = a.method === 'P-1' || a.method === 'P+1';
-      const b1 = parseB1(a.b1), curves = pm1 ? 1 : (parseInt(a.curves) || 0);
-      if (!b1 || !curves) continue;
+      // YOUR curves only: a.ms is your time, so a contributor's curves (xs) are left out.
+      const b1 = parseB1(a.b1), curves = pm1 ? 1 : (parseInt(a.curves) || 0) - ((a.xs || []).length);
+      if (!b1 || curves <= 0) continue;
       const raw = estimateCpuSecondsRaw(a.method, b1, a.b2 ? parseB1(a.b2) : null, curves, digits);
       if (raw > 0) samples.push({ method: a.method, digits, b1, ratio: (a.ms / 1000) / raw, at });
     }
