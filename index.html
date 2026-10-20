@@ -577,6 +577,10 @@
 .contrib-form label.sub-inline { flex-direction: row; align-items: center; gap: 6px; }
 .contrib-form input:not([type=checkbox]), .contrib-form textarea { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 5px; font: inherit; }
 .sub-ledger { font-size: 12px; padding-left: 18px; }
+.sub-ledger .poll-btn, .sub-issues .poll-btn { padding: 1px 8px; font-size: 11px; }
+.sub-issues { margin: 8px 0; font-size: 12px; }
+.contrib-line { font-size: 12px; margin: 4px 0; }
+.contrib-gone { opacity: .65; }
 </style>
 </head>
 <body>
@@ -4165,7 +4169,8 @@ function sameEcmContent(a, b) { return ecmContentKey(a) === ecmContentKey(b); }
 function mergePulledEcm(remoteEcm, ranges) {
   const before = JSON.stringify(loadECM());
   // Runs deleted here and not yet pushed stay deleted, whatever GitHub still holds.
-  const merged = applyDeletionsToEcm(mergeEcmData(remoteEcm), deletedHere());
+  // Withdrawn submissions' curves stay out, whatever GitHub still holds (see applyWithdrawals).
+  const merged = applyWithdrawals(applyDeletionsToEcm(mergeEcmData(remoteEcm), deletedHere()), loadContributions());
   const changed = JSON.stringify(merged) !== before;
   // Runs from GitHub are not marked NEW: NEW means a new factor (see markNewFactor).
   if (changed) {
@@ -5740,7 +5745,9 @@ function applyRangeInputs() {
   const loadedMax = _maxLoadedN();
 
   let lo = Math.max(0, parseInt(minEl?.value) || 0);
-  let hi = Math.min(parseInt(maxEl?.value) || 20000, loadedMax);
+  // An empty box means "everything loaded" — not a fixed 20,000, which hid every
+  // entry beyond it once more values were added.
+  let hi = Math.min(parseInt(maxEl?.value) || loadedMax, loadedMax);
   if (hi < lo + 2) hi = lo + 2;   // keep a valid window
 
   MIN_N = lo;
@@ -7506,6 +7513,11 @@ function mergeContributions(remote) {
   if (JSON.stringify(merged) !== JSON.stringify(local)) {
     try { kvSet(CONTRIB_KEY, JSON.stringify(merged)); } catch (e) { logSwallowed('contrib/merge', e); }
   }
+  // A withdrawal made on another machine: take those curves out here too.
+  if (merged.some(r => r.decision === 'withdrawn')) {
+    try { const ecm = loadECM(), fixed = applyWithdrawals(ecm, merged); if (JSON.stringify(fixed) !== JSON.stringify(ecm)) saveECM(fixed); }
+    catch (e) { logSwallowed('contrib/withdrawals', e); }
+  }
 }
 
 // PURE: the submission file — the contributor's logs, name and note, as one JSON.
@@ -7702,7 +7714,8 @@ async function acceptSubmission(sub, review, ns, factorsOnly, issue) {
   const snap = () => {
     const ecm = loadECM(), runs = {}, facs = {};
     for (const n of pick) {
-      for (const a of ecm[String(n)] || []) runs[n + '|' + a.method + '|' + parseB1(a.b1)] = { n, method: a.method, b1: a.b1, curves: a.method === 'ECM' ? (parseInt(a.curves) || 0) : 1 };
+      for (const a of ecm[String(n)] || []) runs[n + '|' + a.method + '|' + parseB1(a.b1)] = { n, method: a.method, b1: a.b1,
+        curves: a.method === 'ECM' ? (parseInt(a.curves) || 0) : 1, xs: new Set(a.xs || []) };
       const e = entryByN(n); facs[n] = new Set(((e && e.factors) || []).map(f => String(f).split('^')[0]));
     }
     return { runs, facs };
@@ -7716,12 +7729,17 @@ async function acceptSubmission(sub, review, ns, factorsOnly, issue) {
   }
   const after = snap(), added = { runs: [], factors: [] };
   for (const [k, r] of Object.entries(after.runs)) {
-    const was = before.runs[k] ? before.runs[k].curves : 0;
-    if (r.curves > was) added.runs.push({ n: r.n, method: r.method, b1: r.b1, curves: r.curves - was });
+    const was = before.runs[k], wasCurves = was ? was.curves : 0;
+    if (r.curves > wasCurves) {
+      // The sigmas it added are what a withdrawal takes out again — nothing else.
+      const sig = Array.from(r.xs).filter(x => !(was && was.xs.has(x)));
+      added.runs.push({ n: r.n, method: r.method, b1: r.b1, curves: r.curves - wasCurves, ...(sig.length ? { sigmas: sig } : {}), ...(was ? {} : { created: true }) });
+    }
   }
   for (const n of pick) for (const f of after.facs[n]) if (!before.facs[n].has(f)) added.factors.push({ n, f });
   const everything = review.entries.filter(x => x.verdict !== 'bad').every(x => pick.has(x.n));
-  const rec = { id: sub.id, by: sub.by, note: sub.note, created: sub.created, decided: new Date().toISOString(),
+  const at = new Date().toISOString();
+  const rec = { id: sub.id, by: sub.by, note: sub.note, created: sub.created, decided: at, accepted: at,
     decision: everything && !factorsOnly ? 'accepted' : 'partial', added, cpuMs: factorsOnly ? 0 : ms,
     files: (sub.files || []).map(f => f.name) };
   const link = cleanIssueUrl(issue); if (link) rec.issue = link;
@@ -7828,19 +7846,28 @@ function openSubmissions() {
   const list = loadContributions().slice().reverse();
   const row = (r) => '<li><strong>' + escHtml(r.by && r.by.name || '?') + '</strong> · ' + escHtml(String(r.decided || '').slice(0, 10)) + ' · '
     + (r.decision === 'rejected' ? '✗ rejected' + (r.reason ? ': ' + escHtml(r.reason) : '')
-       : (r.decision === 'partial' ? '◐ partly accepted' : '✓ accepted') + ' — ' + ((r.added && r.added.runs) || []).reduce((t, x) => t + x.curves, 0).toLocaleString()
+       : (r.decision === 'withdrawn' ? '↩ was ' + (r.was === 'partial' ? 'partly accepted' : 'accepted') : r.decision === 'partial' ? '◐ partly accepted' : '✓ accepted') + ' — ' + ((r.added && r.added.runs) || []).reduce((t, x) => t + x.curves, 0).toLocaleString()
          + ' curves, ' + ((r.added && r.added.factors) || []).length + ' factors')
-    + (r.issue ? ' · <a href="' + escHtml(r.issue) + '" target="_blank" rel="noopener">issue</a>' : '') + '</li>';
-  showDialogHtml('Submissions', '<p>Results other people send you arrive as a submission file, usually attached to a GitHub issue on '
-    + escHtml(submissionRepo()) + '. Download the file, then open it here: nothing changes until you accept.</p>'
+    + (r.issue ? ' · <a href="' + escHtml(r.issue) + '" target="_blank" rel="noopener">issue</a>' : '')
+    + ((r.decision === 'accepted' || r.decision === 'partial') ? ' · <button class="poll-btn" onclick="withdrawFromList(\'' + escHtml(r.id) + '\')">Withdraw</button>' : '')
+    + (r.decision === 'withdrawn' ? ' · withdrawn ' + escHtml(String(r.decided).slice(0, 10)) : '') + '</li>';
+  const tot = contributorTotals(loadContributions());
+  showDialogHtml('Submissions', '<p>Results other people send you arrive as GitHub issues on ' + escHtml(submissionRepo())
+    + ', each with a submission file — or as a file by e-mail. Nothing changes until you accept.</p>'
+    + '<button class="poll-btn" onclick="checkIssues()">Check GitHub for submissions</button> '
     + '<button class="poll-btn" onclick="pickSubmissionFile()">Open a submission file…</button>'
+    + '<div id="subIssues" class="sub-issues"></div>'
+    + (tot.length ? '<h4>Contributors</h4><ul class="sub-ledger">' + tot.map(t => '<li><strong>' + escHtml(t.name) + '</strong> — '
+        + t.submissions + ' submission' + (t.submissions === 1 ? '' : 's') + ', ' + t.curves.toLocaleString() + ' curves, ' + t.factors + ' factor'
+        + (t.factors === 1 ? '' : 's') + (t.cpuMs ? ', ' + escHtml(fmtCpuTime(t.cpuMs / 1000)) + ' of CPU time' : '') + '</li>').join('') + '</ul>' : '')
     + '<h4>Decided</h4>' + (list.length ? '<ul class="sub-ledger">' + list.map(row).join('') + '</ul>' : '<p class="sub-dim">None yet.</p>'));
 }
 function pickSubmissionFile() {
   pickFiles('.json,application/json', false, (list) => {
     const got = readSubmission(list[0].text);
     if (got.error) { alert(got.error); return; }
-    _reviewing = { sub: got.sub, review: reviewSubmission(got.sub) };
+    _reviewing = { sub: got.sub, review: reviewSubmission(got.sub), issue: _pendingIssue };
+    _pendingIssue = null;
     renderSubmissionReview();
   });
 }
@@ -7852,15 +7879,23 @@ function renderSubmissionReview(outcome) {
   if (outcome) h += '<div class="sub-next">' + outcome + '</div>';
   else if (decided) h += '<div class="sub-next">Already decided on ' + escHtml(String(decided.decided).slice(0, 10)) + ': '
     + (decided.decision === 'rejected' ? 'rejected' : decided.decision === 'partial' ? 'partly accepted' : 'accepted') + '.</div>';
+  const known = _reviewing.issue && _reviewing.issue.url;
   h += reviewHtml(review, true, !!decided || !!outcome);
   if (!decided && !outcome) {
     h += '<div class="contrib-form">'
-      + '<label>GitHub issue link (optional, kept with the decision)<input id="subIssue" placeholder="https://github.com/…/issues/12"></label>'
+      + (known ? '<div class="sub-dim">From <a href="' + escHtml(known) + '" target="_blank" rel="noopener">issue #' + _reviewing.issue.number + '</a></div>'
+               : '<label>GitHub issue link (optional, kept with the decision)<input id="subIssue" placeholder="https://github.com/…/issues/12"></label>')
       + '<label class="sub-inline"><input type="checkbox" id="subFactorsOnly"> Factors only — leave out the curves (they cannot be verified)</label>'
       + '<button class="poll-btn" onclick="acceptReviewed()">✓ Accept the ticked entries</button>'
       + '<label>Reason, if you reject it<textarea id="subReason" rows="2" maxlength="1000"></textarea></label>'
       + '<button class="poll-btn" onclick="rejectReviewed()">✗ Reject</button></div>';
   }
+  const now = loadContributions().find(r => r.id === sub.id);
+  if (now && now.issue && issueNumberOf(now.issue) && !now.replied) {
+    h += '<div class="contrib-form"><label>Reply on <a href="' + escHtml(now.issue) + '" target="_blank" rel="noopener">issue #' + issueNumberOf(now.issue)
+      + '</a> — edit it as you like<textarea id="subReply" rows="4">' + escHtml(replyText(now)) + '</textarea></label>'
+      + '<button class="poll-btn" onclick="replyReviewed()">Post the reply and close the issue</button><div id="subReplyDone"></div></div>';
+  } else if (now && now.replied) h += '<div class="sub-dim">Replied on the issue ' + escHtml(String(now.replied).slice(0, 10)) + '.</div>';
   showDialogHtml('Review submission', h);
 }
 async function acceptReviewed() {
@@ -7868,22 +7903,217 @@ async function acceptReviewed() {
   const ns = Array.from(document.querySelectorAll('.sub-pick:checked')).map(el => parseInt(el.value));
   if (!ns.length) { alert('Tick at least one entry to accept — or reject the submission.'); return; }
   const factorsOnly = !!(document.getElementById('subFactorsOnly') || {}).checked;
-  const issue = (document.getElementById('subIssue') || {}).value || '';
+  const issue = (_reviewing.issue && _reviewing.issue.url) || (document.getElementById('subIssue') || {}).value || '';
   setStatus('Accepting the submission from ' + _reviewing.sub.by.name + '…');
   const rec = await acceptSubmission(_reviewing.sub, _reviewing.review, ns, factorsOnly, issue);
   const curves = rec.added.runs.reduce((t, x) => t + x.curves, 0);
   addLog('Accepted submission ' + rec.id + ' from ' + rec.by.name + ': ' + curves + ' curves, ' + rec.added.factors.length + ' factors', 'ok');
   renderSubmissionReview('<strong>' + (rec.decision === 'partial' ? 'Partly accepted' : 'Accepted') + ':</strong> ' + curves.toLocaleString() + ' new curves and '
     + rec.added.factors.length + ' new factor' + (rec.added.factors.length === 1 ? '' : 's') + ' added, credited to ' + escHtml(rec.by.name)
-    + '. It goes to GitHub with your next push.' + (rec.issue ? ' Reply on <a href="' + escHtml(rec.issue) + '" target="_blank" rel="noopener">the issue</a> to let them know.' : ''));
+    + '. It goes to GitHub with your next push.');
 }
 function rejectReviewed() {
   if (!_reviewing) return;
   const reason = (document.getElementById('subReason') || {}).value || '';
   if (!confirm('Reject the submission from ' + _reviewing.sub.by.name + '? Nothing from it will be added.')) return;
-  const rec = rejectSubmission(_reviewing.sub, reason, (document.getElementById('subIssue') || {}).value || '');
+  const rec = rejectSubmission(_reviewing.sub, reason, (_reviewing.issue && _reviewing.issue.url) || (document.getElementById('subIssue') || {}).value || '');
   addLog('Rejected submission ' + rec.id + ' from ' + rec.by.name + (rec.reason ? ': ' + rec.reason : ''), 'warn');
-  renderSubmissionReview('<strong>Rejected.</strong> Nothing was added.' + (rec.issue ? ' Reply on <a href="' + escHtml(rec.issue) + '" target="_blank" rel="noopener">the issue</a> with your reason.' : ''));
+  renderSubmissionReview('<strong>Rejected.</strong> Nothing was added.');
+}
+
+// ── Withdrawing an accepted submission ────────────────────────────────────────
+// Its curves come out again — exactly the ones it added, by sigma, so curves you or
+// anyone else ran stay — and any P±1 run it created that holds no time of yours. Its
+// factors stay: a factor is proven by dividing E(n), whoever found it. Runs merge
+// across machines by UNION, so a curve still on GitHub or in another browser would
+// come straight back; the "withdrawn" decision therefore travels in the ledger and
+// every merge applies it again (a tombstone). PURE and idempotent.
+function applyWithdrawals(ecm, ledger) {
+  const gone = (ledger || []).filter(r => r && r.decision === 'withdrawn' && r.added && Array.isArray(r.added.runs));
+  if (!gone.length) return ecm;
+  const out = JSON.parse(JSON.stringify(ecm || {}));
+  for (const rec of gone) for (const run of rec.added.runs) {
+    const list = out[String(run.n)];
+    if (!list) continue;
+    const i = list.findIndex(a => a.method === run.method && parseB1(a.b1) === parseB1(run.b1));
+    if (i < 0) continue;
+    const a = list[i];
+    if (Array.isArray(run.sigmas) && run.sigmas.length) {
+      const drop = new Set(run.sigmas), had = (a.sigmas || []).length;
+      a.sigmas = (a.sigmas || []).filter(x => !drop.has(x));
+      const removed = had - a.sigmas.length;
+      if (a.xs) { a.xs = a.xs.filter(x => !drop.has(x)); if (!a.xs.length) delete a.xs; }
+      if (removed > 0) a.curves = String(Math.max(a.sigmas.length, (parseInt(a.curves) || 0) - removed));
+      if (!(parseInt(a.curves) > 0) && !a.sigmas.length && !(a.ms > 0)) list.splice(i, 1);
+    } else if (run.created && run.method !== 'ECM' && !(a.ms > 0)) list.splice(i, 1);
+    if (!list.length) delete out[String(run.n)];
+  }
+  return out;
+}
+function withdrawSubmission(id) {
+  const list = loadContributions(), rec = list.find(r => r.id === id);
+  if (!rec || (rec.decision !== 'accepted' && rec.decision !== 'partial')) return null;
+  const now = new Date().toISOString();
+  const next = Object.assign({}, rec, { decision: 'withdrawn', was: rec.decision, accepted: rec.accepted || rec.decided, decided: now });
+  const ledger = list.map(r => r.id === id ? next : r);
+  saveContributions(ledger);
+  const ecm = loadECM(), fixed = applyWithdrawals(ecm, ledger);
+  if (JSON.stringify(fixed) !== JSON.stringify(ecm)) saveECM(fixed);
+  try { invalidateNextRunCache(); renderStats(); applyFilters(); } catch (e) { logSwallowed('withdraw/render', e); }
+  return next;
+}
+
+// ── Credit ───────────────────────────────────────────────────────────────────
+// PURE: the ledger's lines for one entry — who added what there.
+function contributionsFor(n, ledger) {
+  const out = [];
+  for (const r of ledger || []) {
+    if (!r || !r.by || r.decision === 'rejected' || !r.added) continue;
+    const runs = (r.added.runs || []).filter(x => x.n === n), facs = (r.added.factors || []).filter(x => x.n === n);
+    if (runs.length || facs.length) out.push({ rec: r, runs, facs });
+  }
+  return out;
+}
+// PURE: per contributor — submissions, curves, factors, CPU time; withdrawn ones do not count.
+function contributorTotals(ledger) {
+  const m = new Map();
+  for (const r of ledger || []) {
+    if (!r || !r.by || (r.decision !== 'accepted' && r.decision !== 'partial')) continue;
+    const k = String(r.by.name), t = m.get(k) || { name: k, submissions: 0, curves: 0, factors: 0, cpuMs: 0 };
+    t.submissions++;
+    t.curves += ((r.added && r.added.runs) || []).reduce((s, x) => s + (x.curves || 0), 0);
+    t.factors += ((r.added && r.added.factors) || []).length;
+    t.cpuMs += r.cpuMs || 0;
+    m.set(k, t);
+  }
+  return Array.from(m.values()).sort((a, b) => b.curves - a.curves || b.factors - a.factors || a.name.localeCompare(b.name));
+}
+// The entry window's "Contributions" section. Everything the sender wrote is escaped.
+function contributionsHtml(n) {
+  const items = contributionsFor(n, loadContributions());
+  if (!items.length) return '';
+  return '<div class="modal-section"><div class="modal-section-label">Contributions</div>' + items.map(({ rec, runs, facs }) => {
+    const what = [...runs.map(x => (x.method === 'ECM' ? Number(x.curves).toLocaleString() + ' curve' + (x.curves === 1 ? '' : 's') + ' at ' : x.method + ' ') + 'B1=' + x.b1),
+                  ...facs.map(x => 'factor ' + x.f)].join(' · ');
+    const gone = rec.decision === 'withdrawn';
+    return '<div class="contrib-line' + (gone ? ' contrib-gone' : '') + '">🤝 <strong>' + escHtml(rec.by.name) + '</strong> · '
+      + escHtml(String(rec.accepted || rec.decided || '').slice(0, 10)) + ' · ' + escHtml(what)
+      + (gone ? ' <em>— withdrawn ' + escHtml(String(rec.decided).slice(0, 10)) + ': the curves were taken out' + (facs.length ? ', the factors stay' : '') + '</em>' : '')
+      + (rec.issue ? ' · <a href="' + escHtml(rec.issue) + '" target="_blank" rel="noopener">issue</a>' : '')
+      + (rec.note ? '<div class="sub-note">' + escHtml(rec.note) + '</div>' : '') + '</div>';
+  }).join('') + '</div>';
+}
+
+// ── Submissions on GitHub ────────────────────────────────────────────────────
+// The issue form labels each submission; reading issues needs no special right, but
+// replying and closing need your token to have "Issues: Read and write". GitHub does
+// not let a web page download an issue's attachment, so when fetching the file fails
+// the app opens it for you to save, and links the review to the issue all the same.
+const SUBMISSION_LABEL = 'ecm-submission';
+// PURE: the .json files attached in an issue's text, once each.
+function attachmentLinks(body) {
+  const re = /https:\/\/github\.com\/(?:user-attachments\/files|[\w.-]+\/[\w.-]+\/files)\/\d+\/[^\s)"'<>\]]+?\.json/g;
+  return Array.from(new Set(String(body || '').match(re) || []));
+}
+// PURE: the open issues that are submissions — labelled, or titled by the form.
+function submissionIssuesFrom(issues) {
+  return (issues || []).filter(i => i && !i.pull_request
+      && ((i.labels || []).some(l => (l && l.name) === SUBMISSION_LABEL) || /^\[ECM submission\]/.test(i.title || '')))
+    .map(i => ({ number: i.number, title: String(i.title || ''), url: String(i.html_url || ''), user: String((i.user && i.user.login) || '?'),
+                 created: String(i.created_at || ''), files: attachmentLinks(i.body) }));
+}
+function issueNumberOf(url) { const m = /\/issues\/(\d+)\/?$/.exec(String(url || '')); return m ? parseInt(m[1]) : null; }
+function issueError(status) {
+  return (status === 403 || status === 404) ? 'GitHub refused (' + status + '): your token needs "Issues: Read and write" permission for this repository'
+       : status === 401 ? 'GitHub refused (401): your token is missing or has expired' : 'GitHub answered ' + status;
+}
+async function listSubmissionIssues() {
+  const r = await fetchWithTimeout('https://api.github.com/repos/' + submissionRepo() + '/issues?state=open&per_page=100', 15000, { headers: ghHeaders() });
+  if (!r.ok) throw new Error(issueError(r.status));
+  return submissionIssuesFrom(await r.json());
+}
+// PURE: a reply for the issue, to edit before posting.
+function replyText(rec) {
+  const runs = (rec.added && rec.added.runs) || [], facs = (rec.added && rec.added.factors) || [];
+  if (rec.decision === 'rejected') return 'Thank you for sending this, ' + rec.by.name + '. I have not accepted it' + (rec.reason ? ': ' + rec.reason : '.');
+  const curves = runs.reduce((t, x) => t + (x.curves || 0), 0);
+  const ns = Array.from(new Set([...runs.map(x => x.n), ...facs.map(x => x.n)])).sort((a, b) => a - b);
+  return 'Thank you, ' + rec.by.name + '! ' + (rec.decision === 'partial' ? 'Partly accepted' : 'Accepted') + ': '
+    + curves.toLocaleString() + ' new curve' + (curves === 1 ? '' : 's')
+    + (facs.length ? ' and ' + facs.length + ' new factor' + (facs.length === 1 ? '' : 's') + ' (' + facs.map(x => x.f + ' of E(' + x.n + ')').join(', ') + ')' : '')
+    + (ns.length ? ', on ' + ns.slice(0, 12).map(n => 'E(' + n + ')').join(', ') + (ns.length > 12 ? ' and ' + (ns.length - 12) + ' more' : '') : '')
+    + '. They are in the data now, credited to you.';
+}
+async function postIssueReply(number, text, decision) {
+  const base = 'https://api.github.com/repos/' + submissionRepo() + '/issues/' + number;
+  const c = await fetchWithTimeout(base + '/comments', 15000, { method: 'POST', headers: ghHeaders(), body: JSON.stringify({ body: text }) });
+  if (!c.ok) throw new Error(issueError(c.status));
+  const x = await fetchWithTimeout(base, 15000, { method: 'PATCH', headers: ghHeaders(),
+    body: JSON.stringify({ state: 'closed', state_reason: decision === 'rejected' ? 'not_planned' : 'completed' }) });
+  if (!x.ok) throw new Error(issueError(x.status) + ' — the reply was posted, but the issue is still open');
+}
+
+let _issues = [], _pendingIssue = null;
+async function checkIssues() {
+  const box = document.getElementById('subIssues');
+  if (box) box.textContent = 'Asking GitHub…';
+  try { _issues = await listSubmissionIssues(); }
+  catch (e) { if (box) box.innerHTML = '<span class="sub-bad-t">' + escHtml(e.message) + '</span>'; return; }
+  const led = loadContributions();
+  if (box) box.innerHTML = !_issues.length ? '<span class="sub-dim">No open submissions on GitHub.</span>' : '<ul class="sub-ledger">' + _issues.map(i => {
+    const d = led.find(r => r.issue === i.url);
+    return '<li><a href="' + escHtml(i.url) + '" target="_blank" rel="noopener">#' + i.number + '</a> ' + escHtml(i.title) + ' · @' + escHtml(i.user)
+      + ' · ' + escHtml(i.created.slice(0, 10)) + ' · '
+      + (d ? 'decided (' + escHtml(d.decision) + '), not yet replied — <button class="poll-btn" onclick="reopenDecided(\'' + escHtml(d.id) + '\')">Reply</button>'
+         : i.files.length ? '<button class="poll-btn" onclick="reviewIssue(' + i.number + ')">Review</button>' : '<span class="sub-warn-t">no submission file attached</span>') + '</li>';
+  }).join('') + '</ul>';
+}
+async function reviewIssue(number) {
+  const it = _issues.find(i => i.number === number);
+  if (!it || !it.files.length) return;
+  let text = null;
+  try { const r = await fetchWithTimeout(it.files[0], 20000); if (r && r.ok) text = await r.text(); } catch (e) { text = null; }
+  if (text != null) {
+    const got = readSubmission(text);
+    if (got.error) { alert(got.error); return; }
+    _reviewing = { sub: got.sub, review: reviewSubmission(got.sub), issue: { number, url: it.url } };
+    renderSubmissionReview();
+    return;
+  }
+  _pendingIssue = { number, url: it.url };
+  window.open(it.files[0], '_blank', 'noopener');
+  const box = document.getElementById('subIssues');
+  if (box) box.innerHTML = '<div class="sub-next">GitHub does not let this page download the file, so it is opening in a new tab: save it, then '
+    + '<button class="poll-btn" onclick="pickSubmissionFile()">Open the downloaded file…</button> — the review will be linked to issue #' + number + '.</div>';
+}
+function reopenDecided(id) {
+  const rec = loadContributions().find(r => r.id === id);
+  if (!rec) return;
+  _reviewing = { sub: { id: rec.id, by: rec.by, note: rec.note, created: rec.created, files: [] }, review: { entries: [], unmatched: [], totals: { entries: 0, runs: 0, fresh: 0, newFactors: 0 } }, issue: { number: issueNumberOf(rec.issue), url: rec.issue } };
+  renderSubmissionReview();
+}
+async function replyReviewed() {
+  const rec = _reviewing && loadContributions().find(r => r.id === _reviewing.sub.id);
+  const out = document.getElementById('subReplyDone');
+  const number = rec && issueNumberOf(rec.issue);
+  if (!rec || !number) return;
+  const text = ((document.getElementById('subReply') || {}).value || '').trim();
+  if (!text) { alert('Write a reply first.'); return; }
+  if (out) out.textContent = 'Posting…';
+  try { await postIssueReply(number, text, rec.decision); }
+  catch (e) { if (out) out.innerHTML = '<span class="sub-bad-t">' + escHtml(e.message) + '</span>'; return; }
+  saveContributions(loadContributions().map(r => r.id === rec.id ? Object.assign({}, r, { replied: new Date().toISOString() }) : r));
+  addLog('Replied on issue #' + number + ' and closed it', 'ok');
+  if (out) out.innerHTML = '✓ Reply posted and <a href="' + escHtml(rec.issue) + '" target="_blank" rel="noopener">issue #' + number + '</a> closed.';
+}
+function withdrawFromList(id) {
+  const rec = loadContributions().find(r => r.id === id);
+  if (!rec) return;
+  if (!confirm('Withdraw the submission from ' + rec.by.name + '?\n\nIts curves are taken out again — only the ones it added. '
+    + 'Its factors stay: they are proven, whoever found them.')) return;
+  const next = withdrawSubmission(id);
+  if (next) addLog('Withdrew submission ' + id + ' from ' + rec.by.name + ' — its curves were taken out', 'warn');
+  openSubmissions();
 }
 
 function importECMResults() {
@@ -8318,7 +8548,9 @@ async function processEcmLogText(text, sourceLabel, opts) {
         // "all time" and "since tracking began" show identical numbers and the
         // historical work stops being distinguishable as historical.
         const addedWork = blkSigmas.length ? seenGrew : ((parseInt(existing.curves) || 0) > curvesBefore);
-        if (blk.b2 && !existing.b2) existing.b2 = blk.b2;
+        // A contribution leaves YOUR run's own details alone: its B2 and dates feed your
+        // time model (lastRun decides whether your measured time still fits the cofactor).
+        if (blk.b2 && !existing.b2 && !contrib) existing.b2 = blk.b2;
         // Accumulate measured time in step with the curve count. Only add when
         // this block contributed genuinely NEW sigmas — otherwise re-importing
         // the same log would inflate the recorded time while curves (correctly,
@@ -8333,7 +8565,7 @@ async function processEcmLogText(text, sourceLabel, opts) {
         // it. That is why "since tracking began" showed finds but no runs, curves
         // or CPU: the finds come from the timestamped discovery history, while the
         // effort came from dates that never moved.
-        if (addedWork) {
+        if (addedWork && !contrib) {
           existing.lastRun = new Date().toISOString().slice(0, 10);
           if (!existing.date) existing.date = existing.lastRun;
         }
@@ -10823,6 +11055,8 @@ function openModal(n) {
   }
   const newMarkM = loadNewSince()[String(n)];
   const newHtml   = newMarkM ? `<div class="new-since-line">✦ Since you last opened it: ${escHtml(newSinceText(newMarkM))}</div>` : '';
+  let contribHtmlM = '';
+  try { contribHtmlM = contributionsHtml(n); } catch (err) { logSwallowed('modal/contributions', err); }
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${escHtml(e.note)}</div>` : '';
 
   // Unknown + FactorDB check
@@ -10886,6 +11120,7 @@ function openModal(n) {
       <div class="modal-section-label">Factoring Attempts — ECM / P-1 / P+1</div>
       <div id="ecmSection_${n}">${ecmSectionHtml}</div>
     </div>
+    ${contribHtmlM}
     ${(e.status !== 'full' && e.val) ? `
     <details class="modal-section" style="font-size:11px">
       <summary style="cursor:pointer;color:var(--text-muted)">+ Add a factor you know</summary>
@@ -14099,14 +14334,49 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 // ─────────────────────────────────────────────────────────────────────────────
 // Init order: load settings → fetch euler values → pull from GitHub → replay cache → render
 
+// ── Value files: the built-in list, plus whatever is in the repository ─────────
+// More values are just more files: euler_values_A_B.json in the repository's top
+// folder (euler_values.gp writes them). The app lists that folder through GitHub's
+// API and loads every value file it finds, and remembers the list for when the API
+// cannot be reached — it allows 60 requests an hour without a token. The built-in
+// list stays as the floor, so nothing that loads today can stop loading.
+const VALUE_CHUNKS_KEY = 'eulerFDB_valueChunks_v1';
+const VALUE_CHUNK_RE = /^euler_values_(\d+)_(\d+)\.json$/;
+// PURE: value-file names in order of their first n, once each; anything else dropped.
+function sortValueChunks(names) {
+  const at = (f, i) => parseInt(f.match(VALUE_CHUNK_RE)[i]);
+  return Array.from(new Set((names || []).filter(f => typeof f === 'string' && VALUE_CHUNK_RE.test(f))))
+    .sort((a, b) => at(a, 1) - at(b, 1) || at(a, 2) - at(b, 2));
+}
+async function valueChunkList(user, repo, branch, builtin) {
+  let found = [];
+  try { found = JSON.parse(kvGet(VALUE_CHUNKS_KEY) || '[]') || []; } catch (e) { found = []; }
+  try {
+    const s = loadGHSettings() || {};
+    const headers = { Accept: 'application/vnd.github+json' };
+    if (s.token) headers.Authorization = 'Bearer ' + s.token;   // visitors list without one
+    const r = await fetchWithTimeout('https://api.github.com/repos/' + user + '/' + repo + '/contents/?ref='
+      + encodeURIComponent(branch), 5000, { headers });
+    if (r && r.ok) {
+      const list = await r.json();
+      if (Array.isArray(list)) { found = sortValueChunks(list.map(x => x && x.name)); kvSet(VALUE_CHUNKS_KEY, JSON.stringify(found)); }
+    }
+  } catch (e) { logSwallowed('values/list', e); }
+  const all = sortValueChunks([...(builtin || []), ...found]);
+  const extra = all.length - sortValueChunks(builtin).length;
+  if (extra > 0) addLog('Euler values: ' + extra + ' value file' + (extra === 1 ? '' : 's') + ' beyond the built-in list, found in the repository', 'ok');
+  return all;
+}
+
 async function fetchEulerValues() {
   const s      = loadGHSettings();
   const user   = s.user   || 'hilbertfrank1285';
   const repo   = s.repo   || 'euler-factordb';
   const branch = s.branch || 'main';
 
-  // Chunked files — all under 10MB so GitHub API can handle them
-  const chunks = [
+  // Chunked files — all under 10MB so GitHub API can handle them. This built-in list
+  // is the floor; valueChunkList adds every other value file in the repository.
+  const builtinChunks = [
     'euler_values_0_2498.json',
     'euler_values_2500_4000.json',
     'euler_values_4002_5000.json',
@@ -14153,6 +14423,7 @@ async function fetchEulerValues() {
     'euler_values_19680_19938.json',
     'euler_values_19940_20000.json',
   ];
+  const chunks = await valueChunkList(user, repo, branch, builtinChunks);
 
   setStatus('Loading Euler values…');
 
