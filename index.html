@@ -849,8 +849,12 @@
     <code>results.json</code> / <code>results_ecm.json</code> are read only until <code>data/</code> exists.
   </div>
   <div class="repo-tools">
+    <button class="poll-btn" onclick="uploadValueFiles()" style="background:var(--surface2)"
+      title="Sends PARI's euler_values_A_B.json files from your computer to GitHub already compressed (47% of the size), neighbours merged into ~20 MB files — in one commit, every value checked first. Better than GitHub's website for new values: each value is stored once in the repository's history, not twice.">
+      📤 Upload value files
+    </button>
     <button class="poll-btn" onclick="compressValueFiles()" style="background:var(--surface2)"
-      title="Replaces the plain .json value files in your repository with gzip'd .json.gz copies — 47% of the size — in one commit, each checked and compared with its original first. GitHub Pages allows 1 GB: plain files reach it near E(30000), compressed ones near E(40000). Run it after uploading new value files.">
+      title="Compresses plain .json value files already in your repository (neighbours merged into ~20 MB files), in one commit, every value checked first. Compressed files are never rewritten. GitHub Pages allows 1 GB: plain files reach it near E(30000), compressed ones near E(40000).">
       🗜 Compress value files
     </button>
   </div>
@@ -2914,6 +2918,51 @@ async function idbPutChunk(fname, data) {
 }
 
 // Clear the cached Euler values (e.g. if chunk files are updated on GitHub).
+// The cached value ranges' names, and removing one (see fetchChunk: a merged file is
+// put together from the pieces this browser already holds).
+async function idbChunkKeys() {
+  const db = await openEulerDB();
+  if (!db) return [];
+  return new Promise((resolve) => {
+    try {
+      const req = db.transaction(EULER_DB_STORE, 'readonly').objectStore(EULER_DB_STORE).getAllKeys();
+      req.onsuccess = () => resolve((req.result || []).map(String));
+      req.onerror   = () => resolve([]);
+    } catch { resolve([]); }
+  });
+}
+async function idbDeleteChunk(key) {
+  const db = await openEulerDB();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(EULER_DB_STORE, 'readwrite');
+      tx.objectStore(EULER_DB_STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => resolve();
+    } catch { resolve(); }
+  });
+}
+// PURE: cached ranges that lie inside `name`'s range and tile it exactly — back to
+// back, from its first n to its last — or null when they do not.
+function tilingParts(name, keys) {
+  const m = VALUE_CHUNK_RE.exec(String(name));
+  if (!m) return null;
+  const A = +m[1], B = +m[2];
+  const parts = (keys || []).map(k => ({ k, m: VALUE_CHUNK_RE.exec(String(k)) }))
+    .filter(x => x.m && !x.m[3] && x.k !== name).map(x => ({ k: x.k, a: +x.m[1], b: +x.m[2] }))
+    .filter(x => x.a >= A && x.b <= B);
+  const out = [];
+  let at = A;
+  while (at <= B) {
+    const next = parts.filter(x => x.a === at).sort((p, q) => q.b - p.b)[0];
+    if (!next) return null;
+    out.push(next.k);
+    if (next.b === B) return out;
+    at = next.b + 2;
+  }
+  return null;
+}
 async function clearEulerValueCache() {
   const db = await openEulerDB();
   if (!db) return;
@@ -14513,7 +14562,7 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 const VALUE_CHUNKS_KEY = 'eulerFDB_valueChunks_v1';
 const VALUE_CHUNK_RE = /^euler_values_(\d+)_(\d+)\.json(\.gz)?$/;
 // PURE: value-file names in order of their first n, ONE per range — the compressed
-// form when both are there; anything else dropped.
+// form when both are there, and none whose range a bigger file holds; anything else dropped.
 function sortValueChunks(names) {
   const at = (f, i) => parseInt(f.match(VALUE_CHUNK_RE)[i]);
   const byRange = new Map();
@@ -14522,11 +14571,20 @@ function sortValueChunks(names) {
     const key = at(f, 1) + '_' + at(f, 2), had = byRange.get(key);
     if (!had || (/\.gz$/.test(f) && !/\.gz$/.test(had))) byRange.set(key, f);
   }
-  return Array.from(byRange.values()).sort((a, b) => at(a, 1) - at(b, 1) || at(a, 2) - at(b, 2));
+  // A range that lies inside another file's range was merged into it: the old name is gone.
+  const list = Array.from(byRange.values()).map(f => ({ f, a: at(f, 1), b: at(f, 2) }));
+  return list.filter(x => !list.some(y => y !== x && y.a <= x.a && x.b <= y.b))
+    .sort((p, q) => p.a - q.a || p.b - q.b).map(x => x.f);
 }
 async function valueChunkList(user, repo, branch, builtin) {
   let found = [];
   try { found = JSON.parse(kvGet(VALUE_CHUNKS_KEY) || '[]') || []; } catch (e) { found = []; }
+  // 1. The list a compress-and-merge commit wrote, from your own site: no rate limit.
+  let listed = [];
+  try {
+    const r = await fetchWithTimeout(VALUE_INDEX_FILE + '?v=' + Date.now(), 5000, { cache: 'no-store' });
+    if (r && r.ok) { const a = await r.json(); if (Array.isArray(a)) listed = a.filter(x => typeof x === 'string'); }
+  } catch (e) { logSwallowed('values/index', e); }
   try {
     const s = loadGHSettings() || {};
     const headers = { Accept: 'application/vnd.github+json' };
@@ -14535,9 +14593,11 @@ async function valueChunkList(user, repo, branch, builtin) {
       + encodeURIComponent(branch), 5000, { headers });
     if (r && r.ok) {
       const list = await r.json();
-      if (Array.isArray(list)) { found = sortValueChunks(list.map(x => x && x.name)); kvSet(VALUE_CHUNKS_KEY, JSON.stringify(found)); }
+      if (Array.isArray(list)) { found = sortValueChunks(list.map(x => x && x.name)); }
     }
   } catch (e) { logSwallowed('values/list', e); }
+  if (listed.length) found = sortValueChunks([...listed, ...found]);
+  try { kvSet(VALUE_CHUNKS_KEY, JSON.stringify(found)); } catch (e) { logSwallowed('values/remember', e); }
   const all = sortValueChunks([...(builtin || []), ...found]);
   const extra = all.length - sortValueChunks(builtin).length;
   if (extra > 0) addLog('Euler values: ' + extra + ' value file' + (extra === 1 ? '' : 's') + ' beyond the built-in list, found in the repository', 'ok');
@@ -14585,10 +14645,64 @@ function checkValueFileText(fname, text) {
   }
   return '';
 }
-// PURE: the plain value files a repository listing still holds, with their sizes.
-function valueFilesToCompress(listing) {
-  return (listing || []).filter(x => x && x.type !== 'dir' && VALUE_CHUNK_RE.test(x.name || '') && !/\.gz$/.test(x.name))
-    .map(x => ({ name: x.name, size: x.size || 0 }));
+// The value files' own list, written by every compress-and-merge commit and read
+// first — from your own site, so a visitor whose GitHub API allowance is used up
+// still finds the files.
+const VALUE_INDEX_FILE = 'euler_values_index.json';
+// About this many compressed bytes per value file: 95 files of 1-5 MB become ~22.
+const TIDY_TARGET = 20e6;
+// PURE: the value files as they should be — every one compressed, plain neighbours
+// merged into files of about `target` bytes — and what that takes. A compressed file
+// is never rewritten: git keeps every version, so each rewrite would add its whole
+// size to the repository's history (Pages repositories should stay under ~1 GB).
+// Only contiguous ranges are merged; a plain copy beside a compressed one is dropped.
+function planValueFiles(listing, target) {
+  const byRange = new Map();
+  for (const x of listing || []) {
+    const m = x && x.type !== 'dir' && VALUE_CHUNK_RE.exec(x.name || '');
+    if (!m) continue;
+    const key = m[1] + '_' + m[2], r = byRange.get(key) || { a: +m[1], b: +m[2], names: [], gz: null, plain: null };
+    r.names.push(x.name);
+    if (m[3]) r.gz = { name: x.name, size: x.size || 0 }; else r.plain = { name: x.name, size: x.size || 0 };
+    byRange.set(key, r);
+  }
+  const ranges = Array.from(byRange.values()).sort((p, q) => p.a - q.a || p.b - q.b)
+    .map(r => Object.assign(r, { source: (r.gz || r.plain).name, est: r.gz ? r.gz.size : Math.round(r.plain.size * 0.47) }));
+  const groups = [];
+  let cur = [], size = 0;
+  for (const r of ranges) {
+    const last = cur[cur.length - 1];
+    if (cur.length && (r.gz || last.gz || size + r.est > target || r.a !== last.b + 2)) { groups.push(cur); cur = []; size = 0; }
+    cur.push(r); size += r.est;
+  }
+  if (cur.length) groups.push(cur);
+  const out = groups.map(g => {
+    if (g[0].gz) return { name: g[0].gz.name, action: g[0].plain ? 'drop' : 'keep', sources: [], remove: g[0].plain ? [g[0].plain.name] : [] };
+    const name = 'euler_values_' + g[0].a + '_' + g[g.length - 1].b + '.json.gz';
+    return { name, action: g.length > 1 ? 'merge' : 'compress', sources: g.map(r => r.source), remove: g.flatMap(r => r.names).filter(n => n !== name) };
+  });
+  return { groups: out, changed: out.filter(g => g.action !== 'keep'), manifest: out.map(g => g.name) };
+}
+// One compressed value file from its pieces ({name, text}, in range order): each piece
+// checked, the whole holding exactly the pieces' values — none lost or doubled — and
+// the compressed copy unpacked again and compared. A single piece is kept byte for byte.
+async function packValueFile(name, parts) {
+  const obj = {};
+  let count = 0;
+  for (const p of parts) {
+    const bad = checkValueFileText(p.name, p.text);
+    if (bad) throw new Error(p.name + ': ' + bad);
+    const part = JSON.parse(p.text);
+    count += Object.keys(part).length;
+    Object.assign(obj, part);
+  }
+  if (Object.keys(obj).length !== count) throw new Error(name + ': its pieces overlap — some values would be counted twice');
+  const text = parts.length === 1 ? parts[0].text : JSON.stringify(obj);
+  const bad = checkValueFileText(name, text);
+  if (bad) throw new Error(name + ': ' + bad);
+  const gz = await gzipText(text);
+  if (await gunzipBytes(gz) !== text) throw new Error(name + ': the compressed copy did not unpack to the original');
+  return { obj, gz, size: text.length };
 }
 // One commit for many changes, on top of whatever the branch holds now. If another
 // push moved the branch meanwhile, the commit is rebuilt on the new head — the
@@ -14608,11 +14722,14 @@ async function commitTreeChanges(ctx, entries, message, api, headOf) {
   }
   return { ok: false, message: 'the branch kept moving — try again in a minute' };
 }
-// The settings panel's "Compress value files": every plain value file in the
-// repository becomes a .json.gz in ONE commit — one Pages build, not seventy. Each
-// file is checked before it is compressed, and each compressed copy is unpacked again
-// and compared with the original before anything is committed. Until that one
-// commit, nothing on GitHub changes: uploads that are never committed simply vanish.
+// The settings panel's "Compress value files": plain value files become what
+// planValueFiles says — compressed, plain neighbours merged into ~20 MB files; files
+// already compressed untouched — in ONE commit, which also writes their list
+// (VALUE_INDEX_FILE). Prefer "Upload value files" for new values: it compresses them
+// before they reach GitHub, so the history holds each value once, not twice. Every piece is checked;
+// a merged file must hold exactly its pieces' values, none lost or doubled; and every
+// compressed file is unpacked again and compared before anything is committed. Until
+// that one commit nothing on GitHub changes: uploads never committed simply vanish.
 let _compressing = false;
 async function compressValueFiles() {
   if (_compressing) return;
@@ -14622,43 +14739,147 @@ async function compressValueFiles() {
   setStatus('Listing the value files on GitHub…');
   const list = await ghApi(ctx, 'GET', 'contents/?ref=' + encodeURIComponent(ctx.branch));
   if (!list.ok) { alert('GitHub refused the listing: ' + list.message); return; }
-  const todo = valueFilesToCompress(list.data);
-  if (!todo.length) { setStatus('Every value file is compressed already', 'ok'); alert('Nothing to compress: every value file is compressed already.'); return; }
-  const mb = todo.reduce((t, x) => t + x.size, 0) / 1e6;
-  if (!confirm('Compress ' + todo.length + ' value file' + (todo.length === 1 ? '' : 's') + ' (' + mb.toFixed(0) + ' MB) into .json.gz files, '
-    + 'replacing them in one commit?\n\nAbout ' + (mb * 0.47).toFixed(0) + ' MB will be uploaded. Each file is checked first, and each compressed copy is '
-    + 'unpacked and compared with the original before anything changes on GitHub. Keep this tab open until it says it is done.')) return;
+  const plan = planValueFiles(list.data, TIDY_TARGET);
+  const hasIndex = (list.data || []).some(x => x && x.name === VALUE_INDEX_FILE);
+  if (!plan.changed.length && hasIndex) {
+    setStatus('Every value file is compressed already', 'ok');
+    alert('Nothing to do: every value file is compressed already.'); return;
+  }
+  const work = plan.changed.filter(g => g.sources.length);
+  const plain = work.reduce((t, g) => t + g.sources.length, 0);
+  const before = plan.groups.reduce((t, g) => t + g.remove.length + (g.action === 'keep' || g.action === 'drop' ? 1 : 0), 0);
+  if (!confirm((plain ? 'Compress ' + plain + ' plain value file' + (plain === 1 ? '' : 's') + ' into ' + work.length + ' (neighbours merged)'
+                      : 'Write the list of value files')
+    + ', in one commit? Compressed files stay exactly as they are.\n\nEvery value is checked, and every new file unpacked and compared before '
+    + 'anything changes on GitHub. Keep this tab open until it says it is done.')) return;
   _compressing = true;
   const entries = [];
-  let before = 0, after = 0;
+  let raw = 0, packed = 0;
   try {
-    for (const [i, f] of todo.entries()) {
-      setStatus('Compressing value files: ' + (i + 1) + ' of ' + todo.length + ' — ' + f.name + '…');
-      const r = await fetchWithTimeout('https://raw.githubusercontent.com/' + ctx.user + '/' + ctx.repo + '/' + ctx.branch + '/' + f.name + '?v=' + Date.now(), 120000);
-      if (!r || !r.ok) throw new Error('could not download ' + f.name + (r ? ' (' + r.status + ')' : ''));
-      const text = await valueFileText(await r.arrayBuffer());
-      const bad = checkValueFileText(f.name, text);
-      if (bad) throw new Error(f.name + ': ' + bad);
-      const gz = await gzipText(text);
-      if (await gunzipBytes(gz) !== text) throw new Error(f.name + ': the compressed copy did not unpack to the original');
+    for (const [i, g] of plan.changed.entries()) {
+      if (!g.sources.length) { for (const old of g.remove) entries.push({ path: old, mode: '100644', type: 'blob', sha: null }); continue; }
+      setStatus('Compressing value files: ' + (i + 1) + ' of ' + plan.changed.length + ' — ' + g.name + '…');
+      const parts = [];
+      for (const src of g.sources) {
+        const r = await fetchWithTimeout('https://raw.githubusercontent.com/' + ctx.user + '/' + ctx.repo + '/' + ctx.branch + '/' + src + '?v=' + Date.now(), 120000);
+        if (!r || !r.ok) throw new Error('could not download ' + src + (r ? ' (' + r.status + ')' : ''));
+        parts.push({ name: src, text: await valueFileText(await r.arrayBuffer()) });
+      }
+      const { obj, gz, size } = await packValueFile(g.name, parts);
       const blob = await ghApi(ctx, 'POST', 'git/blobs', { content: bytesToBase64(gz), encoding: 'base64' });
-      if (!blob.ok) throw new Error(blob.message + ' (uploading ' + f.name + '.gz)');
-      entries.push({ path: f.name + '.gz', mode: '100644', type: 'blob', sha: blob.data.sha },
-                   { path: f.name, mode: '100644', type: 'blob', sha: null });
-      before += text.length; after += gz.length;
+      if (!blob.ok) throw new Error(blob.message + ' (uploading ' + g.name + ')');
+      entries.push({ path: g.name, mode: '100644', type: 'blob', sha: blob.data.sha });
+      for (const old of g.remove) entries.push({ path: old, mode: '100644', type: 'blob', sha: null });
+      raw += size; packed += gz.length;
+      try { await idbPutChunk(valueCacheKey(g.name), obj); } catch (e) { logSwallowed('tidy/cache', e); }
     }
-    setStatus('Committing ' + todo.length + ' compressed value files…');
-    const res = await commitTreeChanges(ctx, entries, 'Compress ' + todo.length + ' value files ('
-      + (before / 1e6).toFixed(0) + ' MB → ' + (after / 1e6).toFixed(0) + ' MB)');
+    const index = await ghApi(ctx, 'POST', 'git/blobs', { content: JSON.stringify(plan.manifest), encoding: 'utf-8' });
+    if (!index.ok) throw new Error(index.message + ' (uploading ' + VALUE_INDEX_FILE + ')');
+    entries.push({ path: VALUE_INDEX_FILE, mode: '100644', type: 'blob', sha: index.data.sha });
+    setStatus('Committing the compressed value files…');
+    const res = await commitTreeChanges(ctx, entries, 'Value files: ' + before + ' -> ' + plan.groups.length + ', compressed');
     if (!res.ok) throw new Error(res.message);
-    try {
-      kvSet(VALUE_CHUNKS_KEY, JSON.stringify(sortValueChunks([...(JSON.parse(kvGet(VALUE_CHUNKS_KEY) || '[]') || []), ...todo.map(f => f.name + '.gz')])));
-    } catch (e) { logSwallowed('compress/list', e); }
-    const msg = 'Compressed ' + todo.length + ' value file' + (todo.length === 1 ? '' : 's') + ': ' + (before / 1e6).toFixed(0) + ' MB → '
-      + (after / 1e6).toFixed(0) + ' MB, in one commit. GitHub Pages rebuilds the site in a few minutes; values a browser already holds stay cached.';
+    try { kvSet(VALUE_CHUNKS_KEY, JSON.stringify(plan.manifest)); } catch (e) { logSwallowed('tidy/list', e); }
+    const msg = 'Value files compressed: ' + before + ' files are now ' + plan.groups.length + ', in one commit'
+      + (raw ? ' (' + (raw / 1e6).toFixed(0) + ' MB of values written as ' + (packed / 1e6).toFixed(0) + ' MB)' : '')
+      + '. GitHub Pages rebuilds the site in a few minutes; browsers keep the values they hold.';
     addLog(msg, 'ok'); setStatus(msg, 'ok'); alert(msg);
   } catch (e) {
     const msg = 'Compressing value files stopped: ' + e.message + '. Nothing changed on GitHub.';
+    addLog(msg, 'error'); setStatus(msg, 'error'); alert(msg);
+  } finally { _compressing = false; }
+}
+
+// PURE: how PARI's files go up — each a value file, none overlapping another or a
+// range already on GitHub; contiguous ones merged into files of about `target`
+// compressed bytes — and the list of value files once they are there.
+function planUpload(local, listing, target) {
+  const errors = [], have = [];
+  for (const x of listing || []) {
+    const m = x && VALUE_CHUNK_RE.exec(x.name || '');
+    if (m) have.push({ name: x.name, a: +m[1], b: +m[2] });
+  }
+  const files = [];
+  for (const f of local || []) {
+    const m = VALUE_CHUNK_RE.exec(f.name || '');
+    if (!m || m[3]) { errors.push(f.name + ' is not a plain value file (euler_values_A_B.json)'); continue; }
+    files.push({ name: f.name, a: +m[1], b: +m[2], est: Math.round((f.size || 0) * 0.47) });
+  }
+  files.sort((p, q) => p.a - q.a || p.b - q.b);
+  for (let i = 1; i < files.length; i++) {
+    if (files[i].a <= files[i - 1].b) errors.push(files[i].name + ' overlaps ' + files[i - 1].name);
+  }
+  for (const f of files) {
+    const clash = have.find(h => f.a <= h.b && h.a <= f.b);
+    if (clash) errors.push('E(' + f.a + ')–E(' + f.b + ') is already on GitHub, in ' + clash.name);
+  }
+  const groups = [];
+  let cur = [], size = 0;
+  for (const f of files) {
+    if (cur.length && (size + f.est > target || f.a !== cur[cur.length - 1].b + 2)) { groups.push(cur); cur = []; size = 0; }
+    cur.push(f); size += f.est;
+  }
+  if (cur.length) groups.push(cur);
+  const out = groups.map(g => ({ name: 'euler_values_' + g[0].a + '_' + g[g.length - 1].b + '.json.gz', sources: g.map(f => f.name) }));
+  return { errors, groups: out, manifest: sortValueChunks([...have.map(h => h.name), ...out.map(g => g.name)]) };
+}
+// The settings panel's "Upload value files": PARI's .json files go to GitHub straight
+// from your computer, already compressed — neighbours merged into ~20 MB files — in
+// one commit with the updated list of value files. Uploading plain files through
+// GitHub's website and compressing them afterwards stores every value twice in the
+// repository's history; this stores it once. Nothing is uploaded unless every file
+// is sound and no range is on GitHub already.
+function uploadValueFiles() {
+  if (_compressing) return;
+  if (isVisitor()) { alert('Only the owner can change the repository.'); return; }
+  if (typeof CompressionStream === 'undefined') { alert('This browser cannot compress files — use a current Chrome, Edge, Firefox or Safari.'); return; }
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json'; inp.multiple = true;
+  inp.onchange = () => { const files = Array.from(inp.files || []); if (files.length) uploadValueFilesFrom(files); };
+  inp.click();
+}
+async function uploadValueFilesFrom(files) {
+  const ctx = syncCtx();
+  setStatus('Checking the value files on GitHub…');
+  const list = await ghApi(ctx, 'GET', 'contents/?ref=' + encodeURIComponent(ctx.branch));
+  if (!list.ok) { alert('GitHub refused the listing: ' + list.message); return; }
+  const plan = planUpload(files, list.data, TIDY_TARGET);
+  if (plan.errors.length) {
+    alert('Nothing was uploaded:\n\n' + plan.errors.slice(0, 12).join('\n') + (plan.errors.length > 12 ? '\n…and ' + (plan.errors.length - 12) + ' more' : ''));
+    return;
+  }
+  const mb = files.reduce((t, f) => t + (f.size || 0), 0) / 1e6;
+  if (!confirm('Upload ' + files.length + ' value file' + (files.length === 1 ? '' : 's') + ' (' + mb.toFixed(0) + ' MB) as ' + plan.groups.length
+    + ' compressed file' + (plan.groups.length === 1 ? '' : 's') + ' — about ' + (mb * 0.47).toFixed(0) + ' MB — in one commit?\n\n'
+    + 'Every value is checked, and every file unpacked and compared before anything changes on GitHub. Keep this tab open until it says it is done.')) return;
+  _compressing = true;
+  const byName = new Map(files.map(f => [f.name, f]));
+  const entries = [];
+  let raw = 0, packed = 0;
+  try {
+    for (const [i, g] of plan.groups.entries()) {
+      setStatus('Uploading value files: ' + (i + 1) + ' of ' + plan.groups.length + ' — ' + g.name + '…');
+      const parts = [];
+      for (const n of g.sources) parts.push({ name: n, text: await byName.get(n).text() });
+      const { obj, gz, size } = await packValueFile(g.name, parts);
+      const blob = await ghApi(ctx, 'POST', 'git/blobs', { content: bytesToBase64(gz), encoding: 'base64' });
+      if (!blob.ok) throw new Error(blob.message + ' (uploading ' + g.name + ')');
+      entries.push({ path: g.name, mode: '100644', type: 'blob', sha: blob.data.sha });
+      raw += size; packed += gz.length;
+      try { await idbPutChunk(valueCacheKey(g.name), obj); } catch (e) { logSwallowed('upload/cache', e); }
+    }
+    const index = await ghApi(ctx, 'POST', 'git/blobs', { content: JSON.stringify(plan.manifest), encoding: 'utf-8' });
+    if (!index.ok) throw new Error(index.message + ' (uploading ' + VALUE_INDEX_FILE + ')');
+    entries.push({ path: VALUE_INDEX_FILE, mode: '100644', type: 'blob', sha: index.data.sha });
+    setStatus('Committing the value files…');
+    const res = await commitTreeChanges(ctx, entries, 'Value files: ' + files.length + ' uploaded as ' + plan.groups.length + ' compressed');
+    if (!res.ok) throw new Error(res.message);
+    try { kvSet(VALUE_CHUNKS_KEY, JSON.stringify(plan.manifest)); } catch (e) { logSwallowed('upload/list', e); }
+    const msg = 'Uploaded ' + files.length + ' value file' + (files.length === 1 ? '' : 's') + ' as ' + plan.groups.length + ' compressed, in one commit ('
+      + (raw / 1e6).toFixed(0) + ' MB of values written as ' + (packed / 1e6).toFixed(0) + ' MB). Reload the page to use them — this browser has them already.';
+    addLog(msg, 'ok'); setStatus(msg, 'ok'); alert(msg);
+  } catch (e) {
+    const msg = 'Uploading value files stopped: ' + e.message + '. Nothing changed on GitHub.';
     addLog(msg, 'error'); setStatus(msg, 'error'); alert(msg);
   } finally { _compressing = false; }
 }
@@ -14724,7 +14945,7 @@ async function fetchEulerValues() {
 
   // Tell the user whether this is a fast cached load or a first-time download
   try {
-    const firstChunkCached = await idbGetChunk(valueCacheKey(chunks[0]));
+    const firstChunkCached = (await idbGetChunk(valueCacheKey(chunks[0]))) || tilingParts(valueCacheKey(chunks[0]), await idbChunkKeys());
     if (!firstChunkCached) {
       setStatus('First load — downloading Euler values (cached locally for next time)…');
     } else {
@@ -14744,6 +14965,20 @@ async function fetchEulerValues() {
         return true;
       }
     } catch(e) { /* fall through to network */ }
+    // 1b. A merged file's range is new to the cache, but the pieces it was merged from
+    //     may all be here: put it together from them rather than download it again.
+    try {
+      const parts = tilingParts(cacheKey, await idbChunkKeys());
+      if (parts) {
+        const data = {};
+        for (const k of parts) { const c = await idbGetChunk(k); if (!c) throw new Error('missing ' + k); Object.assign(data, c); }
+        for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
+        await idbPutChunk(cacheKey, data);                     // next time in one piece
+        for (const k of parts) idbDeleteChunk(k);
+        updateMaxNInput();
+        return true;
+      }
+    } catch(e) { /* fall through to network */ }
 
     // 2. Not cached — fetch from GitHub, then store for next time: the file as named,
     //    then its other form (.json <-> .json.gz), so a built-in .json name still
@@ -14753,7 +14988,7 @@ async function fetchEulerValues() {
     for (const f of [fname, alt]) urls.push(f, 'https://raw.githubusercontent.com/' + user + '/' + repo + '/' + branch + '/' + f + '?v=1');
     for (const url of urls) {
       try {
-        const r = await fetchWithTimeout(url, 30000);
+        const r = await fetchWithTimeout(url, 120000);   // merged files are up to ~20 MB
         if (!r.ok) continue;
         const data = JSON.parse(await valueFileText(await r.arrayBuffer()));
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
