@@ -577,6 +577,7 @@
 .contrib-form label.sub-inline { flex-direction: row; align-items: center; gap: 6px; }
 .contrib-form input:not([type=checkbox]), .contrib-form textarea { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 5px; font: inherit; }
 .sub-ledger { font-size: 12px; padding-left: 18px; }
+.repo-tools { margin: 10px 0; }
 .sub-ledger .poll-btn, .sub-issues .poll-btn { padding: 1px 8px; font-size: 11px; }
 .sub-issues { margin: 8px 0; font-size: 12px; }
 .contrib-line { font-size: 12px; margin: 4px 0; }
@@ -840,12 +841,18 @@
     <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx" oninput="saveGHSettings()">
   </div>
   <div class="gh-hint">
-    Token needs <strong>Contents: Read &amp; Write</strong> scope only.
+    Token needs <strong>Contents: Read &amp; Write</strong>; to reply on submission issues from the app, also <strong>Issues: Read &amp; Write</strong>.
     Create one at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>
     (Fine-grained token → your repo → Contents read/write).
     Data is saved in a <code>data/</code> folder in your repo: <code>meta.json</code>, plus one file per 1,000 entries
     for results and for ECM runs — a push sends only the files that changed, in one commit. The old
     <code>results.json</code> / <code>results_ecm.json</code> are read only until <code>data/</code> exists.
+  </div>
+  <div class="repo-tools">
+    <button class="poll-btn" onclick="compressValueFiles()" style="background:var(--surface2)"
+      title="Replaces the plain .json value files in your repository with gzip'd .json.gz copies — 47% of the size — in one commit, each checked and compared with its original first. GitHub Pages allows 1 GB: plain files reach it near E(30000), compressed ones near E(40000). Run it after uploading new value files.">
+      🗜 Compress value files
+    </button>
   </div>
   <div class="danger-zone">
     <div class="danger-label">Danger zone — this browser only</div>
@@ -14504,12 +14511,18 @@ document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); 
 // cannot be reached — it allows 60 requests an hour without a token. The built-in
 // list stays as the floor, so nothing that loads today can stop loading.
 const VALUE_CHUNKS_KEY = 'eulerFDB_valueChunks_v1';
-const VALUE_CHUNK_RE = /^euler_values_(\d+)_(\d+)\.json$/;
-// PURE: value-file names in order of their first n, once each; anything else dropped.
+const VALUE_CHUNK_RE = /^euler_values_(\d+)_(\d+)\.json(\.gz)?$/;
+// PURE: value-file names in order of their first n, ONE per range — the compressed
+// form when both are there; anything else dropped.
 function sortValueChunks(names) {
   const at = (f, i) => parseInt(f.match(VALUE_CHUNK_RE)[i]);
-  return Array.from(new Set((names || []).filter(f => typeof f === 'string' && VALUE_CHUNK_RE.test(f))))
-    .sort((a, b) => at(a, 1) - at(b, 1) || at(a, 2) - at(b, 2));
+  const byRange = new Map();
+  for (const f of names || []) {
+    if (typeof f !== 'string' || !VALUE_CHUNK_RE.test(f)) continue;
+    const key = at(f, 1) + '_' + at(f, 2), had = byRange.get(key);
+    if (!had || (/\.gz$/.test(f) && !/\.gz$/.test(had))) byRange.set(key, f);
+  }
+  return Array.from(byRange.values()).sort((a, b) => at(a, 1) - at(b, 1) || at(a, 2) - at(b, 2));
 }
 async function valueChunkList(user, repo, branch, builtin) {
   let found = [];
@@ -14529,6 +14542,125 @@ async function valueChunkList(user, repo, branch, builtin) {
   const extra = all.length - sortValueChunks(builtin).length;
   if (extra > 0) addLog('Euler values: ' + extra + ' value file' + (extra === 1 ? '' : 's') + ' beyond the built-in list, found in the repository', 'ok');
   return all;
+}
+
+// ── Compressed value files ───────────────────────────────────────────────────
+// Values are the bulk of the site, and GitHub Pages allows 1 GB: plain .json files
+// reach it near E(30000), gzip'd ones — 47% of the size — near E(40000). The app
+// reads both forms: a file that starts with gzip's signature is unpacked here, and
+// anything else is read as it is, whatever headers GitHub serves it with. The browser
+// cache is keyed by the RANGE, not the file name, so compressing changes nothing for
+// a browser that already holds the values.
+function valueCacheKey(fname) { return String(fname).replace(/\.gz$/, ''); }
+async function gzipText(text) {
+  return new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+}
+async function gunzipBytes(bytes) {
+  return await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+}
+// The text of a value file as fetched: unpacked if it is gzip, as it is if not.
+async function valueFileText(buf) {
+  const b = new Uint8Array(buf);
+  return (b.length > 2 && b[0] === 0x1f && b[1] === 0x8b) ? gunzipBytes(b) : new TextDecoder().decode(b);
+}
+// PURE: bytes as base64, in slices — one String.fromCharCode call cannot take megabytes.
+function bytesToBase64(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+// PURE: why a value file must not be compressed — or '' when it is sound: JSON, its
+// keys even and inside the range its name gives, every value a plain number.
+function checkValueFileText(fname, text) {
+  const m = VALUE_CHUNK_RE.exec(fname);
+  if (!m) return 'not a value file name';
+  let o; try { o = JSON.parse(text); } catch (e) { return 'not valid JSON'; }
+  const keys = (o && typeof o === 'object' && !Array.isArray(o)) ? Object.keys(o) : [];
+  if (!keys.length) return 'no values in it';
+  const lo = parseInt(m[1]), hi = parseInt(m[2]);
+  for (const k of keys) {
+    const n = Number(k);
+    if (!Number.isInteger(n) || n % 2 || n < lo || n > hi) return 'E(' + k + ') does not belong in it';
+    if (typeof o[k] !== 'string' || !/^\d+$/.test(o[k])) return 'the value of E(' + k + ') is not a plain number';
+  }
+  return '';
+}
+// PURE: the plain value files a repository listing still holds, with their sizes.
+function valueFilesToCompress(listing) {
+  return (listing || []).filter(x => x && x.type !== 'dir' && VALUE_CHUNK_RE.test(x.name || '') && !/\.gz$/.test(x.name))
+    .map(x => ({ name: x.name, size: x.size || 0 }));
+}
+// One commit for many changes, on top of whatever the branch holds now. If another
+// push moved the branch meanwhile, the commit is rebuilt on the new head — the
+// uploads are kept, so only the small tree and commit are redone.
+async function commitTreeChanges(ctx, entries, message, api, headOf) {
+  api = api || ghApi; headOf = headOf || branchHead;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const head = await headOf(ctx);
+    if (!head) return { ok: false, message: 'the branch could not be read' };
+    const tree = await api(ctx, 'POST', 'git/trees', { base_tree: head.tree, tree: entries });
+    if (!tree.ok) return { ok: false, message: tree.message + ' (building the commit)' };
+    const commit = await api(ctx, 'POST', 'git/commits', { message, tree: tree.data.sha, parents: [head.commit] });
+    if (!commit.ok) return { ok: false, message: commit.message + ' (creating the commit)' };
+    const ref = await api(ctx, 'PATCH', 'git/refs/heads/' + ctx.branch, { sha: commit.data.sha, force: false });
+    if (ref.ok) return { ok: true, commit: commit.data.sha };
+    if (ref.status !== 409 && ref.status !== 422) return { ok: false, message: ref.message + ' (moving the branch)' };
+  }
+  return { ok: false, message: 'the branch kept moving — try again in a minute' };
+}
+// The settings panel's "Compress value files": every plain value file in the
+// repository becomes a .json.gz in ONE commit — one Pages build, not seventy. Each
+// file is checked before it is compressed, and each compressed copy is unpacked again
+// and compared with the original before anything is committed. Until that one
+// commit, nothing on GitHub changes: uploads that are never committed simply vanish.
+let _compressing = false;
+async function compressValueFiles() {
+  if (_compressing) return;
+  if (isVisitor()) { alert('Only the owner can change the repository.'); return; }
+  if (typeof CompressionStream === 'undefined') { alert('This browser cannot compress files — use a current Chrome, Edge, Firefox or Safari.'); return; }
+  const ctx = syncCtx();
+  setStatus('Listing the value files on GitHub…');
+  const list = await ghApi(ctx, 'GET', 'contents/?ref=' + encodeURIComponent(ctx.branch));
+  if (!list.ok) { alert('GitHub refused the listing: ' + list.message); return; }
+  const todo = valueFilesToCompress(list.data);
+  if (!todo.length) { setStatus('Every value file is compressed already', 'ok'); alert('Nothing to compress: every value file is compressed already.'); return; }
+  const mb = todo.reduce((t, x) => t + x.size, 0) / 1e6;
+  if (!confirm('Compress ' + todo.length + ' value file' + (todo.length === 1 ? '' : 's') + ' (' + mb.toFixed(0) + ' MB) into .json.gz files, '
+    + 'replacing them in one commit?\n\nAbout ' + (mb * 0.47).toFixed(0) + ' MB will be uploaded. Each file is checked first, and each compressed copy is '
+    + 'unpacked and compared with the original before anything changes on GitHub. Keep this tab open until it says it is done.')) return;
+  _compressing = true;
+  const entries = [];
+  let before = 0, after = 0;
+  try {
+    for (const [i, f] of todo.entries()) {
+      setStatus('Compressing value files: ' + (i + 1) + ' of ' + todo.length + ' — ' + f.name + '…');
+      const r = await fetchWithTimeout('https://raw.githubusercontent.com/' + ctx.user + '/' + ctx.repo + '/' + ctx.branch + '/' + f.name + '?v=' + Date.now(), 120000);
+      if (!r || !r.ok) throw new Error('could not download ' + f.name + (r ? ' (' + r.status + ')' : ''));
+      const text = await valueFileText(await r.arrayBuffer());
+      const bad = checkValueFileText(f.name, text);
+      if (bad) throw new Error(f.name + ': ' + bad);
+      const gz = await gzipText(text);
+      if (await gunzipBytes(gz) !== text) throw new Error(f.name + ': the compressed copy did not unpack to the original');
+      const blob = await ghApi(ctx, 'POST', 'git/blobs', { content: bytesToBase64(gz), encoding: 'base64' });
+      if (!blob.ok) throw new Error(blob.message + ' (uploading ' + f.name + '.gz)');
+      entries.push({ path: f.name + '.gz', mode: '100644', type: 'blob', sha: blob.data.sha },
+                   { path: f.name, mode: '100644', type: 'blob', sha: null });
+      before += text.length; after += gz.length;
+    }
+    setStatus('Committing ' + todo.length + ' compressed value files…');
+    const res = await commitTreeChanges(ctx, entries, 'Compress ' + todo.length + ' value files ('
+      + (before / 1e6).toFixed(0) + ' MB → ' + (after / 1e6).toFixed(0) + ' MB)');
+    if (!res.ok) throw new Error(res.message);
+    try {
+      kvSet(VALUE_CHUNKS_KEY, JSON.stringify(sortValueChunks([...(JSON.parse(kvGet(VALUE_CHUNKS_KEY) || '[]') || []), ...todo.map(f => f.name + '.gz')])));
+    } catch (e) { logSwallowed('compress/list', e); }
+    const msg = 'Compressed ' + todo.length + ' value file' + (todo.length === 1 ? '' : 's') + ': ' + (before / 1e6).toFixed(0) + ' MB → '
+      + (after / 1e6).toFixed(0) + ' MB, in one commit. GitHub Pages rebuilds the site in a few minutes; values a browser already holds stay cached.';
+    addLog(msg, 'ok'); setStatus(msg, 'ok'); alert(msg);
+  } catch (e) {
+    const msg = 'Compressing value files stopped: ' + e.message + '. Nothing changed on GitHub.';
+    addLog(msg, 'error'); setStatus(msg, 'error'); alert(msg);
+  } finally { _compressing = false; }
 }
 
 async function fetchEulerValues() {
@@ -14592,7 +14724,7 @@ async function fetchEulerValues() {
 
   // Tell the user whether this is a fast cached load or a first-time download
   try {
-    const firstChunkCached = await idbGetChunk(chunks[0]);
+    const firstChunkCached = await idbGetChunk(valueCacheKey(chunks[0]));
     if (!firstChunkCached) {
       setStatus('First load — downloading Euler values (cached locally for next time)…');
     } else {
@@ -14601,10 +14733,11 @@ async function fetchEulerValues() {
   } catch(e) {}
 
   async function fetchChunk(fname, idx) {
+    const cacheKey = valueCacheKey(fname);   // the range, whichever form the file has
     // 1. Try the IndexedDB cache first — chunks never change, so a hit means
     //    we skip the (large) network download entirely.
     try {
-      const cached = await idbGetChunk(fname);
+      const cached = await idbGetChunk(cacheKey);
       if (cached) {
         for (const [k, v] of Object.entries(cached)) eulerValues[parseInt(k)] = v;
         updateMaxNInput();
@@ -14612,18 +14745,19 @@ async function fetchEulerValues() {
       }
     } catch(e) { /* fall through to network */ }
 
-    // 2. Not cached — fetch from GitHub, then store for next time.
-    const urls = [
-      fname,
-      'https://raw.githubusercontent.com/' + user + '/' + repo + '/' + branch + '/' + fname + '?v=1',
-    ];
+    // 2. Not cached — fetch from GitHub, then store for next time: the file as named,
+    //    then its other form (.json <-> .json.gz), so a built-in .json name still
+    //    loads after the files were compressed.
+    const alt = /\.gz$/.test(fname) ? fname.slice(0, -3) : fname + '.gz';
+    const urls = [];
+    for (const f of [fname, alt]) urls.push(f, 'https://raw.githubusercontent.com/' + user + '/' + repo + '/' + branch + '/' + f + '?v=1');
     for (const url of urls) {
       try {
         const r = await fetchWithTimeout(url, 30000);
         if (!r.ok) continue;
-        const data = await r.json();
+        const data = JSON.parse(await valueFileText(await r.arrayBuffer()));
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
-        idbPutChunk(fname, data); // cache for future loads (fire-and-forget)
+        idbPutChunk(cacheKey, data); // cache for future loads (fire-and-forget)
         console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url + ' (cached)');
         updateMaxNInput();
         return true;
