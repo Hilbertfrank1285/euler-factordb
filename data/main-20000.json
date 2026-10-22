@@ -451,7 +451,7 @@
   "20996": {"status":"CF","timestamp":1792501786030,"n":20996,"factors":["5","3217"],"source":"sieve"},
   "20998": {"status":"CF","timestamp":1792501786055,"n":20998,"factors":["19"],"source":"sieve"}
  },
-"cofactorDigits": {"20000":[73399,"uxxdxh"]},
+"cofactorDigits": {"20000":[73399,"uxxdxh"],"20004":[73429,"1kk0jsl"]},
 "sieveDepth": {
   "20000": 1000000,
   "20002": 1000000,
