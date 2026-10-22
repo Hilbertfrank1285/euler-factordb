@@ -4393,6 +4393,8 @@ function buildSyncPayload() {
     history: loadHistory(),
     // Decisions on other people's submissions, with their names and notes.
     contributions: loadContributions(),
+    // What your machines are running, so contributors' exports plan around it.
+    queue: loadQueue(),
     // Entries confirmed fully factored on FactorDB whose missing prime is too large
     // to verify locally. Shared so the acknowledgement does not have to be repeated
     // on every machine.
@@ -4669,6 +4671,7 @@ function mergeSyncPayload(remote) {
   if (Array.isArray(remote.history) && remote.history.length) {
     try { mergeHistory(remote.history); } catch(e) { logSwallowed('merge/history', e); }
     try { mergeContributions(remote.contributions); } catch(e) { logSwallowed('merge/contributions', e); }
+    try { mergeQueue(remote.queue); } catch(e) { logSwallowed('merge/queue', e); }
   }
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
@@ -6573,6 +6576,145 @@ function ecmInputFor(e) {
   return cof ? cof.str : e.val;
 }
 
+// ══ Queued work: what your machines are running, so contributors plan around it ══
+// Your export used to hand runs to your machines and forget them, so a contributor's
+// export — ranked by the same planner — picked exactly the same runs. Each export of
+// yours is now recorded as a queued batch that travels with your data (meta.json),
+// and a contributor's export plans as if your queued runs were already done: their
+// planner moves on to the next level or the next entry. That matters most for P±1,
+// where the same B1 gives the same result — a repeat is pure waste; overlapping ECM
+// curves are not wasted, but overshoot a level. A queued run is released when you
+// import its results, when its batch passes its expected finish (with a margin), or
+// by hand under Submissions.
+const QUEUE_KEY = 'eulerFDB_queue_v1';
+const QUEUE_MIN_DAYS = 2;       // a batch is held at least this long...
+const QUEUE_GRACE_DAYS = 7;     // ...and its record dropped this long after it lapses
+const SPREAD_KEY = 'eulerFDB_spreadSeed_v1';
+const SPREAD = 0.15;            // contributors' per-browser nudge among similar runs
+
+function queueKeyOf(n, method, b1) {
+  const v = typeof b1 === 'number' ? b1 : parseB1(b1);
+  return n + '|' + method + '|' + Math.round(v || 0);
+}
+function loadQueue() {
+  try { const a = JSON.parse(kvGet(QUEUE_KEY) || '[]'); return Array.isArray(a) ? a.filter(b => b && b.id && Array.isArray(b.runs)) : []; }
+  catch (e) { return []; }
+}
+function saveQueue(list) {
+  try { kvSet(QUEUE_KEY, JSON.stringify(list)); } catch (e) { logSwallowed('queue/save', e); }
+  markDirty('queue');
+}
+// PURE: the batch an export hands out — held until its slowest core should be done,
+// twice over, and at least two days.
+function queueBatch(top, dealt, now) {
+  const wall = Math.max(0, ...(dealt || []).map(w => (w.runs || []).reduce((s, r) => s + (r.cpuTime || 0), 0)));
+  const hold = Math.max(QUEUE_MIN_DAYS * 86400e3, 2 * wall * 1000);
+  return { id: 'Q' + now.toString(36), at: new Date(now).toISOString(), until: new Date(now + hold).toISOString(),
+    runs: (top || []).map(r => [r.n, r.method, Math.round(r.rawB1 || parseB1(r.b1) || 0),
+      r.method === 'ECM' ? (parseInt(r.rawCurves || r.curves) || 0) : 1]), done: [] };
+}
+// PURE: the runs still queued at `now` — not imported, not released, not lapsed.
+function activeQueuedRuns(queue, now) {
+  const out = [];
+  for (const b of queue || []) {
+    if (!b || b.released || !(Date.parse(b.until) > now)) continue;
+    const done = new Set(b.done || []);
+    for (const r of b.runs || []) if (!done.has(queueKeyOf(r[0], r[1], r[2]))) out.push(r);
+  }
+  return out;
+}
+// PURE: the runs as if the queued ones were done — a copy; the real data is untouched.
+function withQueued(ecm, queued) {
+  if (!queued || !queued.length) return ecm;
+  const out = Object.assign({}, ecm), copied = new Set();
+  for (const [n, method, b1, curves] of queued) {
+    const k = String(n);
+    if (!copied.has(k)) { out[k] = (out[k] || []).map(a => Object.assign({}, a)); copied.add(k); }
+    const hit = out[k].find(a => a.method === method && Math.round(parseB1(a.b1) || 0) === b1);
+    if (hit) { if (method === 'ECM') hit.curves = String((parseInt(hit.curves) || 0) + curves); }
+    else out[k].push({ method, b1: String(b1), b2: '', curves: method === 'ECM' ? String(curves) : '' });
+  }
+  return out;
+}
+// PURE: batches no one needs any more — lapsed for longer than the grace period.
+function pruneQueue(list, now) {
+  return (list || []).filter(b => b && Date.parse(b.until) + QUEUE_GRACE_DAYS * 86400e3 > now);
+}
+// PURE: two queues as one, by batch id: imports seen anywhere count, a release anywhere stands.
+function mergeQueueLists(local, remote, now) {
+  const m = new Map();
+  for (const b of [...(local || []), ...(remote || [])]) {
+    if (!b || !b.id) continue;
+    const had = m.get(b.id);
+    if (!had) { m.set(b.id, Object.assign({}, b, { done: Array.from(new Set(b.done || [])) })); continue; }
+    had.done = Array.from(new Set([...(had.done || []), ...(b.done || [])]));
+    if (b.released && (!had.released || b.released < had.released)) had.released = b.released;
+  }
+  return pruneQueue(Array.from(m.values()), now);
+}
+function mergeQueue(remote) {
+  if (!Array.isArray(remote)) return;
+  const local = loadQueue(), merged = mergeQueueLists(local, remote, Date.now());
+  if (JSON.stringify(merged) !== JSON.stringify(local)) {
+    try { kvSet(QUEUE_KEY, JSON.stringify(merged)); } catch (e) { logSwallowed('queue/merge', e); }
+  }
+}
+function recordQueuedBatch(top, dealt) {
+  const b = queueBatch(top, dealt, Date.now());
+  saveQueue([...pruneQueue(loadQueue(), Date.now()), b]);
+  return b;
+}
+// Your own import: the runs it brought results for are no longer queued.
+function releaseQueued(keys) {
+  if (!keys || !keys.size) return 0;
+  let count = 0;
+  const list = loadQueue().map(b => {
+    if (b.released) return b;
+    const done = new Set(b.done || []);
+    const hits = (b.runs || []).map(r => queueKeyOf(r[0], r[1], r[2])).filter(k => keys.has(k) && !done.has(k));
+    if (!hits.length) return b;
+    count += hits.length;
+    return Object.assign({}, b, { done: [...done, ...hits] });
+  });
+  if (count) saveQueue(list);
+  return count;
+}
+function releaseBatch(id) {
+  saveQueue(loadQueue().map(b => b.id === id ? Object.assign({}, b, { released: new Date().toISOString() }) : b));
+}
+// The Submissions dialog's view of your queued batches.
+function queueSectionHtml() {
+  const now = Date.now();
+  const q = loadQueue().filter(b => !b.released && Date.parse(b.until) > now);
+  const help = '<p class="sub-dim">Each export you make is held here until its results are imported, so contributors\' exports '
+    + 'plan around it. A batch you abandon is released on the date shown — or now, with Release.</p>';
+  if (!q.length) return '<h4>Queued on your machines</h4><p class="sub-dim">Nothing queued.</p>' + help;
+  return '<h4>Queued on your machines</h4><ul class="sub-ledger">' + q.map(b => {
+    const ents = new Set(b.runs.map(r => r[0])).size, done = (b.done || []).length;
+    return '<li>exported ' + escHtml(String(b.at).slice(0, 10)) + ' · ' + b.runs.length + ' run' + (b.runs.length === 1 ? '' : 's') + ' on ' + ents
+      + ' entr' + (ents === 1 ? 'y' : 'ies') + (done ? ' · ' + done + ' imported' : '') + ' · held until ' + escHtml(String(b.until).slice(0, 10))
+      + ' · <button class="poll-btn" onclick="releaseFromList(\'' + escHtml(b.id) + '\')">Release</button></li>';
+  }).join('') + '</ul>' + help;
+}
+function releaseFromList(id) {
+  if (!confirm('Release this batch? Contributors\' exports will no longer plan around it — do this when you stopped running it.')) return;
+  releaseBatch(id);
+  addLog('Released a queued batch: contributors\' exports no longer plan around it', 'ok');
+  openSubmissions();
+}
+// PURE: a stable per-browser nudge in [1 - SPREAD, 1 + SPREAD] for one run, so two
+// contributors' exports — ranked by the same planner — differ among runs of similar
+// value. Your own ranking never gets it.
+function spreadFactor(seed, r) {
+  const h = parseInt(_hashStr(seed + '|' + r.n + '|' + r.method + '|' + Math.round(r.rawB1 || 0)), 36) / 4294967296;
+  return 1 + SPREAD * (2 * h - 1);
+}
+function spreadSeed() {
+  let s = null; try { s = kvGet(SPREAD_KEY); } catch (e) { s = null; }
+  if (!s) { s = Math.random().toString(36).slice(2, 10); try { kvSet(SPREAD_KEY, s); } catch (e) { logSwallowed('spread/seed', e); } }
+  return s;
+}
+
 async function exportNextRuns() {
  try {
   if (Object.keys(eulerValues).length === 0) {
@@ -6659,7 +6801,9 @@ async function exportNextRuns() {
   if (!isFinite(FDB_WEIGHT)) { alert('That is not a number.'); return; }
   try { localStorage.setItem(FDBW_KEY, String(FDB_WEIGHT)); } catch(e) { logSwallowed('export/saveWeight', e); }
 
-  const ecmData = loadECM();
+  // A contributor's export plans as if your queued runs were done (see the queue section).
+  const queuedNow = isVisitor() ? activeQueuedRuns(loadQueue(), Date.now()) : [];
+  const ecmData = queuedNow.length ? withQueued(loadECM(), queuedNow) : loadECM();
   const runs = [];
 
   // Candidates first (cheap: no BigInt yet), so we know how many entries actually
@@ -6768,7 +6912,10 @@ async function exportNextRuns() {
   // candidate set — and in completion mode eff() is not cheap: it runs
   // confidentlyCleared and a sieve-depth lookup. Same scores, same order, a
   // fraction of the work.
-  for (const r of ranked) r._score = eff(r);
+  // Contributors only: a stable per-browser nudge among runs of similar value, so two
+  // contributors' exports do not all pick the same runs. Your own ranking is untouched.
+  const seed = isVisitor() ? spreadSeed() : null;
+  for (const r of ranked) r._score = eff(r) * (seed ? spreadFactor(seed, r) : 1);
   ranked.sort((a, b) => (b._score - a._score) || (a.cpuTime - b.cpuTime));
   const filled = fillRunBudget(ranked, budget);
   const top = filled.runs;
@@ -7264,6 +7411,14 @@ async function exportNextRuns() {
   // in the same tick.
   filesToDownload.forEach((f, i) => setTimeout(() => downloadText(f.name, f.text), i * 350));
 
+  // Your export is queued, so contributors' exports plan around it until its results
+  // are imported; a contributor's export says what it planned around.
+  let queuedNote = '';
+  if (!isVisitor()) {
+    try { const b = recordQueuedBatch(top, dealt); queuedNote = ' · queued until ' + b.until.slice(0, 10) + ', so contributors\' exports plan around these runs'; }
+    catch (e) { logSwallowed('export/queue', e); }
+  } else if (queuedNow.length) queuedNote = ' · planned around the owner\'s ' + queuedNow.length + ' queued run' + (queuedNow.length === 1 ? '' : 's');
+
   const fileList = filesToDownload.map(f => f.name).join(', ');
   const rangeStr = frontierBelow
     ? ' [below t' + frontierBelow + ' only]'
@@ -7281,7 +7436,8 @@ async function exportNextRuns() {
         ? ' · FactorDB-unknown entries excluded'
         : FDB_WEIGHT !== 1
           ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about (weighted ×' + FDB_WEIGHT + ')'
-          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about' : ''));
+          : (unknownCount ? ' · ' + unknownCount + '/' + top.length + ' on entries nothing is known about' : ''))
+    + queuedNote;
   addLog(msg, 'ok');
   setStatus(msg, 'ok');
   // How to run them, with Copy buttons — the same steps RUN_ON_SERVER.txt gives.
@@ -7860,6 +8016,7 @@ function openSubmissions() {
     + (tot.length ? '<h4>Contributors</h4><ul class="sub-ledger">' + tot.map(t => '<li><strong>' + escHtml(t.name) + '</strong> — '
         + t.submissions + ' submission' + (t.submissions === 1 ? '' : 's') + ', ' + t.curves.toLocaleString() + ' curves, ' + t.factors + ' factor'
         + (t.factors === 1 ? '' : 's') + (t.cpuMs ? ', ' + escHtml(fmtCpuTime(t.cpuMs / 1000)) + ' of CPU time' : '') + '</li>').join('') + '</ul>' : '')
+    + queueSectionHtml()
     + '<h4>Decided</h4>' + (list.length ? '<ul class="sub-ledger">' + list.map(row).join('') + '</ul>' : '<p class="sub-dim">None yet.</p>'));
 }
 function pickSubmissionFile() {
@@ -8378,6 +8535,7 @@ async function processEcmLogText(text, sourceLabel, opts) {
 
   // Numbers whose attempt list has already been de-duplicated during this import.
   const normalizedKeys = new Set();
+  const queueTouched = new Set();   // runs your own results came back for (see releaseQueued)
 
   const { blocks, totalTimeMs } = parseEcmLogBlocks(text);
 
@@ -8476,6 +8634,7 @@ async function processEcmLogText(text, sourceLabel, opts) {
       // block with sigmas is ECM, no matter what the comment/header said. This is
       // the single source of truth that prevents ECM runs being mislabeled P±1.
       if (blkSigmas.length) blk.method = 'ECM';
+      if (!contrib) queueTouched.add(queueKeyOf(owner.n, blk.method, b1n));
 
       // ── Calibration sample: predicted (raw model) vs actually measured time ──
       // Only from runs where the measured time and the counted work describe the
@@ -8703,6 +8862,10 @@ async function processEcmLogText(text, sourceLabel, opts) {
 
   addLog(msg, runsRecorded ? 'ok' : 'warn');
   setStatus(msg, runsRecorded ? 'ok' : 'warn');
+  try {
+    const freed = releaseQueued(queueTouched);
+    if (freed) addLog('Released ' + freed + ' queued run' + (freed === 1 ? '' : 's') + ' — their results are in', 'ok');
+  } catch (e) { logSwallowed('import/queue', e); }
   if (opts.quiet) return { runsRecorded, factorsNew, factorsDup, totalCurves, unmatched, summary };
   alert(msg + (statsLine ? '\n' + statsLine : '') + (calibLine ? '\n' + calibLine : '') + '\n\nRecommendations now reflect this work — already-done runs will drop out of the next export.'
     + (summary.length ? '\n\n' + summary.slice(0, 40).join('\n') + (summary.length > 40 ? '\n…(' + (summary.length-40) + ' more)' : '') : ''));
