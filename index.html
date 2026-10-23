@@ -679,6 +679,10 @@
     title="Sieve every small prime out of the remaining cofactors — exhaustive, and far cheaper than ECM at that range">
     ⌗ Sieve small primes
   </button>
+  <button class="poll-btn" onclick="importSieveResults()" style="background:var(--surface2)"
+    title="Load sieve_results.json from the batch sieve on your server (euler.py sieve): every entry's factors are checked and recorded, and its depth with them">
+    ⌗ Import sieve results
+  </button>
   <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)"
     title="Check every entry against itself — each factor must divide E(n), be prime and appear once, and the status must match what the factors prove — then fix what can be fixed safely. No network needed.">
     ⚕ Check data
@@ -1060,7 +1064,11 @@ function labelFactor(f) {
 // only the ~4% of survivors deeply — about 2 hours for 10,000 entries, against 39
 // hours to run 10^8 over all of them for the same result.
 const SIEVE_LIMIT_DEFAULT = 1000000;
-const SIEVE_LIMIT_MAX = 100000000;
+// The browser sieves to 1e7: beyond it the batch sieve on your server (euler.py
+// sieve) is hundreds of times faster — measured at 1e8, 6 s per entry here against
+// 0.013 s there. It goes to 1e10: every factor up to 10 digits, the table's t10.
+const SIEVE_LIMIT_MAX = 10000000;
+const BATCH_SIEVE_MAX = 10000000000;
 let SIEVE_LIMIT = SIEVE_LIMIT_DEFAULT;
 // Cap on how large any single BigInt in the tree may get.
 //
@@ -1266,8 +1274,9 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
   if (scanned) {
     try {
       const at = new Date().toISOString();
-      saveSieveLog([...loadSieveLog(), { id: 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at,
+      saveSieveLog([...loadSieveLog(), { id: 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at, engine: 'browser',
         bound: SIEVE_LIMIT, topUp: !!topUp, entries: scanned, work: Math.round(work), ms: Math.round(cpuMs), found: findings.length }]);
+      try { invalidateCpuTotal(); } catch (err) { logSwallowed('sieve/cpuTotal', err); }
     } catch (err) { logSwallowed('sieve/log', err); }
   }
   // Record the depth for every clean entry reached. A clean sieve is
@@ -10952,6 +10961,12 @@ function computeTotalCpuSec() {
       total += attemptCpuSeconds(a, digits);
     }
   }
+  // The sieve's share: timed runs as measured, earlier sieving at their speed — the
+  // same figure as the yield report's Sieve row.
+  try {
+    const sc = sieveCpu(loadSieveLog(), loadSieveDepth(), (n) => { const e = entryByN(n); return e ? (getCofactorDigits(e) || 0) : 0; }, '');
+    total += sc.measuredSec + (sc.estSec || 0);
+  } catch (err) { logSwallowed('cpuTotal/sieve', err); }
   _cpuTotalCache = total;
   return total;
 }
@@ -12270,6 +12285,14 @@ function getCofactorDigits(e) {
   return d;
 }
 
+// PURE: the method table's own order, below the Sieve row — ECM first, by target
+// size and then CPU time; then P-1 and P+1 as one group, by CPU time. A missing value
+// goes last within its group; a tie keeps the stored order.
+function methodRowOrder(x, y) {
+  const group = (r) => r.method === 'ECM' ? 0 : (r.method === 'P-1' || r.method === 'P+1') ? 1 : 2;
+  const by = (a, b) => (a == null && b == null) ? 0 : a == null ? 1 : b == null ? -1 : a - b;
+  return (group(x) - group(y)) || (group(x) === 0 ? by(x.target, y.target) : 0) || by(x.cpu, y.cpu) || (x.i - y.i);
+}
 function buildECMSection(n, e) {
   const ecmData  = loadECM();
   const attempts = (ecmData[String(n)] || []);
@@ -12382,6 +12405,11 @@ function buildECMSection(n, e) {
         if (a == null || b == null) return (a == null) - (b == null);
         return (a < b ? -1 : a > b ? 1 : 0) * gs.dir;
       });
+      // No column chosen: the table's own order (methodRowOrder). The Sieve row sits
+      // above all of these.
+      else recsAll.sort((x, y) => methodRowOrder(
+        { method: x.a.method, target: keyOf(x, 'target'), cpu: keyOf(x, 'cpu'), i: x.i },
+        { method: y.a.method, target: keyOf(y, 'target'), cpu: keyOf(y, 'cpu'), i: y.i }));
       const th = (key, label, tip) =>
         `<th onclick="setGridSort(${n}, '${key}')" style="cursor:pointer" title="${tip ? tip + ' · ' : ''}click to sort">`
         + `${label}${gs.key === key ? (gs.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`;
@@ -12398,6 +12426,8 @@ function buildECMSection(n, e) {
       // The sieve as a METHOD, alongside ECM and P±1 — it is one. Levels it has
       // cleared read "none": proven, where every other cell in the grid is a chance.
       const sd = sieveDepthDigits(n);
+      let sieveSec = null;
+      try { sieveSec = entrySieveCpuSec(n, digits); } catch (err) { logSwallowed('grid/sieveCpu', err); }
       const sieveRow = sd > 0 ? (() => {
         const k = Math.round(sd);
         return `<tr title="Trial division to 10^${k}: every factor below ${k} digits is ruled out outright.">
@@ -12407,7 +12437,9 @@ function buildECMSection(n, e) {
           <td>&lt;${k}d</td>
           ${levelCols.map(d => d <= k ? '<td style="color:var(--green);font-size:10px">none</td>'
                                       : '<td style="color:var(--text-muted)">—</td>').join('')}
-          <td>—</td>${opt(showDate, '<td>—</td>')}
+          ${sieveSec != null
+            ? `<td title="Estimated: this cofactor's size × its sieve depth, at the speed your timed sieve runs measured in the browser" style="font-size:10px;color:var(--text-dim)">~${fmtCpuTime(sieveSec)}</td>`
+            : '<td title="Shown once a sieve run has been timed: run one, even a small top-up">—</td>'}${opt(showDate, '<td>—</td>')}
           <td style="color:var(--text-muted)">proven</td><td></td>
         </tr>`;
       })() : '';
@@ -12458,7 +12490,8 @@ function buildECMSection(n, e) {
         const r = covAt.get(d);
         return r ? cell(r) : '<td style="color:var(--text-muted)">—</td>';
       }).join('');
-      const totalCpu = attempts.reduce((sum, a) => sum + (attemptCpuSeconds(a, digits) || 0), 0);
+      // Every method's time, the sieve's included, so the column adds up to its total.
+      const totalCpu = attempts.reduce((sum, a) => sum + (attemptCpuSeconds(a, digits) || 0), 0) + (sieveSec || 0);
       const sumRow = (label, tip, cells, cpu, first) =>
         `<tr${first ? ' style="border-top:2px solid var(--border2)"' : ''}>
           <td title="${tip}"${first ? ' style="border-top:2px solid var(--border2)"' : ''}><strong>${label}</strong></td>${'<td></td>'.repeat(labelSpan - 1)}
@@ -13830,25 +13863,145 @@ function mergeSieveLogLists(a, b) {
 function mergeSieveLog(remote) {
   if (!Array.isArray(remote) || !remote.length) return;
   const local = loadSieveLog(), merged = mergeSieveLogLists(local, remote);
-  if (merged.length !== local.length) { try { kvSet(SIEVE_LOG_KEY, JSON.stringify(merged)); } catch (e) { logSwallowed('sieveLog/merge', e); } }
+  if (merged.length !== local.length) {
+    try { kvSet(SIEVE_LOG_KEY, JSON.stringify(merged)); invalidateCpuTotal(); } catch (e) { logSwallowed('sieveLog/merge', e); }
+  }
 }
 // PURE: the sieve's line in the yield report. `digitsOf(n)` is the cofactor's size
 // now — at most what it was when sieved, so the estimate errs low, never high.
 function sieveCpu(log, depths, digitsOf, since) {
+  // Two engines: the browser, and the batch sieve on your server — hundreds of times
+  // faster, so its speed must not price the browser sieving done before runs were
+  // timed. Batch runs count as measured; the depth below where a batch run took an
+  // entry over is the browser's part, estimated at the browser's own speed.
   const runs = log || [];
-  let ms = 0, work = 0, tMs = 0, tEntries = 0;
+  let ms = 0, msB = 0, workB = 0, tMs = 0, tEntries = 0;
+  const batchFrom = {};
   for (const r of runs) {
-    ms += r.ms || 0; work += r.work || 0;
+    ms += r.ms || 0;
+    if (r.engine === 'batch') {
+      for (const [n, v] of Object.entries(r.per || {})) {
+        const f = Array.isArray(v) ? Number(v[1]) || 0 : 0;
+        if (!(n in batchFrom) || f < batchFrom[n]) batchFrom[n] = f;
+      }
+    } else { msB += r.ms || 0; workB += r.work || 0; }
     if (String(r.at || '').slice(0, 10) >= since) { tMs += r.ms || 0; tEntries += r.entries || 0; }
   }
   let all = 0, entries = 0;
   for (const [n, d] of Object.entries(depths || {})) {
     const dg = d > 0 ? digitsOf(Number(n)) : 0;
-    if (dg > 0) { all += dg * d / 1e6; entries++; }
+    if (dg > 0) { all += dg * (n in batchFrom ? Math.min(d, batchFrom[n]) : d) / 1e6; entries++; }
   }
-  const rate = work > 0 ? ms / work : null;              // ms per unit of work, as measured
+  const work = workB;
+  const rate = workB > 0 ? msB / workB : null;           // the browser's ms per unit of work, as measured
   const estSec = rate != null ? rate * Math.max(0, all - work) / 1000 : null;
   return { entries, measuredSec: ms / 1000, estSec, tEntries, tMeasuredSec: tMs / 1000, timedRuns: runs.length };
+}
+
+// The sieve's speed as your timed runs measured it — ms per unit of work (cofactor
+// digits × the span of primes, in millions) — or null before any run was timed.
+function sieveRateMs() {
+  let ms = 0, work = 0;
+  for (const r of loadSieveLog()) if (r.engine !== 'batch') { ms += r.ms || 0; work += r.work || 0; }
+  return work > 0 ? ms / work : null;
+}
+// One entry's sieving in CPU seconds at that speed: its cofactor digits × its depth.
+// Summed over every entry this is exactly the yield report's sieve total (sieveCpu).
+function entrySieveCpuSec(n, digits) {
+  const d = (loadSieveDepth() || {})[n] || 0;
+  if (!(d > 0) || !(digits > 0)) return null;
+  // The batch sieve's share, as measured for this entry; the browser's below where it
+  // took over, at the browser's measured speed.
+  let batchMs = 0, from = null;
+  for (const r of loadSieveLog()) {
+    const v = r.engine === 'batch' && r.per ? r.per[n] : null;
+    if (Array.isArray(v)) { batchMs += Number(v[0]) || 0; from = from == null ? Number(v[1]) || 0 : Math.min(from, Number(v[1]) || 0); }
+  }
+  const browserDepth = from == null ? d : Math.min(d, from);
+  const rate = sieveRateMs();
+  if (browserDepth > 0 && rate == null) return batchMs > 0 ? batchMs / 1000 : null;
+  return ((browserDepth > 0 ? rate * digits * browserDepth / 1e6 : 0) + batchMs) / 1000;
+}
+
+// ── The batch sieve: a job out, results back ──────────────────────────────────
+// PURE: the job file for euler.py sieve — each entry's n, its depth now and its known
+// factors. euler.py reads E(n) itself from the repository's value files and divides
+// these out, so the job stays small however large the numbers are.
+function buildSieveJob(cands, depth, to, repo) {
+  const entries = [];
+  for (const e of cands || []) {
+    const d = (depth || {})[e.n] || 0;
+    if (d >= to) continue;
+    entries.push([e.n, d, (e.factors || []).map(String).filter(f => f && f !== '1')]);
+  }
+  return { kind: 'euler-sieve-job', v: 1, to, repo: repo.repo, branch: repo.branch, entries };
+}
+function sieveRepo() {
+  let s = {}; try { s = loadGHSettings() || {}; } catch (e) { s = {}; }
+  return { repo: (s.user && s.repo) ? s.user + '/' + s.repo : 'hilbertfrank1285/euler-factordb', branch: s.branch || 'main' };
+}
+// The job downloads, and a dialog gives the commands for your server — with its
+// address, as the ECM export remembers it.
+function exportSieveJob(job) {
+  downloadText('sieve_job.json', JSON.stringify(job));
+  let login = '';
+  try { login = localStorage.getItem('eulerFDB_serverLogin_v1') || ''; } catch (e) { logSwallowed('sieveJob/login', e); }
+  login = login || 'user@server';
+  showRunDialog('Batch sieve to ' + fmtBound(job.to),
+    'sieve_job.json is downloading: ' + job.entries.length.toLocaleString() + ' entries, each from its own depth to ' + fmtBound(job.to)
+      + '. euler.py reads the numbers from your repository itself, so the job is small.',
+    [{ heading: 'On this computer' },
+     { label: 'A folder for it on the server', cmd: 'ssh ' + login + ' "mkdir -p ~/sieve"' },
+     { label: 'The job and euler.py to it', cmd: 'scp "$HOME/Downloads/sieve_job.json" "$HOME/Downloads/euler.py" ' + login + ':sieve/' },
+     { heading: 'On the server' },
+     { label: 'Once: the two libraries it needs', cmd: 'python3 -m pip install --user gmpy2 numpy' },
+     { label: 'Run it on every core, detached — it survives closing the window', cmd: 'cd ~/sieve && nohup python3 euler.py sieve sieve_job.json > sieve.log 2>&1 &' },
+     { label: 'Watch it', cmd: 'tail -f ~/sieve/sieve.log' },
+     { label: 'If it was interrupted: carry on from the last finished segment', cmd: 'cd ~/sieve && nohup python3 euler.py sieve sieve_job.json --resume > sieve.log 2>&1 &' },
+     { heading: 'Back here, when it says Done' },
+     { label: 'The results', cmd: 'scp ' + login + ':sieve/sieve_results.json "$HOME/Downloads/"' }],
+    'Then ⌗ Import sieve results, and pick sieve_results.json. The values are downloaded on the server once and kept in ~/sieve/euler_values_cache.');
+}
+// PURE: what an imported results file does — which entries come back clean (their
+// depth recorded now), which have factors (shown, checked and recorded as a browser
+// run's are), which are left out and why, and the run for the sieve log. An entry is
+// only credited if the run started at or below its depth here: a gap would claim
+// primes never tried.
+function sieveResultsPlan(data, entryOf, depth) {
+  if (!data || data.kind !== 'euler-sieve-results' || data.v !== 1) return { error: 'Not a results file from euler.py sieve.' };
+  const to = Number(data.to);
+  if (!(to > 0) || to > BATCH_SIEVE_MAX) return { error: 'The results file names no usable bound.' };
+  const clean = [], findings = [], skipped = [], per = {};
+  for (const [nStr, r] of Object.entries(data.entries || {})) {
+    const n = parseInt(nStr), e = entryOf(n), d = (depth || {})[n] || 0, from = Number(r && r.from) || 0;
+    if (!e) { skipped.push([n, 'not an entry here']); continue; }
+    if (from > d) { skipped.push([n, 'the run started at ' + fmtBound(from) + ', but here it is sieved only to ' + (d ? fmtBound(d) : 'nothing')]); continue; }
+    per[n] = [Math.round(Number(r.ms) || 0), from];
+    const facs = (r.factors || []).filter(f => Array.isArray(f) && /^\d+$/.test(String(f[0])));
+    if (facs.length) findings.push({ n, val: e.val, hits: facs.map(([q, k]) => ({ p: String(q), exp: Number(k) || 1 })), limit: to });
+    else if (d < to) clean.push(n);
+  }
+  const log = { id: String(data.id || 'B' + to), at: String(data.at || ''), engine: 'batch', bound: to,
+    entries: Object.keys(per).length, work: Number(data.work) || 0, ms: Math.round(Number(data.ms) || 0), found: findings.length, per };
+  return { to, clean, findings, skipped, log };
+}
+function importSieveResults() {
+  pickFiles('.json,application/json', false, (list) => {
+    let data;
+    try { data = JSON.parse(list[0].text); } catch (e) { alert('Not a sieve results file (it is not JSON).'); return; }
+    const plan = sieveResultsPlan(data, (n) => entryByN(n), loadSieveDepth() || {});
+    if (plan.error) { alert(plan.error); return; }
+    recordSieveDepth(plan.clean, plan.to);
+    const log = loadSieveLog();
+    if (!log.some(r => r.id === plan.log.id)) saveSieveLog([...log, plan.log]);
+    try { invalidateCpuTotal(); applyFilters(); } catch (e) { logSwallowed('sieveImport/render', e); }
+    const note = plan.clean.length.toLocaleString() + ' entr' + (plan.clean.length === 1 ? 'y' : 'ies') + ' came back clean: now sieved to ' + fmtBound(plan.to) + '.'
+      + (plan.skipped.length ? ' ' + plan.skipped.length + ' left out (' + plan.skipped.slice(0, 3).map(([n, w]) => 'E(' + n + '): ' + w).join('; ') + ').' : '');
+    addLog('Batch sieve to ' + fmtBound(plan.to) + ' imported: ' + note + ' ' + plan.findings.length + ' with factors.', 'ok');
+    if (!plan.findings.length) { alert('Batch sieve to ' + fmtBound(plan.to) + ': no new factors.\n\n' + note); return; }
+    showSieveFindings(plan.findings, 'The batch sieve tried every prime up to ' + fmtBound(plan.to) + ' against each entry, from its own depth. '
+      + escHtml(note) + ' Recording the factors below records their entries\' depth too.');
+  });
 }
 
 // PURE: 1e7, 5e6, 2.5e6 — a sieve bound as people write it.
@@ -13873,7 +14026,8 @@ async function showSievePrompt() {
   const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
   const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
 
-  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false, statuses = null, topUp = false;
+  let bound = Math.min(SIEVE_LIMIT, SIEVE_LIMIT_MAX), rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false, statuses = null, topUp = false;
+  let batchTo = null;
 
   // Settings loop: nothing runs until the estimate has been seen and accepted.
   // The estimate is measured, not guessed, so it costs a few seconds to produce —
@@ -13883,18 +14037,24 @@ async function showSievePrompt() {
     const bRaw = prompt(
       'Sieve bound — test every prime below this value.\n\n'
       + '  1e6   default; catches ~96% of never-sieved numbers\n'
-      + '  1e7   ~10x slower\n'
-      + '  1e8   maximum (the prime table alone needs ~140MB)\n\n'
-      + 'Best used staged: sieve everything at 1e6, then re-run higher on just the\n'
-      + 'survivors. A quarter of numbers with no factor below 1e6 still have one below 1e8.',
+      + '  1e7   the most in the browser, ~10x slower\n'
+      + '  1e8 … 1e10   on your server: exports a job for the batch sieve (euler.py sieve),\n'
+      + '               hundreds of times faster; 1e10 = every factor up to 10 digits\n\n'
+      + 'Best used staged: sieve everything at 1e6, then go deeper on the survivors.',
       String(bound));
     if (bRaw === null) return;
     bound = Math.floor(Number(bRaw));
     if (!isFinite(bound) || bound < 100) { alert('Bound must be at least 100.'); continue; }
+    batchTo = null;
     if (bound > SIEVE_LIMIT_MAX) {
-      alert('Capped at ' + SIEVE_LIMIT_MAX.toExponential(0) + '.\n\nBeyond this the prime table cannot be built in a '
-        + 'browser: a plain sieve needs one byte per integer, so 1e9 would be a 1GB array and 1e10 a 10GB one.');
-      bound = SIEVE_LIMIT_MAX;
+      const to = Math.min(bound, BATCH_SIEVE_MAX);
+      if (!confirm('The browser sieves to ' + fmtBound(SIEVE_LIMIT_MAX) + ' at most: beyond that the batch sieve on your server is '
+        + 'hundreds of times faster.\n\nTo sieve to ' + fmtBound(to)
+        + (bound > BATCH_SIEVE_MAX ? ' (the most: every factor up to 10 digits, the table\'s t10)' : '')
+        + ', export a job for euler.py sieve — the next questions choose its entries, as they do here.\n\n'
+        + 'OK      — export a batch job\nCancel  — choose another bound')) continue;
+      batchTo = to;
+      bound = to;
     }
 
     const rRaw = prompt('Range of n — "from-to", or blank for all.\n\n'
@@ -13957,6 +14117,15 @@ async function showSievePrompt() {
     let cands = onlyUnsearched ? fresh : all;
     if (!cands.length) { alert('Nothing to sieve with that choice.'); continue; }
 
+    // Deeper than the browser goes: the job for the batch sieve, which always starts
+    // each entry from its own depth.
+    if (batchTo) {
+      const job = buildSieveJob(cands, loadSieveDepth() || {}, batchTo, sieveRepo());
+      if (!job.entries.length) { alert('Every one of them is sieved to ' + fmtBound(batchTo) + ' already.'); continue; }
+      exportSieveJob(job);
+      return;
+    }
+
     // Some already sieved part of the way, or all the way? Offer to top them up.
     const depthNow = loadSieveDepth() || {};
     const plan = sieveTopUpPlan(cands.map(e => e.n), depthNow, bound);
@@ -14016,6 +14185,13 @@ async function showSievePrompt() {
       + 'about a quarter still have one below 1e8.');
     return;
   }
+  showSieveFindings(findings, `Scanned ${scanned.toLocaleString()} cofactor(s) against every prime below ${bound.toExponential(0)} in ${tookTxt}.
+        Exhaustive, not probabilistic: any factor in that range is found with certainty.
+        The ${(scanned - findings.length).toLocaleString()} that came back clean are the ones worth a deeper pass.`);
+}
+// The results window — the browser's run and an imported batch run alike: the factors
+// found, and the button that checks each against E(n) and records it.
+function showSieveFindings(findings, intro) {
   const totalFactors = findings.reduce((s, f) => s + f.hits.length, 0);
   const rows = findings.slice(0, 40).map(f =>
     `<tr><td style="padding:2px 10px 2px 0"><strong>E(${f.n})</strong></td>
@@ -14025,9 +14201,7 @@ async function showSievePrompt() {
     <div class="modal-section">
       <div class="modal-section-label">${totalFactors} factor(s) across ${findings.length} entr${findings.length === 1 ? 'y' : 'ies'}</div>
       <div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-bottom:8px">
-        Scanned ${scanned.toLocaleString()} cofactor(s) against every prime below ${bound.toExponential(0)} in ${tookTxt}.
-        Exhaustive, not probabilistic: any factor in that range is found with certainty.
-        The ${(scanned - findings.length).toLocaleString()} that came back clean are the ones worth a deeper pass.
+        ${intro}
       </div>
       <table style="width:100%;font-size:11px;border-collapse:collapse">${rows}</table>
       ${findings.length > 40 ? `<div style="font-size:11px;color:var(--text-muted);margin-top:6px">…and ${findings.length - 40} more</div>` : ''}
