@@ -1076,6 +1076,10 @@ let SIEVE_LIMIT = SIEVE_LIMIT_DEFAULT;
 // there is no reason to pick anything but a very conservative cap.
 const SIEVE_MAX_BIGINT_DIGITS = 4000;
 let _primeForest = null, _sievePrimes = null, _forestLimit = null;
+// A top-up sieves only the primes above an entry's recorded depth: the forest holds
+// the primes in (_forestFrom, _forestLimit], and every prime up to the limit is kept
+// once, so a forest for another starting depth is a filter rather than a new sieve.
+let _forestFrom = 0, _allPrimes = null, _allPrimesLimit = null;
 
 function sievePrimesTo(n) {
   const mark = new Uint8Array(n + 1);
@@ -1111,19 +1115,21 @@ function _chunkPrimes(primes, maxDigits) {
   }
   return chunks;
 }
-function ensurePrimeTree(maxDigits) {
-  // Keyed by the bound: without this, changing the limit would silently reuse the
-  // table built for the previous one and quietly sieve to the wrong depth.
-  if (_primeForest && _forestLimit === SIEVE_LIMIT) return _primeForest;
+function ensurePrimeTree(maxDigits, from) {
+  // Keyed by the bound AND the starting depth: without this, changing either would
+  // silently reuse the table built for the other and quietly sieve the wrong primes.
+  from = from || 0;
+  if (_primeForest && _forestLimit === SIEVE_LIMIT && _forestFrom === from) return _primeForest;
   _primeForest = null;
-  _sievePrimes = sievePrimesTo(SIEVE_LIMIT);
+  if (!_allPrimes || _allPrimesLimit !== SIEVE_LIMIT) { _allPrimes = sievePrimesTo(SIEVE_LIMIT); _allPrimesLimit = SIEVE_LIMIT; }
+  _sievePrimes = from > 0 ? _allPrimes.filter(q => q > from) : _allPrimes;
   let cap = maxDigits || SIEVE_MAX_BIGINT_DIGITS;
   // Defensive: if a browser refuses even this, halve and retry rather than failing
   // outright. Smaller chunks always work, they just cost slightly more reductions.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       _primeForest = _chunkPrimes(_sievePrimes, cap).map(([a, b]) => buildPrimeTree(_sievePrimes, a, b));
-      _forestLimit = SIEVE_LIMIT;
+      _forestLimit = SIEVE_LIMIT; _forestFrom = from;
       return _primeForest;
     } catch(e) {
       logSwallowed('ensurePrimeTree/cap' + cap, e);
@@ -1143,9 +1149,10 @@ function _sieveDescend(node, r, out) {
   _sieveDescend(node.L, rr, out);
   _sieveDescend(node.R, rr, out);
 }
-// Every prime below SIEVE_LIMIT dividing n, with multiplicity.
-function sieveSmallFactors(n) {
-  const forest = ensurePrimeTree();
+// Every prime in (from, SIEVE_LIMIT] dividing n, with multiplicity — from 0: every
+// prime below SIEVE_LIMIT.
+function sieveSmallFactors(n, from) {
+  const forest = ensurePrimeTree(undefined, from);
   const hits = [];
   for (const tree of forest) _sieveDescend(tree, n, hits);
   const out = [];
@@ -1194,14 +1201,22 @@ function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
 }
 
 // Scan without writing anything. Chunked so the tab stays responsive.
-async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses) {
-  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo, statuses);
-  ensurePrimeTree();
+async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses, topUp) {
+  // A top-up sieves each entry only from its own recorded depth, and skips those
+  // already that deep. Sorted by that depth, so each prime table is built once.
+  const depth = loadSieveDepth() || {};
+  const fromOf = (e) => topUp ? (depth[e.n] || 0) : 0;
+  const cands = sieveCandidates(onlyUnsearched, nFrom, nTo, statuses)
+    .filter(e => fromOf(e) < SIEVE_LIMIT)
+    .sort((a, b) => fromOf(a) - fromOf(b));
   const findings = [];
   // Which entries were actually trial-divided, so the depth can be recorded. A
   // scan that is cancelled part-way must only credit what it reached — claiming
   // coverage it did not deliver would be worse than recording nothing, because
-  // everything downstream treats sieve depth as PROVEN.
+  // everything downstream treats sieve depth as PROVEN. For the same reason an entry
+  // with findings is credited only when its factors are recorded (applySieveFindings):
+  // credited here, a results window closed without recording left factors behind
+  // that a top-up from the recorded depth would never look for again.
   const covered = [];
   let scanned = 0, skipped = 0;
   for (let i = 0; i < cands.length; i++) {
@@ -1220,12 +1235,12 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
     if (!target) { skipped++; continue; }
     scanned++;
     let hits = [];
-    try { hits = sieveSmallFactors(target); }
+    try { hits = sieveSmallFactors(target, fromOf(e)); }
     catch(err) { logSwallowed('sieve/scan', err); continue; }
-    covered.push(e.n);
-    if (hits.length) findings.push({ n: e.n, val: e.val, hits });
+    if (hits.length) findings.push({ n: e.n, val: e.val, hits, limit: SIEVE_LIMIT });
+    else covered.push(e.n);
   }
-  // Record the depth for everything reached, found or not. A clean sieve is
+  // Record the depth for every clean entry reached. A clean sieve is
   // evidence too — arguably the more valuable kind, since it is what lets
   // completionOdds reason from a PROVEN exclusion instead of a 95% one.
   try { recordSieveDepth(covered, SIEVE_LIMIT); }
@@ -13763,7 +13778,7 @@ async function runIntegrityFix() {
 // So it times a handful of real entries spanning the actual size range, fits
 // cost = A + B x digits to those samples, and applies the fit to every candidate.
 // Same principle as the ECM timing calibration: measure, don't assume.
-async function estimateSieveCost(cands, onProgress) {
+async function estimateSieveCost(cands, onProgress, fromOf) {
   const sizes = [];
   for (const e of cands) {
     let d = 0;
@@ -13810,18 +13825,37 @@ async function estimateSieveCost(cands, onProgress) {
   else { B = 0; A = sy / n; }
   if (B < 0) { B = 0; A = sy / n; }   // a negative slope is noise, not signal
 
+  // A top-up from depth f to bound L reduces by primes in (f, L] only; their products
+  // total about L - f bits (the sum of log p up to x is about x), so its share is (L - f)/L.
   let total = 0;
-  for (const s of sizes) total += Math.max(1, A + B * s.d);
+  for (const s of sizes) total += Math.max(1, A + B * s.d) * (fromOf ? Math.max(0, SIEVE_LIMIT - fromOf(s.e)) / SIEVE_LIMIT : 1);
   return { total: total / 1000, samples: meas.length, buildMs, sizes: sizes.length,
            A, B, minD: sorted[0].d, maxD: sorted[sorted.length - 1].d };
 }
 
+// PURE: 1e7, 5e6, 2.5e6 — a sieve bound as people write it.
+function fmtBound(b) { return Number(b).toExponential().replace('e+', 'e'); }
+// PURE: how far the given entries are sieved, against a bound — how many not at all,
+// how many part of the way (and to what: "300 at 1e6, 37 at 5e6"), how many there already.
+function sieveTopUpPlan(ns, depth, bound) {
+  let fresh = 0, partly = 0, done = 0;
+  const at = new Map();
+  for (const n of ns || []) {
+    const d = (depth || {})[n] || 0;
+    if (d >= bound) done++;
+    else if (d > 0) { partly++; at.set(d, (at.get(d) || 0) + 1); }
+    else fresh++;
+  }
+  const depths = Array.from(at.entries()).sort((a, b) => a[0] - b[0]).slice(0, 4)
+    .map(([d, k]) => k.toLocaleString() + ' at ' + fmtBound(d)).join(', ') + (at.size > 4 ? ', …' : '');
+  return { fresh, partly, done, depths };
+}
 async function showSievePrompt() {
   if (polling) { alert('A sieve is already running — wait for it to finish, or press ⊘ Cancel to stop it.'); return; }
   const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
   const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
 
-  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false, statuses = null;
+  let bound = SIEVE_LIMIT, rangeStr = '', nFrom = null, nTo = null, onlyUnsearched = false, statuses = null, topUp = false;
 
   // Settings loop: nothing runs until the estimate has been seen and accepted.
   // The estimate is measured, not guessed, so it costs a few seconds to produce —
@@ -13902,15 +13936,33 @@ async function showSievePrompt() {
       + fresh.length.toLocaleString() + ' of which FactorDB has never processed.\n\n'
       + 'OK      — sieve all ' + all.length.toLocaleString() + '\n'
       + 'Cancel  — sieve only the ' + fresh.length.toLocaleString() + ' unprocessed ones');
-    const cands = onlyUnsearched ? fresh : all;
+    let cands = onlyUnsearched ? fresh : all;
     if (!cands.length) { alert('Nothing to sieve with that choice.'); continue; }
+
+    // Some already sieved part of the way, or all the way? Offer to top them up.
+    const depthNow = loadSieveDepth() || {};
+    const plan = sieveTopUpPlan(cands.map(e => e.n), depthNow, bound);
+    topUp = false;
+    if (plan.done || plan.partly) {
+      topUp = confirm('Of these ' + cands.length.toLocaleString() + ' entries:\n'
+        + '  ' + plan.fresh.toLocaleString() + ' not sieved yet\n'
+        + (plan.partly ? '  ' + plan.partly.toLocaleString() + ' sieved part of the way — ' + plan.depths + '\n' : '')
+        + (plan.done ? '  ' + plan.done.toLocaleString() + ' already sieved to ' + fmtBound(bound) + ' or deeper\n' : '')
+        + '\nOK      — top up: each from its own depth to ' + fmtBound(bound)
+        + (plan.done ? ', skipping the ' + plan.done.toLocaleString() + ' already there' : '') + '\n'
+        + 'Cancel  — sieve every one from the start');
+      if (topUp) {
+        cands = cands.filter(e => (depthNow[e.n] || 0) < bound);
+        if (!cands.length) { alert('Every one of them is sieved to ' + fmtBound(bound) + ' already.'); continue; }
+      }
+    }
 
     // Measure.
     SIEVE_LIMIT = bound;
     setStatus('Timing a sample to estimate the run…', '');
     await new Promise(r => setTimeout(r, 30));
     let est;
-    try { est = await estimateSieveCost(cands); }
+    try { est = await estimateSieveCost(cands, null, topUp ? (e => depthNow[e.n] || 0) : null); }
     catch(err) { setStatus('', ''); alert('Could not estimate: ' + err.message); continue; }
     setStatus('', '');
 
@@ -13921,7 +13973,7 @@ async function showSievePrompt() {
     const go = confirm(
       'ESTIMATE\n\n'
       + '  entries      ' + cands.length.toLocaleString() + '\n'
-      + '  bound        ' + bound.toExponential(0) + '\n'
+      + '  bound        ' + bound.toExponential(0) + (topUp ? ' — topping up, each from its own depth' : '') + '\n'
       + '  cofactors    ' + est.minD.toLocaleString() + ' to ' + est.maxD.toLocaleString() + ' digits\n'
       + '  prime table  ' + (est.buildMs / 1000).toFixed(1) + 's (already built)\n\n'
       + '  scan time    ~' + pretty + '\n\n'
@@ -13945,7 +13997,7 @@ async function showSievePrompt() {
       setStatus('Sieving ' + i.toLocaleString() + '/' + total.toLocaleString()
         + ' — ' + found + ' with factors'
         + (left != null && i > 5 ? ' — ~' + (left > 90 ? Math.round(left / 60) + ' min' : left + 's') + ' left' : ''), '');
-    }, nFrom, nTo, statuses);
+    }, nFrom, nTo, statuses, topUp);
   } catch(err) {
     polling = false; setStatus('', ''); if (cancelBtn) cancelBtn.style.display = 'none';
     alert('Sieve failed: ' + err.message); return;
@@ -14057,6 +14109,7 @@ function applySieveFindings() {
     try { val = BigInt(e.val); } catch(err) { logSwallowed('sieveApply/val', err); continue; }
     const add = [];
     const hadBases = new Set((e.factors || []).map(x => String(x).split('^')[0]));
+    const rejectedBefore = rejected;
     for (const h of f.hits) {
       // Re-verify: the data may have changed since the scan, and writing a factor
       // that does not divide is exactly the class of bug this app has had before.
@@ -14068,6 +14121,8 @@ function applySieveFindings() {
       if (!hadBases.has(String(h.p))) { try { markNewFactor(f.n, h.p); } catch(err) { logSwallowed('sieveApply/new', err); } }
       applied++;
     }
+    // Sieved to its bound now that its factors are in — unless one was rejected.
+    if (f.limit && rejected === rejectedBefore) { try { recordSieveDepth([f.n], f.limit); } catch(err) { logSwallowed('sieveApply/depth', err); } }
     if (!add.length) continue;
     e.factors = sortFactorsAsc([...(e.factors || []), ...add]);
     e.cofactor = null;
