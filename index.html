@@ -1222,6 +1222,9 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
   // The screen is updated at least four times a second, not every 25 entries: one
   // entry of 100,000 digits at 1e7 can take seconds, and 25 of them looked like a hang.
   let lastYield = 0, lastFrom = null;
+  // CPU time: the sieving itself and the prime tables, not the pauses for the screen.
+  const clock = (typeof performance !== 'undefined' && performance.now) ? () => performance.now() : () => Date.now();
+  let cpuMs = 0, work = 0;
   for (let i = 0; i < cands.length; i++) {
     const e = cands[i];
     if (fromOf(e) !== lastFrom) {
@@ -1231,7 +1234,9 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
         'building the prime table' + (lastFrom ? ' above ' + fmtBound(lastFrom) : '') + ' up to ' + fmtBound(SIEVE_LIMIT) + '…');
       await new Promise(r => setTimeout(r, 0));
       if (cancelRequested) break;
+      const t0 = clock();
       ensurePrimeTree(undefined, lastFrom);
+      cpuMs += clock() - t0;
       lastYield = 0;
     }
     if (Date.now() - lastYield >= 250) {
@@ -1241,25 +1246,36 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
       if (cancelRequested) break;
     }
     // Sieve the COFACTOR, not E(n) — no point rediscovering known factors.
-    let target;
+    let target, digits = 0;
     try {
       const cof = getCofactor(e);
       target = cof && cof.big > 1n ? cof.big : null;
+      digits = cof ? cof.digits : 0;
     } catch(err) { logSwallowed('sieve/cofactor', err); }
     if (!target) { skipped++; continue; }
     scanned++;
     let hits = [];
+    const t0 = clock();
     try { hits = sieveSmallFactors(target, fromOf(e)); }
     catch(err) { logSwallowed('sieve/scan', err); continue; }
+    finally { cpuMs += clock() - t0; }
+    work += digits * (SIEVE_LIMIT - fromOf(e)) / 1e6;
     if (hits.length) findings.push({ n: e.n, val: e.val, hits, limit: SIEVE_LIMIT });
     else covered.push(e.n);
+  }
+  if (scanned) {
+    try {
+      const at = new Date().toISOString();
+      saveSieveLog([...loadSieveLog(), { id: 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at,
+        bound: SIEVE_LIMIT, topUp: !!topUp, entries: scanned, work: Math.round(work), ms: Math.round(cpuMs), found: findings.length }]);
+    } catch (err) { logSwallowed('sieve/log', err); }
   }
   // Record the depth for every clean entry reached. A clean sieve is
   // evidence too — arguably the more valuable kind, since it is what lets
   // completionOdds reason from a PROVEN exclusion instead of a 95% one.
   try { recordSieveDepth(covered, SIEVE_LIMIT); }
   catch (err) { logSwallowed('sieve/recordDepth', err); }
-  return { findings, scanned, skipped, covered, candidates: cands.length };
+  return { findings, scanned, skipped, covered, candidates: cands.length, cpuMs: Math.round(cpuMs) };
 }
 
 // How long the import may spend splitting one composite factor GMP-ECM reports.
@@ -4480,6 +4496,8 @@ function buildSyncPayload() {
     contributions: loadContributions(),
     // What your machines are running, so contributors' exports plan around it.
     queue: loadQueue(),
+    // Every sieve run's measured CPU time, for the yield report.
+    sieveLog: loadSieveLog(),
     // Entries confirmed fully factored on FactorDB whose missing prime is too large
     // to verify locally. Shared so the acknowledgement does not have to be repeated
     // on every machine.
@@ -4757,6 +4775,7 @@ function mergeSyncPayload(remote) {
     try { mergeHistory(remote.history); } catch(e) { logSwallowed('merge/history', e); }
     try { mergeContributions(remote.contributions); } catch(e) { logSwallowed('merge/contributions', e); }
     try { mergeQueue(remote.queue); } catch(e) { logSwallowed('merge/queue', e); }
+    try { mergeSieveLog(remote.sieveLog); } catch(e) { logSwallowed('merge/sieveLog', e); }
   }
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
@@ -10080,7 +10099,15 @@ function computeYieldByLevel() {
     L.findsPerHundredHours = L.tCpuSec > 0 ? (L.finds / (L.tCpuSec / 3600)) * 100 : 0;
     return L;
   };
-  return { levels: levels.map(d => withRate(stats[d])), pm1: withRate(pm1),
+  // The sieve's row: measured CPU from its log, plus an estimate for sieving done
+  // before runs were timed (see sieveCpu); its finds counted like everyone else's.
+  let sieve = null;
+  try {
+    const sc = sieveCpu(loadSieveLog(), loadSieveDepth(), (n) => { const e = entryByN(n); return e ? (getCofactorDigits(e) || 0) : 0; }, startDate);
+    sieve = withRate({ runs: sc.entries, curves: 0, cpuSec: sc.measuredSec + (sc.estSec || 0), tRuns: sc.tEntries, tCurves: 0,
+      tCpuSec: sc.tMeasuredSec + (sc.estSec || 0), finds: sieveFinds.finds, estSec: sc.estSec, timedRuns: sc.timedRuns });
+  } catch (err) { logSwallowed('yield/sieve', err); }
+  return { levels: levels.map(d => withRate(stats[d])), pm1: withRate(pm1), sieve,
            totalFinds, unattributed, sieveFinds: sieveFinds.finds, findSizes,
            fdbFinds, preHistory, historyCount: hist.length,
            startDate, trackingStarted: historyStartTs(), undatedRuns,
@@ -13778,6 +13805,52 @@ async function runIntegrityFix() {
 }
 
 
+// ── Sieve CPU: measured per run, estimated for sieving done before ──────────────
+// Each run logs its bound, the entries it sieved, its work — every entry's cofactor
+// digits times the span of primes it was tested against, in millions — and the time
+// it measured, prime tables included: in a browser tab that is one core's CPU time.
+// The log travels with your data, so every machine's sieving counts. Sieving from
+// before runs were timed is estimated: the work the recorded depths imply, less what
+// the logged runs account for, at the speed the logged runs measured.
+const SIEVE_LOG_KEY = 'eulerFDB_sieveLog_v1';
+function loadSieveLog() {
+  try { const a = JSON.parse(kvGet(SIEVE_LOG_KEY) || '[]'); return Array.isArray(a) ? a.filter(r => r && r.id) : []; }
+  catch (e) { return []; }
+}
+function saveSieveLog(list) {
+  try { kvSet(SIEVE_LOG_KEY, JSON.stringify(list)); } catch (e) { logSwallowed('sieveLog/save', e); }
+  markDirty('sieve log');
+}
+// PURE: two logs as one — each run once, by its id.
+function mergeSieveLogLists(a, b) {
+  const m = new Map();
+  for (const r of [...(a || []), ...(b || [])]) if (r && r.id && !m.has(r.id)) m.set(r.id, r);
+  return Array.from(m.values()).sort((x, y) => String(x.at).localeCompare(String(y.at)));
+}
+function mergeSieveLog(remote) {
+  if (!Array.isArray(remote) || !remote.length) return;
+  const local = loadSieveLog(), merged = mergeSieveLogLists(local, remote);
+  if (merged.length !== local.length) { try { kvSet(SIEVE_LOG_KEY, JSON.stringify(merged)); } catch (e) { logSwallowed('sieveLog/merge', e); } }
+}
+// PURE: the sieve's line in the yield report. `digitsOf(n)` is the cofactor's size
+// now — at most what it was when sieved, so the estimate errs low, never high.
+function sieveCpu(log, depths, digitsOf, since) {
+  const runs = log || [];
+  let ms = 0, work = 0, tMs = 0, tEntries = 0;
+  for (const r of runs) {
+    ms += r.ms || 0; work += r.work || 0;
+    if (String(r.at || '').slice(0, 10) >= since) { tMs += r.ms || 0; tEntries += r.entries || 0; }
+  }
+  let all = 0, entries = 0;
+  for (const [n, d] of Object.entries(depths || {})) {
+    const dg = d > 0 ? digitsOf(Number(n)) : 0;
+    if (dg > 0) { all += dg * d / 1e6; entries++; }
+  }
+  const rate = work > 0 ? ms / work : null;              // ms per unit of work, as measured
+  const estSec = rate != null ? rate * Math.max(0, all - work) / 1000 : null;
+  return { entries, measuredSec: ms / 1000, estSec, tEntries, tMeasuredSec: tMs / 1000, timedRuns: runs.length };
+}
+
 // PURE: 1e7, 5e6, 2.5e6 — a sieve bound as people write it.
 function fmtBound(b) { return Number(b).toExponential().replace('e+', 'e'); }
 // PURE: how far the given entries are sieved, against a bound — how many not at all,
@@ -13933,7 +14006,8 @@ async function showSievePrompt() {
 
   const { findings, scanned, skipped } = res;
   const took = (Date.now() - started) / 1000;
-  const tookTxt = took < 90 ? Math.round(took) + 's' : (took / 60).toFixed(1) + ' min';
+  const fmtT = (t) => t < 90 ? Math.round(t) + 's' : t < 5400 ? (t / 60).toFixed(1) + ' min' : (t / 3600).toFixed(1) + ' h';
+  const tookTxt = fmtT(took) + ' (' + fmtT((res.cpuMs || 0) / 1000) + ' of CPU, now in the yield report)';
   if (!findings.length) {
     alert('Scanned ' + scanned.toLocaleString() + ' cofactor(s) below ' + bound.toExponential(0)
       + ' in ' + tookTxt + ' — nothing found.\n\n'
@@ -14353,7 +14427,8 @@ function showYieldReport() {
   // window the finds come from. Using all-time effort against attributable-only
   // finds would divide years of work by a handful of recent discoveries.
   const mkRow = (label, L, isPm1) => {
-    const perFind = L.cpuPerFind != null ? fmtH(L.cpuPerFind) : '—';
+    const est = L.estSec > 0 ? '~' : '';   // partly estimated (the sieve, before runs were timed)
+    const perFind = L.cpuPerFind != null ? est + fmtH(L.cpuPerFind) : '—';
     const rate = L.findsPerHundredHours || 0;
     const col = L.finds === 0 ? 'var(--text-muted)' : rate >= 1 ? 'var(--green)' : rate >= 0.1 ? 'var(--yellow)' : 'var(--orange)';
     const dim = 'color:var(--text-muted)';
@@ -14361,10 +14436,10 @@ function showYieldReport() {
       <td style="padding:4px 10px 4px 0"><strong>${label}</strong></td>
       <td style="padding:4px 8px;text-align:right;${dim}">${L.runs.toLocaleString()}</td>
       <td style="padding:4px 8px;text-align:right;${dim}">${isPm1 ? '—' : L.curves.toLocaleString()}</td>
-      <td style="padding:4px 14px 4px 8px;text-align:right;${dim};border-right:1px solid var(--border2)">${fmtH(L.cpuSec)}</td>
+      <td style="padding:4px 14px 4px 8px;text-align:right;${dim};border-right:1px solid var(--border2)">${L.cpuSec > 0 ? est : ''}${fmtH(L.cpuSec)}</td>
       <td style="padding:4px 8px 4px 14px;text-align:right">${L.tRuns.toLocaleString()}</td>
       <td style="padding:4px 8px;text-align:right">${isPm1 ? '—' : L.tCurves.toLocaleString()}</td>
-      <td style="padding:4px 8px;text-align:right">${fmtH(L.tCpuSec)}</td>
+      <td style="padding:4px 8px;text-align:right">${L.tCpuSec > 0 ? est : ''}${fmtH(L.tCpuSec)}</td>
       <td style="padding:4px 8px;text-align:right;color:${L.finds?'var(--green)':'var(--text-muted)'}"><strong>${L.finds}</strong></td>
       <td style="padding:4px 0 4px 8px;text-align:right;color:${col}">${perFind}</td>
     </tr>`;
@@ -14376,9 +14451,13 @@ function showYieldReport() {
     rows.push(mkRow('t' + L.d, L, false));
   }
   if (y.pm1.runs || y.pm1.finds) rows.push(mkRow('P\u00b11', y.pm1, true));
+  const sv = y.sieve;
+  if (sv && (sv.runs || sv.finds)) rows.push(mkRow('Sieve', sv, true));
 
-  // Totals row — makes the all-time vs tracked split legible at a glance.
-  const sum = (f) => y.levels.reduce((s, L) => s + (L[f] || 0), 0) + (y.pm1[f] || 0);
+  // Totals row — makes the all-time vs tracked split legible at a glance. The sieve
+  // adds its CPU and finds; its RUNS are entries sieved, a different unit, so not there.
+  const sum = (f) => y.levels.reduce((s, L) => s + (L[f] || 0), 0) + (y.pm1[f] || 0)
+    + (sv && f !== 'runs' && f !== 'tRuns' ? (sv[f] || 0) : 0);
   const totRow = `<tr style="border-top:2px solid var(--border2);font-weight:600">
       <td style="padding:6px 10px 4px 0">ALL</td>
       <td style="padding:6px 8px 4px;text-align:right;color:var(--text-muted)">${sum('runs').toLocaleString()}</td>
@@ -14469,8 +14548,10 @@ function showYieldReport() {
         an entry later cannot muddle it.</div>
       ${y.fdbFinds ? `<div>${y.fdbFinds} factor(s) came from FactorDB, not your runs — excluded.</div>` : ''}
       ${y.unattributed ? `<div class="yn-warn">${y.unattributed} of your find(s) are on numbers with no run log, so they have no level.</div>` : ''}
-      ${y.sieveFinds ? `<div>${y.sieveFinds} factor(s) came from the small-prime sieve (no ECM time): your work, but kept out of
-        the levels so they don't flatter whichever level shared the number.</div>` : ''}
+      ${y.sieveFinds || (y.sieve && y.sieve.runs) ? `<div><b>Sieve.</b> RUNS is the entries sieved. Its CPU is measured by every sieve run
+        (${y.sieve && y.sieve.timedRuns ? y.sieve.timedRuns + ' so far' : 'none timed yet'}); sieving from before runs were timed is estimated
+        (~) from the depths recorded, at the speed the timed runs measured${y.sieve && y.sieve.estSec == null && y.sieve.runs ? ' — shown once a run has been timed' : ''}.
+        Its finds are kept out of the ECM levels, so they don't flatter whichever level shared the number.</div>` : ''}
       ${y.approxPricedRuns ? `<div class="yn-dim">${y.approxPricedRuns.toLocaleString()} run(s) are on entries now fully factored,
         whose cofactor is gone: they are priced on the full value — an upper bound, so those rows understate yield,
         never overstate it. Runs with a measured time are unaffected.</div>` : ''}
