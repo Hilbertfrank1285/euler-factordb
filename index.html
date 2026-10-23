@@ -1219,13 +1219,27 @@ async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, status
   // that a top-up from the recorded depth would never look for again.
   const covered = [];
   let scanned = 0, skipped = 0;
+  // The screen is updated at least four times a second, not every 25 entries: one
+  // entry of 100,000 digits at 1e7 can take seconds, and 25 of them looked like a hang.
+  let lastYield = 0, lastFrom = null;
   for (let i = 0; i < cands.length; i++) {
-    if (i % 25 === 0) {
-      if (onProgress) onProgress(i, cands.length, findings.length);
+    const e = cands[i];
+    if (fromOf(e) !== lastFrom) {
+      // A new starting depth needs its own prime table: say so, then build it.
+      lastFrom = fromOf(e);
+      if (onProgress) onProgress(i, cands.length, findings.length,
+        'building the prime table' + (lastFrom ? ' above ' + fmtBound(lastFrom) : '') + ' up to ' + fmtBound(SIEVE_LIMIT) + '…');
       await new Promise(r => setTimeout(r, 0));
       if (cancelRequested) break;
+      ensurePrimeTree(undefined, lastFrom);
+      lastYield = 0;
     }
-    const e = cands[i];
+    if (Date.now() - lastYield >= 250) {
+      if (onProgress) onProgress(i, cands.length, findings.length);
+      await new Promise(r => setTimeout(r, 0));
+      lastYield = Date.now();
+      if (cancelRequested) break;
+    }
     // Sieve the COFACTOR, not E(n) — no point rediscovering known factors.
     let target;
     try {
@@ -13763,75 +13777,6 @@ async function runIntegrityFix() {
         : ''));
 }
 
-// Report first, write second. Given how many data-correctness bugs this project has
-// had, a bulk operation that silently rewrites factor lists is the last thing it
-// needs — so the scan is read-only and everything found is shown before anything is
-// applied. Each factor is re-verified against the entry at apply time as well.
-// Predict how long a sieve run will take, by MEASURING rather than extrapolating.
-//
-// The obvious approach — a constant seconds-per-number — is wrong by an order of
-// magnitude either way, because cost depends on the cofactor's size: measured here,
-// a 200-digit cofactor takes ~28ms and an 80,000-digit one ~270ms at the same bound.
-// Predicting from my own machine's constants would be wrong again, since the browser
-// and hardware differ.
-//
-// So it times a handful of real entries spanning the actual size range, fits
-// cost = A + B x digits to those samples, and applies the fit to every candidate.
-// Same principle as the ECM timing calibration: measure, don't assume.
-async function estimateSieveCost(cands, onProgress, fromOf) {
-  const sizes = [];
-  for (const e of cands) {
-    let d = 0;
-    try { const cof = getCofactor(e); d = cof && cof.big > 1n ? cof.digits : 0; }
-    catch(err) { logSwallowed('estimateSieve/size', err); }
-    if (d > 0) sizes.push({ e, d });
-  }
-  if (!sizes.length) return { total: 0, samples: 0, buildMs: 0, sizes: 0 };
-
-  // Build the table first — that cost is real and has to be reported separately.
-  const t0 = Date.now();
-  ensurePrimeTree();
-  const buildMs = Date.now() - t0;
-  if (onProgress) onProgress('measuring');
-
-  // Sample across the size range rather than the first few, so the fit covers both
-  // ends. A run of similar-sized entries at the start would otherwise mislead badly.
-  const sorted = [...sizes].sort((a, b) => a.d - b.d);
-  const picks = [];
-  const nSamples = Math.min(5, sorted.length);
-  for (let i = 0; i < nSamples; i++) picks.push(sorted[Math.floor(i * (sorted.length - 1) / Math.max(nSamples - 1, 1))]);
-
-  const meas = [];
-  for (const p of picks) {
-    let target = null;
-    try { const cof = getCofactor(p.e); target = cof && cof.big > 1n ? cof.big : null; }
-    catch(err) { logSwallowed('estimateSieve/cof', err); }
-    if (!target) continue;
-    const s = performance.now();
-    try { sieveSmallFactors(target); } catch(err) { logSwallowed('estimateSieve/scan', err); continue; }
-    meas.push({ d: p.d, ms: performance.now() - s });
-    await new Promise(r => setTimeout(r, 0));
-  }
-  if (!meas.length) return { total: 0, samples: 0, buildMs, sizes: sizes.length };
-
-  // Least-squares fit of ms = A + B*digits. Falls back to a flat mean when the
-  // samples are all the same size (B would be undefined).
-  let A, B;
-  const n = meas.length;
-  const sx = meas.reduce((s, m) => s + m.d, 0), sy = meas.reduce((s, m) => s + m.ms, 0);
-  const sxx = meas.reduce((s, m) => s + m.d * m.d, 0), sxy = meas.reduce((s, m) => s + m.d * m.ms, 0);
-  const den = n * sxx - sx * sx;
-  if (n >= 2 && Math.abs(den) > 1e-9) { B = (n * sxy - sx * sy) / den; A = (sy - B * sx) / n; }
-  else { B = 0; A = sy / n; }
-  if (B < 0) { B = 0; A = sy / n; }   // a negative slope is noise, not signal
-
-  // A top-up from depth f to bound L reduces by primes in (f, L] only; their products
-  // total about L - f bits (the sum of log p up to x is about x), so its share is (L - f)/L.
-  let total = 0;
-  for (const s of sizes) total += Math.max(1, A + B * s.d) * (fromOf ? Math.max(0, SIEVE_LIMIT - fromOf(s.e)) / SIEVE_LIMIT : 1);
-  return { total: total / 1000, samples: meas.length, buildMs, sizes: sizes.length,
-           A, B, minD: sorted[0].d, maxD: sorted[sorted.length - 1].d };
-}
 
 // PURE: 1e7, 5e6, 2.5e6 — a sieve bound as people write it.
 function fmtBound(b) { return Number(b).toExponential().replace('e+', 'e'); }
@@ -13957,31 +13902,11 @@ async function showSievePrompt() {
       }
     }
 
-    // Measure.
+    // No timing run first. It sieved sample entries in full before starting — minutes
+    // with nothing on screen for large numbers at 1e7. The run shows how far it is and
+    // how long is left, from the entries it has done, and ⊘ Cancel stops it any time.
     SIEVE_LIMIT = bound;
-    setStatus('Timing a sample to estimate the run…', '');
-    await new Promise(r => setTimeout(r, 30));
-    let est;
-    try { est = await estimateSieveCost(cands, null, topUp ? (e => depthNow[e.n] || 0) : null); }
-    catch(err) { setStatus('', ''); alert('Could not estimate: ' + err.message); continue; }
-    setStatus('', '');
-
-    const secs = est.total;
-    const pretty = secs < 90 ? Math.round(secs) + ' seconds'
-                 : secs < 5400 ? (secs / 60).toFixed(0) + ' minutes'
-                 : (secs / 3600).toFixed(1) + ' hours';
-    const go = confirm(
-      'ESTIMATE\n\n'
-      + '  entries      ' + cands.length.toLocaleString() + '\n'
-      + '  bound        ' + bound.toExponential(0) + (topUp ? ' — topping up, each from its own depth' : '') + '\n'
-      + '  cofactors    ' + est.minD.toLocaleString() + ' to ' + est.maxD.toLocaleString() + ' digits\n'
-      + '  prime table  ' + (est.buildMs / 1000).toFixed(1) + 's (already built)\n\n'
-      + '  scan time    ~' + pretty + '\n\n'
-      + 'Timed from ' + est.samples + ' real entries across the size range, so this reflects '
-      + 'your machine rather than an assumed speed.\n\n'
-      + 'OK      — run it\n'
-      + 'Cancel  — change the bound or range');
-    if (go) break;
+    break;
   }
 
   polling = true; cancelRequested = false;
@@ -13991,11 +13916,11 @@ async function showSievePrompt() {
   const started = Date.now();
   let res;
   try {
-    res = await runSmallPrimeSieve(onlyUnsearched, (i, total, found) => {
-      const el = total ? (Date.now() - started) / i : 0;
+    res = await runSmallPrimeSieve(onlyUnsearched, (i, total, found, note) => {
+      const el = i ? (Date.now() - started) / i : 0;
       const left = el > 0 ? Math.round((total - i) * el / 1000) : null;
-      setStatus('Sieving ' + i.toLocaleString() + '/' + total.toLocaleString()
-        + ' — ' + found + ' with factors'
+      setStatus('Sieving to ' + fmtBound(bound) + (topUp ? ' (topping up)' : '') + ': ' + i.toLocaleString() + '/' + total.toLocaleString()
+        + ' — ' + found + ' with factors' + (note ? ' — ' + note : '')
         + (left != null && i > 5 ? ' — ~' + (left > 90 ? Math.round(left / 60) + ' min' : left + 's') + ' left' : ''), '');
     }, nFrom, nTo, statuses, topUp);
   } catch(err) {
