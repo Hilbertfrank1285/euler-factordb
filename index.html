@@ -561,6 +561,8 @@
   .ecm-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; padding: 0 4px; }
   .ecm-delete:hover { color: var(--red); }
 
+/* while values load: the tools that need every value wait */
+body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
 /* submissions: a contributor's results, reviewed */
 .sub-totals { font-weight: 600; margin: 6px 0 10px; }
 .sub-entry { border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: 6px; padding: 6px 10px; margin: 6px 0; }
@@ -639,58 +641,58 @@
 
   <span class="bar-sep"></span>
   <span class="bar-label">ECM</span>
-  <button class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="exportNextRuns()" style="background:var(--surface2)"
     title="Export the best-value recommended ECM/P±1 runs (odds gained per unit time) as GMP-ECM commands — asks how many, and whether to prioritise entries FactorDB has never seen">
     ↓ Export ECM
   </button>
-  <button class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
+  <button data-needs-values class="poll-btn" id="importEcmBtn" onclick="importECMResults()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
     ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importEcmFromFiles(Array.from(event.dataTransfer.files));"
     style="background:var(--surface2)" title="Load ecm_import.txt — one or many at once (click to pick multiple, or drag them all here). Records curves done + factors, splits composites, updates recommendations. Also accepts a results_ecm.json backup, which is merged into the ECM store rather than replacing it.">
     ↑ Import ECM results
   </button>
-  <button class="poll-btn" id="contribBtn" onclick="contributeResults()" style="display:none;background:var(--surface2)"
+  <button data-needs-values class="poll-btn" id="contribBtn" onclick="contributeResults()" style="display:none;background:var(--surface2)"
     title="Ran ECM on these numbers? Send your results to the owner: this checks them and makes a submission file for a GitHub issue. Nothing changes here or on GitHub until the owner accepts.">🤝 Contribute results</button>
-  <button class="poll-btn" id="submissionsBtn" onclick="openSubmissions()" style="display:none;background:var(--surface2)"
+  <button data-needs-values class="poll-btn" id="submissionsBtn" onclick="openSubmissions()" style="display:none;background:var(--surface2)"
     title="Review ECM results other people sent you: every factor and run checked, then accept all, part, or none. Each decision is kept with the sender's name and note.">📥 Submissions</button>
 
   <span class="bar-sep"></span>
   <span class="bar-label">FactorDB</span>
-  <button class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="exportFDBCheckList()" style="background:var(--surface2)"
     title="Export entries to check against FactorDB with euler.py check, on any machine with Python — your submissions, never-checked entries, ones not re-checked in 31 days, FactorDB-undetermined ones, or everything">
     ↓ Export FDB check list
   </button>
-  <button class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
+  <button data-needs-values class="poll-btn" id="importFdbResultsBtn" onclick="document.getElementById('fdbResultsInput').click()"
     ondragover="event.preventDefault(); this.style.outline='2px dashed var(--accent)';"
     ondragleave="this.style.outline='';"
     ondrop="event.preventDefault(); this.style.outline=''; if(event.dataTransfer.files.length) importFDBResults(event.dataTransfer.files[0]);"
     style="background:var(--surface2)" title="Load fdb_results.json produced by euler.py check">
     ↑ Import FDB results
   </button>
-  <button class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="exportFDBSubmission()" style="background:var(--surface2)"
     title="Export your factors for submission to FactorDB — send them with euler.py submit --commit (without --commit it is a dry run), or paste the file into factordb.com/report.php">
     ↑ Export FDB submission
   </button>
 
   <span class="bar-sep"></span>
   <span class="bar-label">Tools</span>
-  <button class="poll-btn" onclick="showSievePromptGuarded()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="showSievePromptGuarded()" style="background:var(--surface2)"
     title="Sieve every small prime out of the remaining cofactors — exhaustive, and far cheaper than ECM at that range">
     ⌗ Sieve small primes
   </button>
-  <button class="poll-btn" onclick="importSieveResults()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="importSieveResults()" style="background:var(--surface2)"
     title="Load sieve_results.json from the batch sieve on your server (euler.py sieve): every entry's factors are checked and recorded, and its depth with them">
     ⌗ Import sieve results
   </button>
-  <button class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="showDataIntegrityReport()" style="background:var(--surface2)"
     title="Check every entry against itself — each factor must divide E(n), be prime and appear once, and the status must match what the factors prove — then fix what can be fixed safely. No network needed.">
     ⚕ Check data
   </button>
 
   <span class="bar-sep"></span>
   <span class="bar-label">Data</span>
-  <button class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)"
+  <button data-needs-values class="poll-btn" onclick="exportCSV()" style="background:var(--surface2)"
     title="Download every entry — all of them, not just this page — as a CSV file: factors, cofactor size, FactorDB status and run count">
     ↓ Export CSV
   </button>
@@ -787,7 +789,7 @@
       </select>
     </div>
     <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
-    <button class="bulk-submit" id="bulkSubmitBtn" onclick="applyBulkECM()">+ Log attempt for all entries above</button>
+    <button data-needs-values class="bulk-submit" id="bulkSubmitBtn" onclick="applyBulkECM()">+ Log attempt for all entries above</button>
     <div class="bulk-result" id="bulkResult"></div>
   </div>
 
@@ -811,7 +813,7 @@
     <div id="bulkDelPreview" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;min-height:16px"></div>
     <div style="display:flex;gap:10px;align-items:center">
       <button onclick="previewBulkDelete()" style="padding:5px 14px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-size:11px;cursor:pointer">Preview</button>
-      <button onclick="executeBulkDelete()" style="padding:5px 14px;background:var(--red);border:none;color:#fff;font-size:11px;cursor:pointer;font-weight:600">Delete matching attempts</button>
+      <button data-needs-values onclick="executeBulkDelete()" style="padding:5px 14px;background:var(--red);border:none;color:#fff;font-size:11px;cursor:pointer;font-weight:600">Delete matching attempts</button>
     </div>
   </div>
 </div>
@@ -821,8 +823,8 @@
   <div class="github-label">⬡ GitHub sync</div>
 
   <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
-  <button class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
-  <button class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push<span id="dirtyDot" title="You have unsaved changes not yet pushed" style="display:none;width:7px;height:7px;border-radius:50%;background:var(--yellow);margin-left:6px;vertical-align:middle"></span></button>
+  <button data-needs-values class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
+  <button data-needs-values class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push<span id="dirtyDot" title="You have unsaved changes not yet pushed" style="display:none;width:7px;height:7px;border-radius:50%;background:var(--yellow);margin-left:6px;vertical-align:middle"></span></button>
   <span class="github-local" id="ghLocalLabel" style="display:none"
         title="Changes you make stay in this browser — there is no GitHub token here, so nothing can be pushed. Owner? Add your token under ⚙.">Local copy</span>
   <button class="github-btn" onclick="toggleGithubSettings()" title="GitHub settings">⚙</button>
@@ -853,11 +855,11 @@
     <code>results.json</code> / <code>results_ecm.json</code> are read only until <code>data/</code> exists.
   </div>
   <div class="repo-tools">
-    <button class="poll-btn" onclick="uploadValueFiles()" style="background:var(--surface2)"
+    <button data-needs-values class="poll-btn" onclick="uploadValueFiles()" style="background:var(--surface2)"
       title="Sends PARI's euler_values_A_B.json files from your computer to GitHub already compressed (47% of the size), neighbours merged into ~20 MB files — in one commit, every value checked first. Better than GitHub's website for new values: each value is stored once in the repository's history, not twice.">
       📤 Upload value files
     </button>
-    <button class="poll-btn" onclick="compressValueFiles()" style="background:var(--surface2)"
+    <button data-needs-values class="poll-btn" onclick="compressValueFiles()" style="background:var(--surface2)"
       title="Compresses plain .json value files already in your repository (neighbours merged into ~20 MB files), in one commit, every value checked first. Compressed files are never rewritten. GitHub Pages allows 1 GB: plain files reach it near E(30000), compressed ones near E(40000).">
       🗜 Compress value files
     </button>
@@ -5517,6 +5519,7 @@ async function pullEcmChunks(ctx, paths) {
 }
 
 async function githubPull(skipRender) {
+  if (_valuesPartial) { setStatus('Pulling waits until every value has loaded.', 'warn'); return; }
   const s = loadGHSettings();
   const user   = s.user   || 'hilbertfrank1285';
   const repo   = s.repo   || 'euler-factordb';
@@ -5632,6 +5635,7 @@ function scheduleECMPush() {
   }, 8000);
 }
 async function githubPush() {
+  if (_valuesPartial) { setStatus('Pushing waits until every value has loaded.', 'warn'); scheduleAutoPush(); return; }
   // The payload is built from the persisted store, so a debounced save still in
   // flight would be pushed as its previous version — silently shipping stale data
   // to the other machines.
@@ -6952,7 +6956,9 @@ async function exportNextRuns() {
       const runDigits = getCofactorDigits(e);
       if (!runDigits || runDigits < 2) continue;
       let recs;
-      try { recs = recommendNextRun(runDigits, ecmData[String(e.n)] || [], sieveDepthDigits(e.n)); }
+      // From the shared plan cache — warmed in idle time, so usually instant. A
+      // contributor's export plans around your queue: other runs, its own key.
+      try { recs = planForEntry(e.n, runDigits, ecmData[String(e.n)] || [], sieveDepthDigits(e.n)); }
       catch(_) { continue; }
       if (!recs || !recs.length) continue;
       // Only entries we ASKED about and got nothing for. Never having asked is not
@@ -10622,7 +10628,7 @@ function factorsFdbLacks(e) {
   });
 }
 
-function applyFilters() {
+function applyFilters(opts) {
   // Build fast n→fdbCache lookup for filter checks
   window._fdbCacheByN = {};
   for (const v of Object.values(fdbCache)) {
@@ -10697,7 +10703,10 @@ function applyFilters() {
   } else {
     filtered.sort((a, b) => a.n - b.n);
   }
-  currentPage = 1;
+  // A refresh while values load keeps your page (clamped if the list shrank);
+  // anything else — a search, a filter, a sort — starts at page 1.
+  if (opts && opts.keepPage === true) currentPage = Math.min(currentPage, Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)));
+  else currentPage = 1;
   renderGrid();
   renderPagination();
   renderStats();
@@ -10723,7 +10732,41 @@ function getTotalCpuForEntry(e) {
 // recommendation list). Used by the "Next run" grid sort and the tile footer.
 // Memoized per render; cache stores the full rec object (or null).
 let _nextRunCache = new Map();
-function invalidateNextRunCache() { _nextRunCache = new Map(); }
+// Every entry's full plan — recommendNextRun's runs, not just the first — kept until
+// what it depends on changes: the cofactor's size, the runs done, the sieve depth.
+// The tiles and the export share it: the export used to plan all 17,500 entries
+// afresh every time. Cleared on any change (the time model moves with every
+// import), then rebuilt in idle moments, a slice at a time, so it is usually ready.
+let _planCache = new Map();
+function attemptsSig(att) {
+  return (att || []).map(a => a.method + ':' + a.b1 + ':' + (a.b2 || '') + ':' + (a.curves || '')).join(',');
+}
+function planForEntry(n, digits, attempts, sd) {
+  const sig = digits + '|' + sd + '|' + attemptsSig(attempts);
+  const hit = _planCache.get(n);
+  if (hit && hit.sig === sig) return hit.recs;
+  let recs = [];
+  try { recs = recommendNextRun(digits, attempts || [], sd) || []; } catch (err) { recs = []; }
+  _planCache.set(n, { sig, recs });
+  return recs;
+}
+let _planWarmTimer = null;
+function schedulePlanWarm(delayMs) {
+  if (typeof _appReady === 'undefined' || !_appReady) return;
+  if (_planWarmTimer) clearTimeout(_planWarmTimer);
+  _planWarmTimer = setTimeout(async () => {
+    _planWarmTimer = null;
+    const gen = _planCache, ecm = loadECM();
+    const todo = allEntries.filter(e => e.status !== 'full' && e.val);
+    for (let i = 0; i < todo.length; i++) {
+      if (gen !== _planCache) return;                  // cleared meanwhile: a newer warm-up follows
+      const e = todo[i], d = getCofactorDigits(e);
+      if (d && d >= 2) planForEntry(e.n, d, ecm[String(e.n)] || [], sieveDepthDigits(e.n));
+      if (i % 200 === 199) await new Promise(r => setTimeout(r, 0));
+    }
+  }, delayMs == null ? 1500 : delayMs);
+}
+function invalidateNextRunCache() { _nextRunCache = new Map(); _planCache = new Map(); schedulePlanWarm(); }
 function getNextRunForEntry(e) {
   if (e.status === 'full') return null;
   if (_nextRunCache.has(e.n)) return _nextRunCache.get(e.n);
@@ -10731,7 +10774,7 @@ function getNextRunForEntry(e) {
   let rec = null;
   if (digits) {
     try {
-      const recs = recommendNextRun(digits, loadECM()[String(e.n)] || [], sieveDepthDigits(e.n));
+      const recs = planForEntry(e.n, digits, loadECM()[String(e.n)] || [], sieveDepthDigits(e.n));
       if (recs && recs.length) rec = recs[0]; // list is sorted fastest-first
     } catch(err) { console.warn('getNextRunForEntry error E(' + e.n + '):', err.message); }
   }
@@ -12236,6 +12279,18 @@ function _nearCofDigBoundary(est) {
   for (const b of _COFDIG_BOUNDARIES) if (Math.abs(est - b) <= 3) return true;
   return false;
 }
+// PURE: the digits of v / p — p a product of factors dividing v exactly — from the
+// logarithms read off the decimal strings, with no BigInt of v (11 ms at 137,000
+// digits, and the first export after new values needed it for thousands of entries).
+// Exact unless the logarithm sits within a hair of a power of ten: then null, and
+// the slow, exact way decides.
+function quotientDigits(vStr, pStr) {
+  const lg = (t) => (t.length - 1) + Math.log10(parseFloat(t[0] + '.' + t.slice(1, 17)));
+  const x = lg(vStr) - lg(pStr);
+  const f = x - Math.floor(x);
+  if (!isFinite(x) || f < 1e-9 || f > 1 - 1e-9) return null;
+  return Math.floor(x) + 1;
+}
 function getCofactorDigits(e) {
   if (!e || !e.val || e.status === 'full') return null;
   const factors = (e.factors || []).filter(f => f && f !== '1');
@@ -12256,6 +12311,19 @@ function getCofactorDigits(e) {
   // 3. Cache miss — compute fast (division + bit-length estimate), falling back to
   // the fully exact decimal digit count only in the rare case the estimate lands
   // near a boundary where the ±1 uncertainty could actually change the outcome.
+  // The fast way: the digit count from logarithms, no BigInt of E(n). The factors are
+  // checked against E(n) when they are recorded (and by Check data), so this trusts
+  // them as the planner does; only a near power of ten falls through to the exact way.
+  try {
+    const pq = factorProduct(factors);
+    const fast = (typeof pq === 'bigint' && pq > 1n) ? quotientDigits(e.val, pq.toString()) : null;
+    if (fast != null && fast > 0) {
+      e._cofDigKey = key; e._cofDig = fast;
+      persisted[e.n] = [fast, key];
+      saveCofDigitsCacheQuiet();
+      return fast;
+    }
+  } catch (err) { logSwallowed('cofDigits/fast', err); }
   let vBig;
   try { vBig = BigInt(e.val); } catch { return e.val.length; }
   const product = factorProduct(factors);   // shared — see factorProduct
@@ -15116,7 +15184,30 @@ async function uploadValueFilesFrom(files) {
   } finally { _compressing = false; }
 }
 
-async function fetchEulerValues() {
+// ── Values in two phases ──────────────────────────────────────────────────────
+// With values up to E(35000) — about 1.1 GB — loading them all before showing
+// anything kept the page empty for a long while. Now the files covering what is on
+// screen first (FIRST_VALUES_SPAN of n from the start of the range) load, the page
+// appears, and the rest follow a few files at a time in the background.
+const FIRST_VALUES_SPAN = 2000;
+let _valuePlan = null;          // the file list and loader, shared by both phases
+let _valuesPartial = true;      // values still loading: pushing and pulling wait
+let _toolsHeld = false;         // the tools that need every value are held back
+// PURE: the files to load first — those whose range meets [lo, lo + span] — as
+// indices into `chunks`; the first file when none does.
+function firstValueChunks(chunks, lo, span) {
+  const out = [];
+  (chunks || []).forEach((f, i) => {
+    const m = VALUE_CHUNK_RE.exec(f);
+    if (m && +m[1] <= lo + span && +m[2] >= lo) out.push(i);
+  });
+  return out.length ? out : (chunks && chunks.length ? [0] : []);
+}
+// phase 'first': the files for what is on screen; 'rest': the others, a few at a
+// time with the page answering between them (onChunk(done, total) after each batch);
+// no phase: every file not yet loaded, all at once, as before.
+async function fetchEulerValues(phase, onChunk) {
+  if (!_valuePlan) {
   const s      = loadGHSettings();
   const user   = s.user   || 'hilbertfrank1285';
   const repo   = s.repo   || 'euler-factordb';
@@ -15235,8 +15326,27 @@ async function fetchEulerValues() {
     return false;
   }
 
-  // Load all chunks in parallel
-  const results = await Promise.all(chunks.map((f, i) => fetchChunk(f, i)));
+  _valuePlan = { chunks, fetchChunk, results: new Array(chunks.length).fill(undefined) };
+  }
+  const { chunks, fetchChunk, results } = _valuePlan;
+  const todo = phase === 'first' ? firstValueChunks(chunks, MIN_N || 0, FIRST_VALUES_SPAN)
+             : chunks.map((_, i) => i).filter(i => results[i] === undefined);
+  if (phase === 'rest') {
+    let done = 0;
+    for (let j = 0; j < todo.length; j += 3) {
+      const batch = todo.slice(j, j + 3);
+      const got = await Promise.all(batch.map(i => fetchChunk(chunks[i], i)));
+      batch.forEach((i, k) => { results[i] = got[k]; });
+      done += batch.length;
+      if (onChunk) { try { onChunk(done, todo.length); } catch (e) { logSwallowed('values/onChunk', e); } }
+      await new Promise(r => setTimeout(r, 0));
+    }
+  } else {
+    const got = await Promise.all(todo.map(i => fetchChunk(chunks[i], i)));
+    todo.forEach((i, k) => { results[i] = got[k]; });
+  }
+  if (phase === 'first') return;
+  _valuesPartial = false;
   const loaded  = results.filter(Boolean).length;
   console.log('Loaded ' + Object.keys(eulerValues).length + ' Euler values total (' + loaded + '/' + chunks.length + ' chunks)');
 
@@ -15268,6 +15378,45 @@ async function fetchEulerValues() {
   }
 }
 
+// The page from the values loaded so far — entries, the cached FactorDB results, the
+// grid — with no migrations and no network: quick enough to repeat as files arrive.
+// keepPage: a refresh while you browse leaves you on your page.
+function renderLoaded(keepPage) {
+  allEntries = buildEntries();
+  invalidateNextRunCache();
+  invalidateCpuTotal();
+  applyFdbUnknownSet();
+  replayFDBCache();
+  const cacheByN = new Map();
+  for (const c of Object.values(fdbCache)) { if (c && c.n != null) cacheByN.set(c.n, c); }
+  for (const e of allEntries) {
+    if (e.status === 'attempted') {
+      const cached = cacheByN.get(e.n);
+      if (cached && ['FF', 'P', 'PRP'].includes(cached.status)) e.status = 'full';
+    }
+  }
+  applyFilters(keepPage ? { keepPage: true } : undefined);
+}
+// The tools that need every value — imports, exports, the sieve, checks, sync —
+// are held back while values load: dimmed, and a click says why instead of running
+// on half the data.
+function setValuesLoading(on, done, total) {
+  _toolsHeld = !!on;
+  try { document.body.classList.toggle('values-loading', _toolsHeld); } catch (e) { logSwallowed('values/class', e); }
+  if (on) setStatus('Loading the rest of the values' + (total ? ': ' + done + ' of ' + total + ' files' : '')
+    + ' — browse away; imports, exports and the sieve open when they are all in', '');
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', (ev) => {
+    if (!_toolsHeld) return;
+    const t = ev.target && ev.target.closest ? ev.target.closest('[data-needs-values]') : null;
+    if (!t) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    setStatus('That needs every value — the rest are still loading; it opens in a moment.', 'warn');
+  }, true);
+}
+
 // Init order: load settings → pull from GitHub → replay cache → render
 // ── INIT ─────────────────────────────────────────────────────────────────────
 // Step 1: render synchronously with whatever is available right now
@@ -15296,12 +15445,28 @@ setTimeout(async () => {
     logSwallowed('init/initAppStore', e);
   }
 
-  // Phase 1: load static Euler values JSON
+  // Phase 1a: the values for what is on screen first, and the page from them at
+  // once. Loading all of them first (1.1 GB at E(35000)) kept it empty a long while.
+  try { await fetchEulerValues('first'); } catch(e) { logSwallowed('init/fetchEulerValues', e); }
+  fdbCache = loadFDBCache();
+  try { renderLoaded(); } catch(e) { logSwallowed('init/firstRender', e); }
+
+  // Phase 1b: the rest, a few files at a time, the page answering between them and
+  // the list growing as they arrive. The tools that need every value wait, and
+  // nothing is pushed or pulled, until they are all in.
+  setValuesLoading(true);
+  let lastGrow = Date.now();
   try {
-    await fetchEulerValues();
-  } catch(e) {
-    logSwallowed('init/fetchEulerValues', e);
-  }
+    await fetchEulerValues('rest', (done, total) => {
+      setValuesLoading(true, done, total);
+      if (Date.now() - lastGrow > 2000) {
+        lastGrow = Date.now();
+        try { fdbCache = loadFDBCache(); renderLoaded(true); } catch(e) { logSwallowed('init/growRender', e); }
+      }
+    });
+  } catch(e) { logSwallowed('init/fetchEulerValues', e); }
+  _valuesPartial = false;
+  setStatus('All values in — syncing with GitHub…', '');
 
   // Now eulerValues is loaded — initialise fdbCache so number-string keys can be rebuilt
   fdbCache = loadFDBCache();
@@ -15350,8 +15515,10 @@ setTimeout(async () => {
         if (cached && ['FF','P','PRP'].includes(cached.status)) e.status = 'full';
       }
     }
-    applyFilters();                    // render grid with promoted entries
+    applyFilters({ keepPage: true });  // render grid with promoted entries — where you were browsing
     _appReady = true;                  // complete now: from here a new fully factored entry is announced
+    setValuesLoading(false);           // every value in: the tools open
+    schedulePlanWarm(3000);            // plan every entry in idle moments, ready for an export
     renderStats();                     // refresh stats counts
 
     console.log('localStorage breakdown:', getStorageBreakdown());
