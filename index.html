@@ -14036,19 +14036,22 @@ function sieveResultsPlan(data, entryOf, depth) {
   if (!data || data.kind !== 'euler-sieve-results' || data.v !== 1) return { error: 'Not a results file from euler.py sieve.' };
   const to = Number(data.to);
   if (!(to > 0) || to > BATCH_SIEVE_MAX) return { error: 'The results file names no usable bound.' };
-  const clean = [], findings = [], skipped = [], per = {};
+  // A stopped run (partial) gives each entry the depth IT reached: as deep as every
+  // prime below was tried on it. Older, complete files name only the run's bound.
+  const clean = [], depthOf = {}, findings = [], skipped = [], per = {};
   for (const [nStr, r] of Object.entries(data.entries || {})) {
     const n = parseInt(nStr), e = entryOf(n), d = (depth || {})[n] || 0, from = Number(r && r.from) || 0;
     if (!e) { skipped.push([n, 'not an entry here']); continue; }
     if (from > d) { skipped.push([n, 'the run started at ' + fmtBound(from) + ', but here it is sieved only to ' + (d ? fmtBound(d) : 'nothing')]); continue; }
     per[n] = [Math.round(Number(r.ms) || 0), from];
+    const reached = Math.min(to, Number(r && r.to) || to);
     const facs = (r.factors || []).filter(f => Array.isArray(f) && /^\d+$/.test(String(f[0])));
-    if (facs.length) findings.push({ n, val: e.val, hits: facs.map(([q, k]) => ({ p: String(q), exp: Number(k) || 1 })), limit: to });
-    else if (d < to) clean.push(n);
+    if (facs.length) findings.push({ n, val: e.val, hits: facs.map(([q, k]) => ({ p: String(q), exp: Number(k) || 1 })), limit: reached });
+    else if (d < reached) { clean.push(n); depthOf[n] = reached; }
   }
   const log = { id: String(data.id || 'B' + to), at: String(data.at || ''), engine: 'batch', bound: to,
     entries: Object.keys(per).length, work: Number(data.work) || 0, ms: Math.round(Number(data.ms) || 0), found: findings.length, per };
-  return { to, clean, findings, skipped, log };
+  return { to, partial: !!data.partial, clean, depthOf, findings, skipped, log };
 }
 function importSieveResults() {
   pickFiles('.json,application/json', false, (list) => {
@@ -14056,11 +14059,18 @@ function importSieveResults() {
     try { data = JSON.parse(list[0].text); } catch (e) { alert('Not a sieve results file (it is not JSON).'); return; }
     const plan = sieveResultsPlan(data, (n) => entryByN(n), loadSieveDepth() || {});
     if (plan.error) { alert(plan.error); return; }
-    recordSieveDepth(plan.clean, plan.to);
-    const log = loadSieveLog();
-    if (!log.some(r => r.id === plan.log.id)) saveSieveLog([...log, plan.log]);
+    // Each entry to the depth it reached — a stopped run's are each their own.
+    const byDepth = new Map();
+    for (const n of plan.clean) { const t = plan.depthOf[n] || plan.to; byDepth.set(t, (byDepth.get(t) || []).concat(n)); }
+    for (const [t, ns] of byDepth) recordSieveDepth(ns, t);
+    // A stopped run's results and its final ones share the run's id: the later, which
+    // covers more, replaces the earlier — its CPU time counted once. An older partial
+    // file imported after the final one changes nothing.
+    const log = loadSieveLog(), had = log.find(r => r.id === plan.log.id);
+    if (!had || (plan.log.ms || 0) >= (had.ms || 0)) saveSieveLog([...log.filter(r => r.id !== plan.log.id), plan.log]);
     try { invalidateCpuTotal(); applyFilters(); } catch (e) { logSwallowed('sieveImport/render', e); }
-    const note = plan.clean.length.toLocaleString() + ' entr' + (plan.clean.length === 1 ? 'y' : 'ies') + ' came back clean: now sieved to ' + fmtBound(plan.to) + '.'
+    const note = (plan.partial ? 'This run was stopped before ' + fmtBound(plan.to) + ': each entry is credited only as deep as every prime below has been tried on it, and importing the final results later counts nothing twice. ' : '')
+      + plan.clean.length.toLocaleString() + ' entr' + (plan.clean.length === 1 ? 'y' : 'ies') + ' came back clean: now sieved to ' + (plan.partial ? 'the depth each reached' : fmtBound(plan.to)) + '.'
       + (plan.skipped.length ? ' ' + plan.skipped.length + ' left out (' + plan.skipped.slice(0, 3).map(([n, w]) => 'E(' + n + '): ' + w).join('; ') + ').' : '');
     addLog('Batch sieve to ' + fmtBound(plan.to) + ' imported: ' + note + ' ' + plan.findings.length + ' with factors.', 'ok');
     if (!plan.findings.length) { alert('Batch sieve to ' + fmtBound(plan.to) + ': no new factors.\n\n' + note); return; }
