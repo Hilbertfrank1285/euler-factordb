@@ -13944,23 +13944,18 @@ function sieveRepo() {
 // address, as the ECM export remembers it.
 function exportSieveJob(job) {
   downloadText('sieve_job.json', JSON.stringify(job));
-  let login = '';
-  try { login = localStorage.getItem('eulerFDB_serverLogin_v1') || ''; } catch (e) { logSwallowed('sieveJob/login', e); }
-  login = login || 'user@server';
+  // Run on this Windows PC, in PowerShell, from the Downloads folder — where the job
+  // has just gone and euler.py lives. euler.py reads the numbers from your repository
+  // itself, once, into Downloads\\euler_values_cache: the job stays small.
   showRunDialog('Batch sieve to ' + fmtBound(job.to),
     'sieve_job.json is downloading: ' + job.entries.length.toLocaleString() + ' entries, each from its own depth to ' + fmtBound(job.to)
-      + '. euler.py reads the numbers from your repository itself, so the job is small.',
-    [{ heading: 'On this computer' },
-     { label: 'A folder for it on the server', cmd: 'ssh ' + login + ' "mkdir -p ~/sieve"' },
-     { label: 'The job and euler.py to it', cmd: 'scp "$HOME/Downloads/sieve_job.json" "$HOME/Downloads/euler.py" ' + login + ':sieve/' },
-     { heading: 'On the server' },
-     { label: 'Once: the two libraries it needs', cmd: 'python3 -m pip install --user gmpy2 numpy' },
-     { label: 'Run it on every core, detached — it survives closing the window', cmd: 'cd ~/sieve && nohup python3 euler.py sieve sieve_job.json > sieve.log 2>&1 &' },
-     { label: 'Watch it', cmd: 'tail -f ~/sieve/sieve.log' },
-     { label: 'If it was interrupted: carry on from the last finished segment', cmd: 'cd ~/sieve && nohup python3 euler.py sieve sieve_job.json --resume > sieve.log 2>&1 &' },
-     { heading: 'Back here, when it says Done' },
-     { label: 'The results', cmd: 'scp ' + login + ':sieve/sieve_results.json "$HOME/Downloads/"' }],
-    'Then ⌗ Import sieve results, and pick sieve_results.json. The values are downloaded on the server once and kept in ~/sieve/euler_values_cache.');
+      + '. Run it in PowerShell, in your Downloads folder, next to euler.py.',
+    [{ label: 'Go to the Downloads folder', cmd: 'cd $HOME\\Downloads' },
+     { label: 'Once: the two libraries it needs', cmd: 'py -m pip install gmpy2 numpy' },
+     { label: 'Run it on 12 cores (change the 12 for more or fewer). Leave the window open, and keep the PC awake.',
+       cmd: 'py euler.py sieve sieve_job.json --cores 12' },
+     { label: 'If it stopped — window closed, PC asleep — carry on where it left off', cmd: 'py euler.py sieve sieve_job.json --cores 12 --resume' }],
+    'When it says Done, press ⌗ Import sieve results and pick sieve_results.json from Downloads.');
 }
 // PURE: what an imported results file does — which entries come back clean (their
 // depth recorded now), which have factors (shown, checked and recorded as a browser
