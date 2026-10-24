@@ -6228,8 +6228,10 @@ function exportFDBSubmission() {
     msg + '. ' + totalFactors.toLocaleString() + ' factor' + (totalFactors === 1 ? '' : 's') + ' to send'
       + (withheldFactors ? ' — ' + withheldFactors.toLocaleString() + ' more were left out, because FactorDB reported them to us' : '')
       + ': one every 2 s, about ' + minutes + ' min.',
-    [{ label: 'Send them. Without --commit it is a dry run: it shows what would be sent, and sends nothing.',
-       cmd: 'python3 euler.py submit factordb_submission.txt --commit' }],
+    [{ label: 'Once: sign in to FactorDB, so the factors are credited to you. A factor sent without your name can never be credited afterwards, so submit refuses to send until you have.',
+       cmd: 'py euler.py login' },
+     { label: 'Send them, with your name. Without --commit it is a dry run: it shows what would be sent, and sends nothing.',
+       cmd: 'py euler.py submit factordb_submission.txt --commit' }],
     'Then confirm they landed: Export FDB check list → "submitted" → euler.py check → Import FDB results. Until FactorDB has them, '
       + (pending === 1 ? 'this entry stays' : 'these ' + pending.toLocaleString() + ' entries stay') + ' marked as pending.');
 }
