@@ -14966,7 +14966,12 @@ const TIDY_TARGET = 20e6;
 // is never rewritten: git keeps every version, so each rewrite would add its whole
 // size to the repository's history (Pages repositories should stay under ~1 GB).
 // Only contiguous ranges are merged; a plain copy beside a compressed one is dropped.
-function planValueFiles(listing, target) {
+// opts.mergeSmall: compressed files under half the target may merge with their
+// neighbours too — tidier, but git keeps the old files, so the rewritten bytes
+// (rewriteBytes) are added to the repository's history. Without it, compressed
+// files stay exactly as they are.
+function planValueFiles(listing, target, opts) {
+  const mergeSmall = !!(opts && opts.mergeSmall);
   const byRange = new Map();
   for (const x of listing || []) {
     const m = x && x.type !== 'dir' && VALUE_CHUNK_RE.exec(x.name || '');
@@ -14978,20 +14983,23 @@ function planValueFiles(listing, target) {
   }
   const ranges = Array.from(byRange.values()).sort((p, q) => p.a - q.a || p.b - q.b)
     .map(r => Object.assign(r, { source: (r.gz || r.plain).name, est: r.gz ? r.gz.size : Math.round(r.plain.size * 0.47) }));
+  const fixed = (r) => !!r.gz && !(mergeSmall && r.gz.size < target / 2);
   const groups = [];
   let cur = [], size = 0;
   for (const r of ranges) {
     const last = cur[cur.length - 1];
-    if (cur.length && (r.gz || last.gz || size + r.est > target || r.a !== last.b + 2)) { groups.push(cur); cur = []; size = 0; }
+    if (cur.length && (fixed(r) || fixed(last) || size + r.est > target || r.a !== last.b + 2)) { groups.push(cur); cur = []; size = 0; }
     cur.push(r); size += r.est;
   }
   if (cur.length) groups.push(cur);
+  let rewriteBytes = 0;
   const out = groups.map(g => {
-    if (g[0].gz) return { name: g[0].gz.name, action: g[0].plain ? 'drop' : 'keep', sources: [], remove: g[0].plain ? [g[0].plain.name] : [] };
+    if (g.length === 1 && g[0].gz) return { name: g[0].gz.name, action: g[0].plain ? 'drop' : 'keep', sources: [], remove: g[0].plain ? [g[0].plain.name] : [] };
+    rewriteBytes += g.reduce((t, r) => t + (r.gz ? r.gz.size : 0), 0);
     const name = 'euler_values_' + g[0].a + '_' + g[g.length - 1].b + '.json.gz';
     return { name, action: g.length > 1 ? 'merge' : 'compress', sources: g.map(r => r.source), remove: g.flatMap(r => r.names).filter(n => n !== name) };
   });
-  return { groups: out, changed: out.filter(g => g.action !== 'keep'), manifest: out.map(g => g.name) };
+  return { groups: out, changed: out.filter(g => g.action !== 'keep'), manifest: out.map(g => g.name), rewriteBytes };
 }
 // One compressed value file from its pieces ({name, text}, in range order): each piece
 // checked, the whole holding exactly the pieces' values — none lost or doubled — and
@@ -15049,8 +15057,24 @@ async function compressValueFiles() {
   setStatus('Listing the value files on GitHub…');
   const list = await ghApi(ctx, 'GET', 'contents/?ref=' + encodeURIComponent(ctx.branch));
   if (!list.ok) { alert('GitHub refused the listing: ' + list.message); return; }
-  const plan = planValueFiles(list.data, TIDY_TARGET);
+  let plan = planValueFiles(list.data, TIDY_TARGET);
   const hasIndex = (list.data || []).some(x => x && x.name === VALUE_INDEX_FILE);
+  // Small compressed files (an upload of PARI's 200-wide files) can be merged into
+  // files of about 20 MB too — asked separately, with what it costs: git keeps every
+  // file ever committed, so the merged files ADD their size to the history.
+  const tidy = planValueFiles(list.data, TIDY_TARGET, { mergeSmall: true });
+  let merging = false;
+  if (tidy.rewriteBytes > 0) {
+    const small = tidy.changed.reduce((t, g) => t + g.sources.filter(n => /\.gz$/.test(n)).length, 0);
+    const into = tidy.changed.filter(g => g.sources.some(n => /\.gz$/.test(n))).length;
+    merging = confirm(small + ' small compressed value files could be merged into ' + into + ' files of about '
+      + (TIDY_TARGET / 1e6).toFixed(0) + ' MB, like the newest ones.\n\n'
+      + 'The cost: git keeps every file ever committed, so this ADDS about ' + (tidy.rewriteBytes / 1e6).toFixed(0)
+      + ' MB to the repository\'s history. It does not make the repository smaller.\n'
+      + 'The gain: fewer files — fewer downloads for someone opening the page the first time, and a tidier folder. '
+      + 'Your own browsers download nothing again.\n\nMerge them? (Cancel: leave the compressed files as they are.)');
+    if (merging) plan = tidy;
+  }
   if (!plan.changed.length && hasIndex) {
     setStatus('Every value file is compressed already', 'ok');
     alert('Nothing to do: every value file is compressed already.'); return;
@@ -15058,10 +15082,12 @@ async function compressValueFiles() {
   const work = plan.changed.filter(g => g.sources.length);
   const plain = work.reduce((t, g) => t + g.sources.length, 0);
   const before = plan.groups.reduce((t, g) => t + g.remove.length + (g.action === 'keep' || g.action === 'drop' ? 1 : 0), 0);
-  if (!confirm((plain ? 'Compress ' + plain + ' plain value file' + (plain === 1 ? '' : 's') + ' into ' + work.length + ' (neighbours merged)'
+  if (!confirm((plain ? (merging ? 'Merge ' : 'Compress ') + plain + ' value file' + (plain === 1 ? '' : 's') + ' into ' + work.length
+                        + (merging ? ' files of about ' + (TIDY_TARGET / 1e6).toFixed(0) + ' MB' : ' (neighbours merged)')
                       : 'Write the list of value files')
-    + ', in one commit? Compressed files stay exactly as they are.\n\nEvery value is checked, and every new file unpacked and compared before '
-    + 'anything changes on GitHub. Keep this tab open until it says it is done.')) return;
+    + ', in one commit?' + (merging ? '' : ' Compressed files stay exactly as they are.')
+    + '\n\nEvery value is checked, and every new file unpacked and compared before '
+    + 'anything changes on GitHub. Keep this tab open until it says it is done' + (merging ? ' — some minutes for this many.' : '.'))) return;
   _compressing = true;
   const entries = [];
   let raw = 0, packed = 0;
@@ -15087,7 +15113,7 @@ async function compressValueFiles() {
     if (!index.ok) throw new Error(index.message + ' (uploading ' + VALUE_INDEX_FILE + ')');
     entries.push({ path: VALUE_INDEX_FILE, mode: '100644', type: 'blob', sha: index.data.sha });
     setStatus('Committing the compressed value files…');
-    const res = await commitTreeChanges(ctx, entries, 'Value files: ' + before + ' -> ' + plan.groups.length + ', compressed');
+    const res = await commitTreeChanges(ctx, entries, 'Value files: ' + before + ' -> ' + plan.groups.length + (merging ? ', small ones merged' : ', compressed'));
     if (!res.ok) throw new Error(res.message);
     try { kvSet(VALUE_CHUNKS_KEY, JSON.stringify(plan.manifest)); } catch (e) { logSwallowed('tidy/list', e); }
     const msg = 'Value files compressed: ' + before + ' files are now ' + plan.groups.length + ', in one commit'
