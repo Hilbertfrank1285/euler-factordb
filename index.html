@@ -1200,7 +1200,7 @@ function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
     if (nTo   != null && e.n > nTo)   continue;
     if (statuses && !statuses.includes(e.status)) continue;
     if (onlyUnsearched) {
-      const rec = fdbCache[e.val];
+      const rec = fdbCache[fdbKeyOf(e.n)];
       const fdbSeen = rec && ['FF','CF','C','P','PRP'].includes(rec.status);
       const hasEcm  = (loadECM()[String(e.n)] || []).length > 0;
       if (fdbSeen || hasEcm) continue;
@@ -1211,7 +1211,10 @@ function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
 }
 
 // Scan without writing anything. Chunked so the tab stays responsive.
-async function runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses, topUp) {
+// Holds the values while it runs (see holdingValues).
+async function runSmallPrimeSieve(...args) { return holdingValues(_runSmallPrimeSieve, args); }
+async function _runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses, topUp) {
+  if (valuesMissing(null)) await needValues(null, 'the sieve');
   // A top-up sieves each entry only from its own recorded depth, and skips those
   // already that deep. Sorted by that depth, so each prime table is built once.
   const depth = loadSieveDepth() || {};
@@ -1718,7 +1721,8 @@ function repairCompositeRecords() {
   let fixed = 0, selfDropped = 0;
   for (const [k, rec] of Object.entries(fdbCache || {})) {
     if (!rec || !Array.isArray(rec.factors) || !rec.factors.length) continue;
-    const own = rec.factors.filter(f => f && f !== '1' && String(f).split('^')[0] !== k);
+    const self = (b) => /^E\(/.test(k) ? isOwnNumber(b, rec.n) : b === k;   // an entry's record, or a cofactor's
+    const own = rec.factors.filter(f => f && f !== '1' && !self(String(f).split('^')[0]));
     const hadSelf = own.length < rec.factors.filter(f => f && f !== '1').length;
     if (rec.status === 'C') {
       if (own.length < rec.factors.length) selfDropped++;
@@ -1753,8 +1757,8 @@ function migrateBogusCofactorFactors() {
     // Startup must not be held hostage to this. If the budget runs out, stop and
     // leave the flag unset so the remainder is repaired on the next load.
     if (Date.now() > deadline) { ranOut = true; break; }
-    if (!e || !e.val || !Array.isArray(e.factors) || !e.factors.length) continue;
-    const rec = fdbCache[e.val];
+    if (!e || !entryDigits(e) || !Array.isArray(e.factors) || !e.factors.length) continue;
+    const rec = fdbCache[fdbKeyOf(e.n)];
     const fdbStatus = rec && rec.status;
     // Guard 1: FactorDB says this is fully factored — its factors are real primes.
     if (['FF', 'P', 'PRP'].includes(fdbStatus)) continue;
@@ -1781,16 +1785,16 @@ function migrateBogusCofactorFactors() {
     let product = 1n;
     try { for (const f of e.factors) { const [b, x] = String(f).split('^'); product *= BigInt(b) ** BigInt(x || 1); } }
     catch(err) { logSwallowed('migrateBogusCofactor/product', err); continue; }
-    let val;
-    try { val = BigInt(e.val); } catch(err) { logSwallowed('migrateBogusCofactor/val', err); continue; }
-    if (product !== val) continue;
+    // The factors multiply back to E(n) exactly — told from its digit count and leading
+    // digits (isOwnNumber), so no value need be loaded.
+    if (!isOwnNumber(product.toString(), e.n)) continue;
 
     const kept = e.factors.filter(f => !suspects.includes(f));
     e.factors  = kept;
     e.status   = kept.length ? 'partial' : 'composite';
     e.cofactor = null;
     if (rec) { rec.factors = kept; rec.status = kept.length ? 'CF' : 'C'; }
-    if (fdbFactors[e.val]) fdbFactors[e.val] = { factors: kept };
+    if (fdbFactors[fdbKeyOf(e.n)]) fdbFactors[fdbKeyOf(e.n)] = { factors: kept };
     fixed++;
   }
   if (fixed) {
@@ -1828,8 +1832,8 @@ function migrateFalseFdbUnknown() {
     if (s.size) {
       for (const n of [...s]) {
         const e = entryByN(n);
-        if (!e || !e.val) continue;
-        if (e.val.length > limit) continue;      // plausibly a real refusal — leave it
+        if (!e || !entryDigits(e)) continue;
+        if (entryDigits(e) > limit) continue;      // plausibly a real refusal — leave it
         s.delete(n);
         if (e.status === 'fdb-unknown') e.status = 'unknown';
         e._fdbUnknown = false;
@@ -2346,6 +2350,22 @@ const _STATUS_DECODE = Object.fromEntries(Object.entries(_STATUS_CODE).map(([k,v
 function _encodeStatus(s) { return _STATUS_CODE[s] || s; }
 function _decodeStatus(s) { return _STATUS_DECODE[s] || s; }
 
+// ── The FactorDB memory's keys ─────────────────────────────────────────────────
+// An entry's own record is kept under 'E(n)', not under its number: the records then
+// load, save, sync and replay with no value in memory — the values (1.1 GB at
+// E(35000)) are read only when something needs them. Records for cofactors and
+// factors keep their number strings as keys. 'E(n)' can never be a number string.
+function fdbKeyOf(n) { return 'E(' + n + ')'; }
+// Whether a factor string is the entry's number itself (a composite's own number,
+// listed as its only "factor"): compared with the value when it is loaded.
+function isOwnNumber(base, n) {
+  const b = String(base), v = eulerValues[n];
+  if (v) return b === v;
+  // Not loaded: the same digit count and the same leading digits as E(n). A proper
+  // divisor is at most half of E(n), so it cannot share both.
+  const len = valueDigits(n), lead = valueLead(n);
+  return len > 0 && lead.length > 0 && b.length === len && b.slice(0, lead.length) === lead;
+}
 function loadFDBCache() {
   // Any pending save is written FIRST, so the debounce is invisible to readers.
   //
@@ -2364,13 +2384,11 @@ function loadFDBCache() {
     // Rebuild full cache: slim uses n as key, we need to map back to number string
     // For each entry, look up the number string via eulerValues
     const full = {};
-    let missingValue = 0;
+    const missingValue = 0;                 // records are keyed by entry: none waits for a value
     for (const [nStr, v] of Object.entries(slim)) {
       const n   = parseInt(nStr);
-      const num = eulerValues[n] || '';
-      // Cannot rebuild the key without the value. The record stays on disk and is
-      // fine; what must not happen is saving over it — see saveFDBCache.
-      if (!num) { missingValue++; continue; }
+      if (!(n >= 0)) continue;
+      const num = fdbKeyOf(n);
       // Restore factors: prefer in-memory fdbFactors, fall back to slim-persisted factors
       const memFactors  = fdbFactors[num]?.factors;
       const slimFactors = v.factors ? v.factors.map(_decodeFactor) : v.factors;
@@ -2784,7 +2802,7 @@ function replayFDBCache() {
     // REPLACES entry.factors with only the queried number's factors, it discarded
     // every factor found separately for the entry. The cofactor case is already
     // handled correctly by the branch above, which merges instead of replacing.
-    if (number === entry.val && ['FF','P','PRP'].includes(effectiveStatus)) {
+    if (number === fdbKeyOf(n) && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = sortFactorsAsc(fdbFactors);
       entry.cofactor = null;
@@ -2820,7 +2838,10 @@ function replayFDBCache() {
       // FactorDB lists an unfactored composite as its own single "factor". Replayed as
       // one, every such entry came back from a reload as "partially factored", its whole
       // value its only factor — and the submission export counted it as a factor held.
-      const allFDB = (factors || []).filter(f => f && f !== '1' && String(f).split('^')[0] !== String(number));
+      // The record's own number listed as a factor: an entry's record holds E(n), a
+      // cofactor's its cofactor — compared without needing E(n) as the key.
+      const selfOf = (f) => { const b = String(f).split('^')[0]; return number === fdbKeyOf(n) ? isOwnNumber(b, n) : b === String(number); };
+      const allFDB = (factors || []).filter(f => f && f !== '1' && !selfOf(f));
       const cofactorLen = cached.cofactorLen || null;
       // If we have cofactorLen, we know prime factors are all but the implied cofactor
       const knownFactors = allFDB.length > 0 ? allFDB : [];
@@ -2832,7 +2853,7 @@ function replayFDBCache() {
         // Also drop anything equal to the number itself: under CF that IS the
         // unfactored composite, never a legitimate prime factor.
         const cleanExisting = (entry.factors || [])
-          .filter(f => f.length <= 500 && String(f).split('^')[0] !== String(number));
+          .filter(f => f.length <= 500 && !selfOf(f));
         entry.factors  = sortFactorsAsc([...new Set([...cleanExisting, ...knownFactors])]);
         entry.cofactor = null;
         if (entry.status !== 'full') entry.status = 'partial';
@@ -4432,7 +4453,7 @@ function buildSyncPayload() {
   const full = {};
   for (const [nStr, v] of Object.entries(slim)) {
     const n      = parseInt(nStr);
-    const num    = eulerValues[n] || '';
+    const num    = fdbKeyOf(n);
     // Decode here — v.status/v.factors are in the LOCAL, compact, localStorage-
     // only encoding (short status codes, base-36 factors). results.json is a
     // shared, cross-device format that other code (mergeSyncPayload) expects in
@@ -4458,7 +4479,7 @@ function buildSyncPayload() {
     // that holds real factors contradicts itself, and leaving them out would erase them
     // from GitHub: it goes out as CF, with them. Never lose a factor to a status.
     if (status === 'C') {
-      const own = primeFactors.filter(f => String(f).split('^')[0] !== num);
+      const own = primeFactors.filter(f => !isOwnNumber(String(f).split('^')[0], n));
       if (!own.length) { full[nStr] = entry; continue; }
       entry.status = 'CF';
       primeFactors = own;
@@ -4691,9 +4712,8 @@ function mergeSyncPayload(remote) {
   const remoteCache = {};
   for (const [k, v] of Object.entries(rawRemote)) {
     const n   = v.n != null ? v.n : parseInt(k);
-    const num = eulerValues[n] || '';
     const entry = { ...v, n };
-    if (num) remoteCache[num] = entry;
+    if (n >= 0) remoteCache[fdbKeyOf(n)] = entry;
     else remoteCache[k] = entry; // fallback
   }
   const merged = { ...localCache };
@@ -4712,7 +4732,10 @@ function mergeSyncPayload(remote) {
     const remoteTs = Number(v.timestamp) || 0;
     // The cache key IS the number these factors divide, so the merge can check
     // them arithmetically without a lookup.
-    merged[k] = mergeFactorRecords(merged[k], v, k);
+    // The number the factors are checked against: the entry's value for its own record
+    // (kept under 'E(n)', not under the number), the cofactor itself for a cofactor's.
+    const recN = v.n != null ? v.n : merged[k].n;
+    merged[k] = mergeFactorRecords(merged[k], v, /^E\(/.test(k) ? (eulerValues[recN] || '') : k);
     if ((merged[k].factors || []).length > before) mergeStats.factorsGained++;
     if (remoteTs > localTs) mergeStats.remoteWins++; else mergeStats.localWins++;
   }
@@ -5252,7 +5275,7 @@ function resetEntryData(n) {
   }
   const e = entryByN(n);
   if (e) {
-    if (e.val && fdbCache[e.val])           delete fdbCache[e.val];
+    if (fdbCache[fdbKeyOf(e.n)])            delete fdbCache[fdbKeyOf(e.n)];
     if (e.cofactor && fdbCache[e.cofactor]) delete fdbCache[e.cofactor];
     e.status = 'unknown'; e.factors = []; e.cofactor = null;
     delete e._fdbVerified; delete e._resolvedViaCofactor;
@@ -5487,6 +5510,7 @@ async function pullChunked(listing, skipRender, ctx) {
     const got = await fetchDataFiles(ctx, mainPaths);
     const payload = joinMainParts(mainPaths.map(p => got[p].obj));
     const ranges = mainPaths.map(chunkRange).filter(Boolean);
+    await preloadForMerge(payload);
     mergePulledMain(payload, skipRender, () => setSyncBase({
       files: Object.assign({}, (_syncBase && _syncBase.files) || {}, ...mainPaths.map(p => ({ [p]: got[p].sha }))),
       factors: replaceRanges((_syncBase && _syncBase.factors) || {}, factorsFromPayload(payload), ranges),
@@ -5581,6 +5605,7 @@ async function githubPull(skipRender) {
     // (which would otherwise silently schedule a spurious auto-push on every load).
     // If nothing actually changed, restore whatever dirty state existed before the
     // pull — preserving genuine pending local edits while not manufacturing new ones.
+    await preloadForMerge(payload);
     mergePulledMain(payload, skipRender, () => setSyncBase({ mainSha: pulledSha, factors: factorsFromPayload(payload) }));
     // Pull the separate ECM run-log file in the BACKGROUND (don't block the UI).
     // It only affects recommendation/curve counts, so a slightly later refresh is fine.
@@ -5737,8 +5762,11 @@ function toggleSortN() {
 }
 
 function _maxLoadedN() {
-  const keys = Object.keys(eulerValues).map(Number);
-  return keys.length ? Math.max(...keys) : MAX_N;
+  // Every entry the index knows, loaded or not — values are read only when needed.
+  let mx = -1;
+  for (const k of Object.keys(eulerValues)) if (+k > mx) mx = +k;
+  for (const k of Object.keys(valueMeta())) if (+k > mx) mx = +k;
+  return mx >= 0 ? mx : MAX_N;
 }
 
 // After euler values load, update the maxN input to reflect actual max
@@ -6059,14 +6087,15 @@ function reconcileSubmitted() {
   for (const nStr of Object.keys(s)) {
     const e = entryByN(parseInt(nStr));
     if (!e) { delete s[nStr]; cleared++; continue; }
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     if (rec && rec.source === 'fdb') { delete s[nStr]; cleared++; }
   }
   if (cleared) saveSubmitted(s);
   return { cleared, remaining: Object.keys(s).length };
 }
 function exportFDBSubmission() {
-  if (Object.keys(eulerValues).length === 0) {
+  if (valuesMissing(null)) { needValues(null, 'the FactorDB submission').then(() => exportFDBSubmission()); return; }
+  if (!valuesIndexed()) {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
@@ -6106,7 +6135,7 @@ function exportFDBSubmission() {
     //
     // factorsFdbLacks answers per factor, using fdbHas, then provenance, then the
     // source tag only as a last resort. An entry is skipped when it leaves nothing.
-    const cached = fdbCache[e.val];
+    const cached = fdbCache[fdbKeyOf(e.n)];
     if (!factorsFdbLacks(e).length) { skippedFdb++; continue; }
 
     // Verify every factor against E(n) BEFORE writing a submission line. These go
@@ -6836,7 +6865,7 @@ function spreadSeed() {
 
 async function exportNextRuns() {
  try {
-  if (Object.keys(eulerValues).length === 0) {
+  if (!valuesIndexed()) {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
@@ -6934,7 +6963,7 @@ async function exportNextRuns() {
   const frontierSet = frontierBelow
     ? new Set(belowFrontier(frontierBelow).map(e => e.n))
     : null;
-  const candidates = allEntries.filter(e => e.status !== 'full' && e.val
+  const candidates = allEntries.filter(e => e.status !== 'full' && entryDigits(e)
     && e.n >= rangeMin && e.n <= rangeMax
     && (!frontierSet || frontierSet.has(e.n)));
   if (!candidates.length) { alert('No entries in that range (or all already fully factored).'); return; }
@@ -6963,7 +6992,7 @@ async function exportNextRuns() {
       if (!recs || !recs.length) continue;
       // Only entries we ASKED about and got nothing for. Never having asked is not
       // the same fact and must not earn the bonus — see isFdbUndetermined.
-      const _rec = fdbCache[e.val];
+      const _rec = fdbCache[fdbKeyOf(e.n)];
       const fdbUnknown = qualifiesForEcmPriority(e, _rec);
       for (const r of recs) {
         runs.push({
@@ -7064,6 +7093,9 @@ async function exportNextRuns() {
   // from the "# run ... E(n) ..." tag each worker writes before its run — the path
   // built for consoles that garble long lines.
   const cofValCache = new Map();
+  // Only the chosen runs' values — a few files, not all of them.
+  const chosen = top.map(r => r.n);
+  if (valuesMissing(chosen)) await needValues(chosen, 'the export');
   for (const r of top) {
     let v = cofValCache.get(r.n);
     if (v === undefined) {
@@ -7593,10 +7625,10 @@ async function exportNextRuns() {
 // it in the same pass and paired line by line, so a mis-sorted list would record
 // every result against someone else's entry.
 function fdbCheckSets(staleDays) {
-  const base   = allEntries.filter(e => e.val && e.n > 2);
+  const base   = allEntries.filter(e => entryDigits(e) && e.n > 2);
   const days   = staleDays || 31;
   const cutoff = Date.now() - days * 86400000;
-  const stale  = (e) => { const rec = fdbCache[e.val]; return !!(rec && rec.timestamp && rec.timestamp < cutoff); };
+  const stale  = (e) => { const rec = fdbCache[fdbKeyOf(e.n)]; return !!(rec && rec.timestamp && rec.timestamp < cutoff); };
   const byN    = (a, b) => a.n - b.n;
   return {
     // Factors we hold that FactorDB lacks — sent or not, ANY size, and including
@@ -7626,6 +7658,7 @@ const FDB_CHECK_SET_MATCH = {
 };
 
 function exportFDBCheckList() {
+  if (valuesMissing(null)) { needValues(null, 'the FactorDB list').then(() => exportFDBCheckList()); return; }
   const sets = fdbCheckSets(STALE_SCOPE_DAYS);
   const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
   const bytesOf = (list) => list.reduce((n, e) => n + e.val.length, 0);
@@ -7688,7 +7721,10 @@ function exportFDBCheckList() {
 // Import what euler.py check produced. Everything is routed through applyFdbResult,
 // the same path a live query uses, so status, factors, provenance and the stored
 // FactorDB id all behave exactly as an in-browser check would.
-async function importFDBResults(file) {
+// Holds the values while it runs (see holdingValues).
+async function importFDBResults(...args) { return holdingValues(_importFDBResults, args); }
+async function _importFDBResults(file) {
+  if (valuesMissing(null)) await needValues(null, 'the FactorDB import');
   let data;
   try { data = JSON.parse(await file.text()); }
   catch(e) { alert('Could not read that file as JSON: ' + e.message); return; }
@@ -7984,7 +8020,9 @@ function submissionSummaryText(review) {
 // contribution, so the curves count for planning but stay out of your time model —
 // and the ledger records what that actually added (a before/after comparison, so
 // curves you already had are never credited twice).
-async function acceptSubmission(sub, review, ns, factorsOnly, issue) {
+// Holds the values while it runs (see holdingValues).
+async function acceptSubmission(...args) { return holdingValues(_acceptSubmission, args); }
+async function _acceptSubmission(sub, review, ns, factorsOnly, issue) {
   const pick = new Set((ns || []).map(Number)), okKeys = new Map();
   let ms = 0;
   for (const ent of review.entries) if (pick.has(ent.n)) for (const r of ent.runs) if (r.check === 'ok') { okKeys.set(r.key, ent.n); ms += r.ms; }
@@ -7998,6 +8036,7 @@ async function acceptSubmission(sub, review, ns, factorsOnly, issue) {
     return { runs, facs };
   };
   const before = snap();
+  if (valuesMissing(null)) await needValues(null, 'the submission');
   for (const [fi, file] of (sub.files || []).entries()) {
     await processEcmLogText(file.text, 'submission ' + sub.id + ' from ' + sub.by.name, {
       contribution: { id: sub.id, name: sub.by.name }, quiet: true, factorsOnly: !!factorsOnly,
@@ -8089,8 +8128,8 @@ function reviewHtml(review, forOwner, decided) {
 
 let _contribDraft = null;
 function contributeResults() {
-  if (!Object.keys(eulerValues).length) { alert('Euler values still loading — please wait and try again.'); return; }
-  pickFiles('.txt,.log,text/plain', true, (list) => {
+  pickFiles('.txt,.log,text/plain', true, async (list) => {
+    if (valuesMissing(null)) await needValues(null, 'your results');
     _contribDraft = { files: list, review: reviewSubmission({ id: 'draft', by: { name: '' }, note: '', files: list }) };
     showDialogHtml('Contribute ECM results', reviewHtml(_contribDraft.review, false, false)
       + '<p class="sub-dim">This is what the owner will see. ✗ and ⚠ are worth fixing before you send — the owner decides what to accept.</p>'
@@ -8141,9 +8180,10 @@ function openSubmissions() {
     + '<h4>Decided</h4>' + (list.length ? '<ul class="sub-ledger">' + list.map(row).join('') + '</ul>' : '<p class="sub-dim">None yet.</p>'));
 }
 function pickSubmissionFile() {
-  pickFiles('.json,application/json', false, (list) => {
+  pickFiles('.json,application/json', false, async (list) => {
     const got = readSubmission(list[0].text);
     if (got.error) { alert(got.error); return; }
+    if (valuesMissing(null)) await needValues(null, 'the review');
     _reviewing = { sub: got.sub, review: reviewSubmission(got.sub), issue: _pendingIssue };
     _pendingIssue = null;
     renderSubmissionReview();
@@ -8354,6 +8394,7 @@ async function reviewIssue(number) {
   if (text != null) {
     const got = readSubmission(text);
     if (got.error) { alert(got.error); return; }
+    if (valuesMissing(null)) await needValues(null, 'the review');
     _reviewing = { sub: got.sub, review: reviewSubmission(got.sub), issue: { number, url: it.url } };
     renderSubmissionReview();
     return;
@@ -8395,7 +8436,7 @@ function withdrawFromList(id) {
 }
 
 function importECMResults() {
-  if (Object.keys(eulerValues).length === 0) {
+  if (!valuesIndexed()) {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
@@ -8487,7 +8528,7 @@ function importEcmJson(text, label) {
 
 function importEcmFromFiles(files) {
   if (!files || !files.length) return;
-  if (Object.keys(eulerValues).length === 0) { alert('Euler values still loading — please wait and try again.'); return; }
+  if (!valuesIndexed()) { alert('Euler values still loading — please wait and try again.'); return; }
   const readers = files.map(f => new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload  = () => resolve({ name: f.name, text: String(reader.result || ''), success: true });
@@ -8517,6 +8558,7 @@ function importEcmFromFiles(files) {
     // Join with a blank line between files so nothing from one file's tail can
     // merge into the next file's first line.
     const combined = logFiles.map(r => '# --- ' + r.name + ' ---\n' + r.text).join('\n\n');
+    if (valuesMissing(null)) await needValues(null, 'the ECM import');   // runs are matched to E(n) by their numbers
     await processEcmLogText(combined, logFiles.length > 1 ? logFiles.length + ' files' : logFiles[0].name);
   });
 }
@@ -8646,7 +8688,9 @@ function parseEcmLogBlocks(text) {
   return { blocks, totalTimeMs };
 }
 
-async function processEcmLogText(text, sourceLabel, opts) {
+// Holds the values while it runs (see holdingValues).
+async function processEcmLogText(...args) { return holdingValues(_processEcmLogText, args); }
+async function _processEcmLogText(text, sourceLabel, opts) {
   if (!text) return;
   opts = opts || {};
   // A contributor's submission, accepted by you: curves count for planning, but their
@@ -9081,10 +9125,10 @@ function recordEcmFactor(entry, factorStr, method, opts) {
   // by ECM — the thing this whole app is for — silently re-armed the bug §14 exists
   // to prevent, on exactly the entries where new work had just been done.
   const cacheStatus = status === 'full' ? 'FF' : 'CF';
-  const prevRec = fdbCache[entry.val] || {};
-  fdbCache[entry.val] = { ...prevRec,
+  const prevRec = fdbCache[fdbKeyOf(entry.n)] || {};
+  fdbCache[fdbKeyOf(entry.n)] = { ...prevRec,
     status: cacheStatus, factors: merged, timestamp: Date.now(), source: 'import', n };
-  fdbFactors[entry.val] = { factors: merged };
+  fdbFactors[fdbKeyOf(entry.n)] = { factors: merged };
   saveFDBCache(fdbCache);
 
   // Update the live entry so the UI reflects it immediately.
@@ -9113,7 +9157,7 @@ function recordEcmFactor(entry, factorStr, method, opts) {
 }
 
 function exportCSV() {
-  if (Object.keys(eulerValues).length === 0) {
+  if (!valuesIndexed()) {
     alert('Euler values still loading — please wait a moment and try again.');
     return;
   }
@@ -9129,7 +9173,7 @@ function exportCSV() {
   ];
   for (const e of allEntries) {
     const digits  = getCofactorDigits(e);
-    const fdbKey  = e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : e.val;
+    const fdbKey  = e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : fdbKeyOf(e.n);
     const fdbRes  = fdbKey ? fdbCache[fdbKey] : null;
     const ecmAtt  = (ecmData[String(e.n)] || []).length;
 
@@ -9151,7 +9195,7 @@ function exportCSV() {
       ...factorVals,
       e.cofactor || '',
       e.cofactor ? e.cofactor.length : '',
-      e.val ? e.val.length : '',
+      entryDigits(e) || '',
       fdbStatus,
       fdbRes ? new Date(fdbRes.timestamp).toISOString().slice(0,10) : '',
       ecmAtt,
@@ -9475,9 +9519,9 @@ function applyFdbResult(data, n, numberStr) {
   const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
                        ...(fdbPrimes.length ? { fdbHas: fdbPrimes.slice() } : {}),
                        ...(fdbIdExact ? { fdbIdExact } : {}) };
-  if (numberStr) {
-    fdbCache[numberStr] = cacheEntry;
-    if (merged.length) fdbFactors[numberStr] = { factors: merged };
+  if (n != null) {                     // kept under the entry, not its number
+    fdbCache[fdbKeyOf(n)] = cacheEntry;
+    if (merged.length) fdbFactors[fdbKeyOf(n)] = { factors: merged };
   }
 
   // --- Update the display entry status ---
@@ -9604,10 +9648,10 @@ let _storageWarningShown = false;
 // direction, and far closer than zero. Callers that care are told how many
 // attempts were priced this way.
 function workingDigitsFor(e) {
-  if (!e || !e.val) return null;
+  if (!e || !entryDigits(e)) return null;
   const cof = getCofactorDigits(e);
   if (cof && cof > 1) return { digits: cof, exact: true };
-  return { digits: e.val.length, exact: false };
+  return { digits: entryDigits(e), exact: false };
 }
 
 // How many finds a level needs before its measured rate is worth believing.
@@ -9867,7 +9911,7 @@ function ecmFrontier() {
 
   const ecmD = loadECM();
   for (const e of allEntries) {
-    if (!e.val || e.n <= 2 || e.status === 'full') continue;
+    if (!entryDigits(e) || e.n <= 2 || e.status === 'full') continue;
     total++;
     let best = 0;
     for (const a of (ecmD[String(e.n)] || [])) {
@@ -9894,7 +9938,7 @@ function ecmFrontier() {
 function belowFrontier(level) {
   const { bestFor } = ecmFrontier();
   return allEntries.filter(e => {
-    if (!e.val || e.n <= 2 || e.status === 'full') return false;
+    if (!entryDigits(e) || e.n <= 2 || e.status === 'full') return false;
     return (bestFor.get(e.n) || 0) < level;
   });
 }
@@ -10426,11 +10470,11 @@ function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, 
   // its own factors back — so adding one factor by hand silently re-armed exactly
   // the bug §14 exists to prevent. fdbId is the cheap re-check handle for numbers
   // too big to query by value.
-  const prev = fdbCache[e.val] || {};
-  fdbCache[e.val] = { ...prev,
+  const prev = fdbCache[fdbKeyOf(e.n)] || {};
+  fdbCache[fdbKeyOf(e.n)] = { ...prev,
     status: e.status === 'full' ? 'FF' : 'CF',
     factors: e.factors, timestamp: Date.now(), source, n };
-  fdbFactors[e.val] = { factors: e.factors };
+  fdbFactors[fdbKeyOf(e.n)] = { factors: e.factors };
   saveFDBCache(fdbCache);
 
   // FactorDB is not undetermined about this number any more — and this is the one
@@ -10460,6 +10504,7 @@ function canonicalFactor(parsed) {
 }
 
 async function verifyAndAddFactor(n) {
+  if (valuesMissing([n])) await needValues([n]);
   const input = document.getElementById('manualFactorInput_' + n);
   const msg   = document.getElementById('factorVerifyMsg_' + n);
   if (!input || !msg) return;
@@ -10598,10 +10643,10 @@ const STALE_SCOPE_DAYS = 31;
 // symmetric: calling it ours costs a wasted request, calling it FactorDB's loses
 // the factor.
 function factorsFdbLacks(e) {
-  if (!e || !e.val) return [];
+  if (!e || !entryDigits(e)) return [];
   const factors = (e.factors || []).filter(f => f && f !== '1');
   if (!factors.length) return [];
-  const cached = fdbCache[e.val];
+  const cached = fdbCache[fdbKeyOf(e.n)];
   const fdbKnown = new Set(((cached && cached.fdbHas) || []).map(f => String(f).split('^')[0]));
   return factors.filter(f => {
     const base = String(f).split('^')[0];
@@ -10658,7 +10703,7 @@ function applyFilters(opts) {
     const matchSearch = !q || String(e.n).includes(q) ||
       (e.factors && e.factors.some(f => f.includes(q))) ||
       (e.cofactor && e.cofactor.includes(q)) ||
-      (e.val && e.val.startsWith(q));
+      (e.val ? e.val.startsWith(q) : (q.length <= 17 && entryLead(e).startsWith(q)));
     return matchFilter && matchSearch;
   });
   // Sort
@@ -10757,7 +10802,7 @@ function schedulePlanWarm(delayMs) {
   _planWarmTimer = setTimeout(async () => {
     _planWarmTimer = null;
     const gen = _planCache, ecm = loadECM();
-    const todo = allEntries.filter(e => e.status !== 'full' && e.val);
+    const todo = allEntries.filter(e => e.status !== 'full' && entryDigits(e));
     for (let i = 0; i < todo.length; i++) {
       if (gen !== _planCache) return;                  // cleared meanwhile: a newer warm-up follows
       const e = todo[i], d = getCofactorDigits(e);
@@ -10788,12 +10833,12 @@ function getNextRunTimeForEntry(e) {
 }
 
 // Get last FDB check info for an entry (used in modal, tile, and sorting).
-// Rechecks write to fdbCache[e.val], but legacy data may also have a separate
+// Rechecks write to fdbCache[fdbKeyOf(e.n)], but legacy data may also have a separate
 // cofactor-keyed entry. Pick whichever was checked MOST RECENTLY so the tile
 // reflects the latest rerun (previously it always took the stale cofactor entry).
 function getFdbCheckInfo(e) {
   const targets = [
-    e.val || null,
+    fdbKeyOf(e.n),
     e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
   ].filter(Boolean);
   let best = null;
@@ -10923,7 +10968,7 @@ function renderGrid() {
         // Same test the export weight uses, so the tile and the ranking cannot
         // disagree — and so a marker FactorDB has since contradicted stops
         // claiming the opposite of what the modal says.
-        if (isFdbUndetermined(e, fdbCache[e.val]) && (e.factors || []).filter(f => f && f !== '1').length) {
+        if (isFdbUndetermined(e, fdbCache[fdbKeyOf(e.n)]) && (e.factors || []).filter(f => f && f !== '1').length) {
           html += `<div style="font-size:9px;color:var(--orange);margin-top:2px" title="FactorDB has no factorisation for this number, yet we hold factors for it — these are new to FactorDB and worth submitting">⬡ FDB has nothing on this — our factors are new</div>`;
         }
       } catch(err) { logSwallowed('tile/fdbUnknownBadge', err); }
@@ -11191,7 +11236,9 @@ if (typeof document !== 'undefined' && document.addEventListener) {
   });
 }
 
-function openModal(n) {
+function openModal(n, loaded) {
+  // Its one value, loaded first (once: a failed load opens it without the value).
+  if (!loaded && valuesMissing([n])) { setStatus('Loading E(' + n + ')…', ''); needValues([n]).then(() => { setStatus(''); openModal(n, true); }); return; }
   const e = entryByN(n);
   if (!e) return;
   _modalEntryN = n;
@@ -11223,7 +11270,7 @@ function openModal(n) {
   // Known factors
   // Determine if this entry's factors are all verified prime via FDB (FF status on value or cofactor)
   // Check both the full value AND any cofactor FDB result for FF confirmation
-  const entryFDBByVal      = e.val    ? fdbCache[e.val]    : null;
+  const entryFDBByVal      = fdbCache[fdbKeyOf(e.n)] || null;
   const entryFDBByCofactor = e._resolvedViaCofactor ? fdbCache[String(e._resolvedViaCofactor)] : null;
   // "FactorDB says every listed factor is prime." Only an FF/P/PRP verdict supports
   // that: FF means fully factored (so each factor is prime by definition), P and PRP
@@ -11361,7 +11408,7 @@ function openModal(n) {
   // outlived the modal. Declaring it is also what made the bug below visible.
   let valueHtml = '';
   // If eulerValues not yet loaded for this entry, show loading state
-  if (!e.val && Object.keys(eulerValues).length === 0) {
+  if (!e.val && !valuesIndexed()) {
     valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value</div><div class="value-box" style="color:var(--text-muted)">Loading…</div></div>';
   }
   const valCopyId = 'vc_' + n;
@@ -11376,7 +11423,7 @@ function openModal(n) {
   // FactorDB's URL limit (~32,000 digits): the biggest entries — the ones you most want
   // to look at — had no link at all.
   if (e.val) {
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     const fdbLink = (rec && rec.fdbIdExact)
       ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbIdExact)
       : 'https://factordb.com/?query=' + encodeURIComponent('E(' + n + ')');
@@ -11436,7 +11483,7 @@ function openModal(n) {
       // When FactorDB was last checked for this entry — what the FDB / YOURS tags on
       // the factor chips are relative to. It was the one fact only the old FactorDB
       // section carried. ISO, like every other date in the modal.
-      const rec = (typeof fdbCache !== 'undefined' && fdbCache) ? fdbCache[e.val] : null;
+      const rec = (typeof fdbCache !== 'undefined' && fdbCache) ? fdbCache[fdbKeyOf(e.n)] : null;
       const at = rec && rec.timestamp ? new Date(rec.timestamp) : null;
       if (at && !isNaN(at)) parts.push('FactorDB checked ' + at.toISOString().slice(0, 10));
     }
@@ -12284,19 +12331,23 @@ function _nearCofDigBoundary(est) {
 // digits, and the first export after new values needed it for thousands of entries).
 // Exact unless the logarithm sits within a hair of a power of ten: then null, and
 // the slow, exact way decides.
-function quotientDigits(vStr, pStr) {
-  const lg = (t) => (t.length - 1) + Math.log10(parseFloat(t[0] + '.' + t.slice(1, 17)));
-  const x = lg(vStr) - lg(pStr);
+// PURE: the same from v's digit count and leading digits alone — what the value
+// index holds, so a cofactor is sized without its value in memory.
+function quotientDigitsFrom(len, lead, pStr) {
+  const lg = (n, t) => (n - 1) + Math.log10(parseFloat(t[0] + '.' + t.slice(1, 17)));
+  const x = lg(len, lead) - lg(pStr.length, pStr);
   const f = x - Math.floor(x);
   if (!isFinite(x) || f < 1e-9 || f > 1 - 1e-9) return null;
   return Math.floor(x) + 1;
 }
 function getCofactorDigits(e) {
-  if (!e || !e.val || e.status === 'full') return null;
+  if (!e || e.status === 'full') return null;
+  const len = entryDigits(e);                    // from the index: no value needed
+  if (!len) return null;
   const factors = (e.factors || []).filter(f => f && f !== '1');
   // No known factors → cofactor IS the full number; skip BigInt entirely (the
   // common case for most entries — this alone avoids the original load-time cost).
-  if (factors.length === 0) return e.val.length;
+  if (factors.length === 0) return len;
   const key = _factorsFingerprint(factors);
   // 1. In-memory entry cache — instant, no lookup, survives for this session.
   if (e._cofDigKey === key && e._cofDig != null) return e._cofDig;
@@ -12316,7 +12367,7 @@ function getCofactorDigits(e) {
   // them as the planner does; only a near power of ten falls through to the exact way.
   try {
     const pq = factorProduct(factors);
-    const fast = (typeof pq === 'bigint' && pq > 1n) ? quotientDigits(e.val, pq.toString()) : null;
+    const fast = (typeof pq === 'bigint' && pq > 1n) ? quotientDigitsFrom(len, entryLead(e), pq.toString()) : null;
     if (fast != null && fast > 0) {
       e._cofDigKey = key; e._cofDig = fast;
       persisted[e.n] = [fast, key];
@@ -12324,8 +12375,18 @@ function getCofactorDigits(e) {
       return fast;
     }
   } catch (err) { logSwallowed('cofDigits/fast', err); }
+  // Near a power of ten (or factors that do not divide): the exact way needs the value.
+  // Not loaded: the nearest estimate, NOT cached, so the exact count is taken once it is.
+  const v = eulerValues[e.n] || e.val;
+  if (!v) {
+    try {
+      const pq = factorProduct(factors), ps = pq.toString(), ld = entryLead(e);
+      const x = (len - 1 + Math.log10(parseFloat(ld[0] + '.' + ld.slice(1)))) - (ps.length - 1 + Math.log10(parseFloat(ps[0] + '.' + ps.slice(1, 17))));
+      return Math.max(1, Math.floor(x) + 1);
+    } catch (err) { return len; }
+  }
   let vBig;
-  try { vBig = BigInt(e.val); } catch { return e.val.length; }
+  try { vBig = BigInt(v); } catch { return v.length; }
   const product = factorProduct(factors);   // shared — see factorProduct
   let cof = vBig;
   if (product !== 0n && product !== 1n && vBig % product === 0n) {
@@ -12335,7 +12396,7 @@ function getCofactorDigits(e) {
     // to getCofactor, which falls back to per-factor division so every good factor
     // is still removed. Rare bad-data path, so its exact decimal cost is fine.
     const gc = getCofactor(e);
-    const d0 = gc ? gc.digits : e.val.length;
+    const d0 = gc ? gc.digits : v.length;
     e._cofDigKey = key; e._cofDig = d0;
     persisted[e.n] = [d0, key];
     saveCofDigitsCacheQuiet();
@@ -12494,7 +12555,9 @@ function buildECMSection(n, e) {
       </tr></thead>`;
 
       // The sieve as a METHOD, alongside ECM and P±1 — it is one. Levels it has
-      // cleared read "none": proven, where every other cell in the grid is a chance.
+      // cleared read "100%": certain — every prime below 10^k was tried, so a factor of
+      // up to k digits would have been found — where every other cell is a chance.
+      const provenCell = (k) => `<td title="Proven: trial division to 10^${k} tried every prime below it, so any factor of up to ${k} digits would have been found" style="color:var(--green);font-size:10px">100%</td>`;
       const sd = sieveDepthDigits(n);
       let sieveSec = null;
       try { sieveSec = entrySieveCpuSec(n, digits); } catch (err) { logSwallowed('grid/sieveCpu', err); }
@@ -12505,7 +12568,7 @@ function buildECMSection(n, e) {
           ${opt(showPoly, '<td>—</td>')}${opt(showI, '<td>—</td>')}
           <td style="font-size:10px;color:var(--text-muted)">trial division</td>
           <td>&lt;${k}d</td>
-          ${levelCols.map(d => d <= k ? '<td style="color:var(--green);font-size:10px">none</td>'
+          ${levelCols.map(d => d <= k ? provenCell(k)
                                       : '<td style="color:var(--text-muted)">—</td>').join('')}
           ${sieveSec != null
             ? `<td title="Estimated: this cofactor's size × its sieve depth, at the speed your timed sieve runs measured in the browser" style="font-size:10px;color:var(--text-dim)">~${fmtCpuTime(sieveSec)}</td>`
@@ -12554,9 +12617,9 @@ function buildECMSection(n, e) {
       const sieveK = sd > 0 ? Math.round(sd) : 0;
       const labelSpan = 6 + (showPoly ? 1 : 0) + (showI ? 1 : 0);   // Method … Target
       const perLevel = (cell) => levelCols.map(d => {
-        // A level the sieve has proven empty reads "none", as in the Sieve row: a 0%
-        // beside real estimates would read as "tried and failed".
-        if (sieveK && d <= sieveK) return '<td style="color:var(--green);font-size:10px">none</td>';
+        // A level the sieve has covered reads "100%", as in the Sieve row: certain, not
+        // an estimate (and "none" read as no coverage at all — the opposite).
+        if (sieveK && d <= sieveK) return provenCell(sieveK);
         const r = covAt.get(d);
         return r ? cell(r) : '<td style="color:var(--text-muted)">—</td>';
       }).join('');
@@ -13390,7 +13453,7 @@ async function runDataIntegrityCheck(onProgress) {
     // examined by any check. Seen on E(14708) (FactorDB has factors for it) and
     // E(14774) (FactorDB has no record), both sitting at 'full' holding nothing.
     if (e.status === 'full' && (!Array.isArray(e.factors) || !e.factors.length)) {
-      const rec = fdbCache[e.val];
+      const rec = fdbCache[fdbKeyOf(e.n)];
       issues.fullNoFactors.push({ n: e.n, fdbStatus: rec ? rec.status : null });
     }
 
@@ -13444,7 +13507,7 @@ async function runDataIntegrityCheck(onProgress) {
       // The bug case arrives as CF (composite, not fully factored) or with no
       // record at all, which is a very different claim.
       if (base === val && e.factors.length === 1) {
-        const rec = fdbCache[e.val];
+        const rec = fdbCache[fdbKeyOf(e.n)];
         const fdbSaysPrime = rec && ['P', 'PRP'].includes(rec.status);
         if (!fdbSaysPrime) {
           if (bStr.length > PRIMALITY_SCAN_MAX_DIGITS) {
@@ -13513,7 +13576,7 @@ async function runDataIntegrityCheck(onProgress) {
     // because the arithmetic is consistent; only FactorDB's verdict reveals it.
     // Observed on E(14702), 52,004 digits.
     if (e.status === 'full') {
-      const rec = fdbCache[e.val];
+      const rec = fdbCache[fdbKeyOf(e.n)];
       if (rec && ['C', 'CF'].includes(rec.status)) {
         const unverifiable = e.factors.filter(f => {
           const b = String(f).split('^')[0];
@@ -13592,7 +13655,10 @@ function clampExponentsToValue(list, valStr) {
   return { factors: out, clamped, dropped };
 }
 
-async function fixIntegrityIssues(scan) {
+// Holds the values while it runs (see holdingValues).
+async function fixIntegrityIssues(...args) { return holdingValues(_fixIntegrityIssues, args); }
+async function _fixIntegrityIssues(scan) {
+  if (valuesMissing(null)) await needValues(null, 'the fixes');
   const fixed = { promoted: 0, collapsed: 0, split: 0, viaFdb: 0, removedBogus: 0, removedWhole: 0, demotedEmpty: 0, fixedExponent: 0, addedPrime: 0, demotedShort: 0, overclaimed: 0 };
   const needsRecheck = [];
   const deadline = Date.now() + 20000;
@@ -13629,7 +13695,7 @@ async function fixIntegrityIssues(scan) {
     // sole factor is the correct representation, and removing it would destroy a
     // complete factorisation. Re-checked here rather than trusted from the scan,
     // since the data can change between scanning and fixing.
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     if (rec && ['P', 'PRP'].includes(rec.status)) { continue; }
     e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== e.val);
     e.status  = e.factors.length ? 'partial' : 'composite';
@@ -13645,7 +13711,7 @@ async function fixIntegrityIssues(scan) {
   //     this is gated on C/CF and nothing weaker.
   for (const it of (scan.issues.contradictsFdb || [])) {
     const e = entryByN(it.n); if (!e) continue;
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     if (!rec || !['C', 'CF'].includes(rec.status)) continue;   // re-verify, never trust the scan
     const keep = (e.factors || []).filter(f => {
       const b = String(f).split('^')[0];
@@ -13671,7 +13737,7 @@ async function fixIntegrityIssues(scan) {
   for (const it of (scan.issues.fullNoFactors || [])) {
     const e = entryByN(it.n); if (!e) continue;
     if (Array.isArray(e.factors) && e.factors.length) continue; // re-verify: factors appeared since the scan
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     const st  = rec && rec.status;
     e.status = ['C', 'CF'].includes(st) ? 'composite'
              : st === 'U'               ? 'fdb-unknown'
@@ -13829,7 +13895,7 @@ async function fixIntegrityIssues(scan) {
 
   // Persist whatever changed, through the normal paths so the cache stays in step.
   for (const e of allEntries) {
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     if (rec && Array.isArray(e.factors)) {
       rec.factors = e.factors;
       if (e.status === 'full') rec.status = 'FF';
@@ -14054,9 +14120,11 @@ function sieveResultsPlan(data, entryOf, depth) {
   return { to, partial: !!data.partial, clean, depthOf, findings, skipped, log };
 }
 function importSieveResults() {
-  pickFiles('.json,application/json', false, (list) => {
+  pickFiles('.json,application/json', false, async (list) => {
     let data;
     try { data = JSON.parse(list[0].text); } catch (e) { alert('Not a sieve results file (it is not JSON).'); return; }
+    const named = Object.keys((data && data.entries) || {}).map(Number).filter(n => n >= 0);
+    if (valuesMissing(named)) await needValues(named, 'the sieve results');
     const plan = sieveResultsPlan(data, (n) => entryByN(n), loadSieveDepth() || {});
     if (plan.error) { alert(plan.error); return; }
     // Each entry to the depth it reached — a stopped run's are each their own.
@@ -14378,7 +14446,7 @@ function applySieveFindings() {
     try { for (const x of e.factors) { const [b, k] = String(x).split('^'); prod *= BigInt(b) ** BigInt(k || 1); } }
     catch(err) { logSwallowed('sieveApply/product', err); }
     e.status = (prod === val) ? 'full' : 'partial';
-    const rec = fdbCache[e.val];
+    const rec = fdbCache[fdbKeyOf(e.n)];
     if (rec) {
       rec.factors = e.factors;
       rec.status = e.status === 'full' ? 'FF' : 'CF';
@@ -14396,7 +14464,7 @@ function applySieveFindings() {
     // Merge, like every other write into this store — a replacing write drops
     // fdbHas and fdbId, and a sieve find is exactly when the entry has recently
     // been talked about with FactorDB.
-    else fdbCache[e.val] = { ...(fdbCache[e.val] || {}),
+    else fdbCache[fdbKeyOf(e.n)] = { ...(fdbCache[fdbKeyOf(e.n)] || {}),
       status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors,
       timestamp: Date.now(), source: 'sieve', n: f.n };
   }
@@ -14483,7 +14551,10 @@ function computeCostToFinish(entry, digits, attempts) {
   return rows;
 }
 
-async function showDataIntegrityReport() {
+// Holds the values while it runs (see holdingValues).
+async function showDataIntegrityReport(...args) { return holdingValues(_showDataIntegrityReport, args); }
+async function _showDataIntegrityReport() {
+  if (valuesMissing(null)) await needValues(null, 'Check data');
   let res;
   setStatus('Scanning data integrity…', '');
   try { res = await runDataIntegrityCheck((i, total) => setStatus('Scanning data integrity… ' + i + '/' + total, '')); }
@@ -14815,7 +14886,8 @@ function showYieldReport() {
 
 function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
 
-function downloadEntry(n) {
+function downloadEntry(n, loaded) {
+  if (!loaded && valuesMissing([n])) { needValues([n]).then(() => downloadEntry(n, true)); return; }
   const e = entryByN(n);
   if (!e) return;
   const sign = e.sign === -1 ? '-' : '+';
@@ -15239,6 +15311,187 @@ function firstValueChunks(chunks, lo, span) {
   });
   return out.length ? out : (chunks && chunks.length ? [0] : []);
 }
+// ── Values on demand ──────────────────────────────────────────────────────────
+// The index: every value's digit count and first 17 digits, kept in storage — about
+// 0.5 MB for 17,500 entries, against 1.1 GB for the values. Enough to draw the list,
+// size every cofactor (quotientDigitsFrom) and recognise a number listed as its own
+// factor, with no value in memory. Recorded whenever a value file is read.
+const VALUE_META_KEY = 'eulerFDB_valueMeta_v1';
+let _valueMeta = null, _valueMetaTimer = null;
+function valueMeta() {
+  if (!_valueMeta) { try { _valueMeta = JSON.parse(kvGet(VALUE_META_KEY) || '{}') || {}; } catch (e) { _valueMeta = {}; } }
+  return _valueMeta;
+}
+function noteValueMeta(obj) {
+  const m = valueMeta();
+  let changed = false;
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (typeof v !== 'string' || !v) continue;
+    const cur = m[k];
+    if (!cur || cur[0] !== v.length || cur[1] !== v.slice(0, 17)) { m[k] = [v.length, v.slice(0, 17)]; changed = true; }
+  }
+  if (changed && !_valueMetaTimer) {
+    _valueMetaTimer = setTimeout(() => {
+      _valueMetaTimer = null;
+      try { kvSet(VALUE_META_KEY, JSON.stringify(_valueMeta)); } catch (e) { logSwallowed('valueMeta/save', e); }
+    }, 2000);
+  }
+}
+// An entry's digit count and leading digits: from its value when loaded, else the index.
+function entryDigits(e) { return !e ? 0 : e.val ? e.val.length : valueDigits(e.n); }
+function entryLead(e) { return !e ? '' : e.val ? e.val.slice(0, 17) : valueLead(e.n); }
+// Whether there is anything to work with: the index, or values in memory.
+function valuesIndexed() { return Object.keys(valueMeta()).length > 0 || Object.keys(eulerValues).length > 0; }
+// The value files the index has fully covered, by cache key — remembered, so a file is
+// read for the index once even if it should lack some n.
+const VALUE_META_FILES_KEY = 'eulerFDB_valueMetaFiles_v1';
+let _valueMetaFiles = null;
+function valueMetaFiles() {
+  if (!_valueMetaFiles) { try { _valueMetaFiles = JSON.parse(kvGet(VALUE_META_FILES_KEY) || '{}') || {}; } catch (e) { _valueMetaFiles = {}; } }
+  return _valueMetaFiles;
+}
+// The files whose entries the index lacks — on a first visit all of them, after an
+// upgrade or new values on GitHub some; otherwise none, and startup reads no value.
+function valueFilesLackingIndex() {
+  if (!_valuePlan) return [];
+  const meta = valueMeta(), files = valueMetaFiles(), out = [];
+  _valuePlan.chunks.forEach((f, i) => {
+    if (files[valueCacheKey(f)]) return;
+    const m = VALUE_CHUNK_RE.exec(f);
+    if (!m) return;
+    for (let n = +m[1]; n <= +m[2]; n += 2) if (!meta[n]) { out.push(i); return; }
+  });
+  return out;
+}
+// Read those files once, to fill the index — and let their values go again: tools load
+// what they need, when they need it. onFile(done, total) after each few.
+async function indexValueFiles(idxs, onFile) {
+  const { chunks, fetchChunk, results } = _valuePlan;
+  const files = valueMetaFiles();
+  for (let j = 0; j < idxs.length; j += 3) {
+    const batch = idxs.slice(j, j + 3);
+    const got = await Promise.all(batch.map(i => fetchChunk(chunks[i], i).catch(e => { logSwallowed('index/file', e); return false; })));
+    batch.forEach((i, k) => {
+      if (got[k]) files[valueCacheKey(chunks[i])] = true;
+      const m = VALUE_CHUNK_RE.exec(chunks[i]);
+      if (!m) return;
+      const a = +m[1], b = +m[2];
+      for (let n = a; n <= b; n += 2) delete eulerValues[n];
+      if (typeof allEntries !== 'undefined') for (const e of allEntries) if (e.n >= a && e.n <= b) e.val = null;
+      results[i] = undefined;
+    });
+    if (onFile) { try { onFile(Math.min(idxs.length, j + 3), idxs.length); } catch (e) { logSwallowed('index/onFile', e); } }
+    await new Promise(r => setTimeout(r, 0));
+  }
+  try {
+    if (_valueMetaTimer) { clearTimeout(_valueMetaTimer); _valueMetaTimer = null; }
+    kvSet(VALUE_META_KEY, JSON.stringify(valueMeta()));
+    kvSet(VALUE_META_FILES_KEY, JSON.stringify(files));
+  } catch (e) { logSwallowed('index/save', e); }
+}
+function hasValue(n) { const v = eulerValues[n]; return typeof v === 'string' && v.length > 0; }
+function valueDigits(n) { const v = eulerValues[n]; if (v) return v.length; const m = valueMeta()[n]; return m ? m[0] : 0; }
+function valueLead(n) { const v = eulerValues[n]; if (v) return v.slice(0, 17); const m = valueMeta()[n]; return m ? m[1] : ''; }
+// Load the value files covering these entries (every file not yet loaded when ns is
+// null) — from the browser's cache, else from GitHub — and wait for them; afterwards
+// eulerValues[n] is there for each, as the code that reads values expects. Two callers
+// asking for one file share its load; a file that failed is tried again.
+const _chunkLoads = {};
+async function needValues(ns, label) {
+  if (!_valuePlan) return;
+  const { chunks, fetchChunk, results } = _valuePlan;
+  const want = ns == null ? null : [...new Set([...ns].map(Number))].filter(n => !hasValue(n));
+  if (want && !want.length) return;
+  const todo = [];
+  chunks.forEach((f, i) => {
+    if (results[i] === true) return;
+    const m = VALUE_CHUNK_RE.exec(f);
+    if (!m) return;
+    const a = +m[1], b = +m[2];
+    if (!want || want.some(n => n >= a && n <= b)) todo.push(i);
+  });
+  let done = 0;
+  for (let j = 0; j < todo.length; j += 3) {
+    await Promise.all(todo.slice(j, j + 3).map(i => {
+      if (!_chunkLoads[i]) {
+        _chunkLoads[i] = Promise.resolve(fetchChunk(chunks[i], i))
+          .then(ok => { results[i] = ok; }, err => { results[i] = false; logSwallowed('needValues', err); })
+          .finally(() => { delete _chunkLoads[i]; });
+      }
+      return _chunkLoads[i];
+    }));
+    done = Math.min(todo.length, j + 3);
+    // The entries read their value from e.val: set it on those whose file came in.
+    if (typeof allEntries !== 'undefined' && allEntries.length) {
+      for (const i of todo.slice(j, j + 3)) {
+        const m = VALUE_CHUNK_RE.exec(chunks[i]); if (!m) continue;
+        const a = +m[1], b = +m[2];
+        for (const e of allEntries) if (e.n >= a && e.n <= b && !e.val && eulerValues[e.n]) e.val = eulerValues[e.n];
+      }
+    }
+    if (label && todo.length > 1) setStatus('Loading values for ' + label + ': ' + done + ' of ' + todo.length + ' files…', '');
+  }
+  if (todo.length) scheduleValueTrim();
+}
+
+// Whether any of these values (all of them, for null) is not yet in memory. Tools
+// call needValues only then — an await with nothing to wait for would still defer
+// the rest of the tool, which nothing that calls it expects.
+function valuesMissing(ns) {
+  if (!_valuePlan) return false;
+  if (ns == null) return _valuePlan.results.some(r => r !== true);
+  for (const n of ns) if (!hasValue(+n)) return true;
+  return false;
+}
+// ── Giving memory back ────────────────────────────────────────────────────────
+// A tool that loaded every value (Check data, an import, the sieve) left 1.1 GB in
+// memory until the page was reloaded. Now, a while after the last use, loaded values
+// are let go — but never under a tool still using them: long tools HOLD the values
+// while they run (holdingValues), and the trim waits for every hold and every load.
+// Anything that needs values later loads them again (needValues), from the browser's
+// cache: well under a second a file.
+let _valueHolds = 0, _valueTrimTimer = null, _valueTrimMs = 60000;
+function scheduleValueTrim() {
+  if (_valueTrimTimer) clearTimeout(_valueTrimTimer);
+  _valueTrimTimer = setTimeout(trimValues, _valueTrimMs);
+}
+function trimValues() {
+  _valueTrimTimer = null;
+  if (!_valuePlan) return 0;
+  if (_valueHolds > 0 || Object.keys(_chunkLoads).length) { scheduleValueTrim(); return 0; }
+  let freed = 0;
+  for (const k of Object.keys(eulerValues)) { delete eulerValues[k]; freed++; }
+  _valuePlan.results.fill(undefined);
+  if (typeof allEntries !== 'undefined') for (const e of allEntries) if (e.val) e.val = null;
+  if (typeof window !== 'undefined' && window._eulerValMap) window._eulerValMap = {};
+  return freed;
+}
+// Run a long tool with the values it needs held in memory for as long as it runs.
+async function holdingValues(fn, args) {
+  _valueHolds++;
+  try { return await fn.apply(null, args); }
+  finally { _valueHolds = Math.max(0, _valueHolds - 1); scheduleValueTrim(); }
+}
+
+// The pull's merge checks a peer's factors against the number (mergeFactorRecords),
+// so the values of the records it will merge must be in memory: only those where the
+// peer holds factors we do not. A record new to us is taken as it is.
+async function preloadForMerge(payload) {
+  try {
+    const remote = (payload && payload.fdbCache) || {};
+    const local = loadFDBCache();
+    const ns = [];
+    for (const [k, v] of Object.entries(remote)) {
+      const n = v && v.n != null ? +v.n : parseInt(k);
+      const mine = n >= 0 ? local[fdbKeyOf(n)] : null;
+      if (!mine) continue;
+      const have = new Set((mine.factors || []).map(String));
+      if ((v.factors || []).some(f => !have.has(String(f)))) ns.push(n);
+    }
+    if (valuesMissing(ns)) await needValues(ns, 'the pull');
+  } catch (e) { logSwallowed('pull/preload', e); }
+}
+
 // phase 'first': the files for what is on screen; 'rest': the others, a few at a
 // time with the page answering between them (onChunk(done, total) after each batch);
 // no phase: every file not yet loaded, all at once, as before.
@@ -15320,6 +15573,7 @@ async function fetchEulerValues(phase, onChunk) {
       const cached = await idbGetChunk(cacheKey);
       if (cached) {
         for (const [k, v] of Object.entries(cached)) eulerValues[parseInt(k)] = v;
+        noteValueMeta(cached);
         updateMaxNInput();
         return true;
       }
@@ -15332,6 +15586,7 @@ async function fetchEulerValues(phase, onChunk) {
         const data = {};
         for (const k of parts) { const c = await idbGetChunk(k); if (!c) throw new Error('missing ' + k); Object.assign(data, c); }
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
+        noteValueMeta(data);
         await idbPutChunk(cacheKey, data);                     // next time in one piece
         for (const k of parts) idbDeleteChunk(k);
         updateMaxNInput();
@@ -15351,6 +15606,7 @@ async function fetchEulerValues(phase, onChunk) {
         if (!r.ok) continue;
         const data = JSON.parse(await valueFileText(await r.arrayBuffer()));
         for (const [k, v] of Object.entries(data)) eulerValues[parseInt(k)] = v;
+        noteValueMeta(data);
         idbPutChunk(cacheKey, data); // cache for future loads (fire-and-forget)
         console.log('Chunk ' + (idx+1) + ': loaded ' + Object.keys(data).length + ' values from ' + url + ' (cached)');
         updateMaxNInput();
@@ -15365,6 +15621,7 @@ async function fetchEulerValues(phase, onChunk) {
   _valuePlan = { chunks, fetchChunk, results: new Array(chunks.length).fill(undefined) };
   }
   const { chunks, fetchChunk, results } = _valuePlan;
+  if (phase === 'plan') return;                // the file list only: values load when needed
   const todo = phase === 'first' ? firstValueChunks(chunks, MIN_N || 0, FIRST_VALUES_SPAN)
              : chunks.map((_, i) => i).filter(i => results[i] === undefined);
   if (phase === 'rest') {
@@ -15439,8 +15696,8 @@ function renderLoaded(keepPage) {
 function setValuesLoading(on, done, total) {
   _toolsHeld = !!on;
   try { document.body.classList.toggle('values-loading', _toolsHeld); } catch (e) { logSwallowed('values/class', e); }
-  if (on) setStatus('Loading the rest of the values' + (total ? ': ' + done + ' of ' + total + ' files' : '')
-    + ' — browse away; imports, exports and the sieve open when they are all in', '');
+  if (on && total) setStatus('Reading the values once, to index them: ' + done + ' of ' + total + ' files'
+    + ' — browse away; imports, exports and the sieve open when it is done', '');
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('click', (ev) => {
@@ -15481,28 +15738,31 @@ setTimeout(async () => {
     logSwallowed('init/initAppStore', e);
   }
 
-  // Phase 1a: the values for what is on screen first, and the page from them at
-  // once. Loading all of them first (1.1 GB at E(35000)) kept it empty a long while.
-  try { await fetchEulerValues('first'); } catch(e) { logSwallowed('init/fetchEulerValues', e); }
+  // Phase 1: the file list and the index — no values. Every entry is drawn from the
+  // index (digit counts, leading digits); values load when something needs them. Only
+  // files the index lacks are read, once (a first visit, an upgrade, new values), and
+  // let go again.
+  try { await fetchEulerValues('plan'); } catch(e) { logSwallowed('init/valuePlan', e); }
+  try { updateMaxNInput(); } catch(e) { logSwallowed('init/maxN', e); }
   fdbCache = loadFDBCache();
+  setValuesLoading(true);                        // tools wait until startup is complete
   try { renderLoaded(); } catch(e) { logSwallowed('init/firstRender', e); }
-
-  // Phase 1b: the rest, a few files at a time, the page answering between them and
-  // the list growing as they arrive. The tools that need every value wait, and
-  // nothing is pushed or pulled, until they are all in.
-  setValuesLoading(true);
-  let lastGrow = Date.now();
-  try {
-    await fetchEulerValues('rest', (done, total) => {
-      setValuesLoading(true, done, total);
-      if (Date.now() - lastGrow > 2000) {
-        lastGrow = Date.now();
-        try { fdbCache = loadFDBCache(); renderLoaded(true); } catch(e) { logSwallowed('init/growRender', e); }
-      }
-    });
-  } catch(e) { logSwallowed('init/fetchEulerValues', e); }
+  const lacking = valueFilesLackingIndex();
+  if (lacking.length) {
+    let lastGrow = Date.now();
+    try {
+      await indexValueFiles(lacking, (done, total) => {
+        setValuesLoading(true, done, total);
+        if (Date.now() - lastGrow > 2000) {
+          lastGrow = Date.now();
+          try { updateMaxNInput(); renderLoaded(true); } catch(e) { logSwallowed('init/growRender', e); }
+        }
+      });
+    } catch(e) { logSwallowed('init/index', e); }
+    try { updateMaxNInput(); } catch(e) { logSwallowed('init/maxN', e); }
+  }
   _valuesPartial = false;
-  setStatus('All values in — syncing with GitHub…', '');
+  setStatus('Syncing with GitHub…', '');
 
   // Now eulerValues is loaded — initialise fdbCache so number-string keys can be rebuilt
   fdbCache = loadFDBCache();
