@@ -208,12 +208,8 @@
   .filter-btn.active.composite { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
   .filter-btn.active.attempted  { background: var(--teal-dim);   border-color: var(--teal);   color: var(--teal); }
   .filter-btn.active.ahead-of-fdb { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-  .filter-btn.active.new-since { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
-  .filter-btn.new-since.has-new { border-color: var(--accent); color: var(--accent); }
   .filter-count { font-weight: 600; }
   .badge-ahead { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
-  .badge-new   { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); font-weight: 600; }
-  .new-since-line { font-size: 11px; color: var(--accent); margin-bottom: 12px; }
   .stats-bar { margin-left: auto; display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); }
   .stat-item strong { color: var(--text); }
 
@@ -225,7 +221,6 @@
   .card.full::before    { background: var(--green); }
   .card.partial::before { background: var(--yellow); }
   .card.unknown::before { background: var(--red); }
-  .card.fdb-unknown::before { background: #9999cc; }
   .card:hover { background: var(--surface2); }
   .card:hover::before { opacity: 1; }
 
@@ -721,13 +716,10 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
     <button class="filter-btn full" data-filter="full" title="The factors multiply back to E(n) — nothing left to find">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial" title="Some factors known; a composite cofactor is still to crack">PARTIALLY FACTORED</button>
     <button class="filter-btn composite" data-filter="composite" title="FactorDB says composite, and no factor is known yet">NO KNOWN FACTORS</button>
-    <button class="filter-btn fdb-unknown" data-filter="fdb-unknown" title="We asked — FactorDB has no factorisation for these">FDB UNDETERMINED</button>
-    <button class="filter-btn unknown" data-filter="unknown" title="FactorDB has never been asked about these — Export FDB check list → &quot;never&quot; picks them up">NEVER CHECKED</button>
+    <button class="filter-btn unknown" data-filter="unknown" title="No factor known, and not even settled whether the number is prime: FactorDB has not determined it, or has not been asked">UNDETERMINED</button>
     <button class="filter-btn attempted" data-filter="attempted" title="Runs are logged on them, and they are not fully factored yet">ECM LOGGED</button>
     <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
       title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
-    <button class="filter-btn new-since" data-filter="new"
-      title="Entries that gained a factor since you last opened them — from an ECM import, FactorDB results, a factor added by hand, the sieve, or another machine. Opening an entry clears its mark.">NEW<span class="filter-count" id="newCount"></span></button>
   </div>
   <div class="stats-bar" id="statsBar"></div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
@@ -782,10 +774,10 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
       <label>) &nbsp;·&nbsp; Only apply to:</label>
       <select id="bulk_filter" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
         <option value="all">All entries in range</option>
-        <option value="unknown">Never checked only</option>
+        <option value="unknown">Undetermined only</option>
         <option value="composite">No known factors only</option>
         <option value="partial">Partial only</option>
-        <option value="unfactored">Never checked + No known factors + Partial</option>
+        <option value="unfactored">Undetermined + No known factors + Partial</option>
       </select>
     </div>
     <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
@@ -882,7 +874,7 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
 <div class="legend">
   <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Fully factored — all prime factors known</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Never checked — FactorDB not asked yet</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Undetermined — no factor known, primality not settled (by FactorDB, or not asked)</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — confirmed composite, no factors found</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Attempted — ECM/P-1/P+1 logged, no factors found yet</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
@@ -1186,7 +1178,7 @@ function sieveSmallFactors(n, from) {
 // `statuses` restricts the sieve to given entry statuses — null/omitted means no
 // restriction, which is the historical behaviour and stays the default.
 //
-// The useful case is ['unknown', 'fdb-unknown']: entries where nothing is known at
+// The useful case is ['unknown']: entries where nothing is known at
 // all. The sieve tests the COFACTOR, so a 'partial' entry is already smaller than
 // what it started as and its easy factors have usually gone; the never-touched
 // ones are where a first small factor is most likely and worth most. Restricting
@@ -1917,9 +1909,9 @@ function applyFdbUnknownSet() {
     // The STATUS only changes when we know nothing ourselves. An entry with
     // factors is 'partial' — that describes OUR knowledge correctly, and is what
     // applyFdbResult writes for the same case.
-    if (e.status === 'unknown' || e.status === 'fdb-unknown') {
+    if (e.status === 'unknown') {
       const held = (e.factors || []).filter(f => f && f !== '1').length;
-      e.status = held ? 'partial' : 'fdb-unknown';
+      if (held) e.status = 'partial';      // with nothing held it stays 'unknown': nothing known
     }
   }
 }
@@ -3532,7 +3524,7 @@ function removeFdbUnknown(n) {
 //
 //   NO KNOWN FACTORS   nothing has been found on it at all, so a first factor is
 //                      both the most likely find and the most useful one.
-//   FDB UNDETERMINED   we asked and FactorDB had nothing, so our ECM is the only
+//   FACTORDB HAS NOTHING   we asked and FactorDB had nothing, so our ECM is the only
 //                      thing that will move it and any factor is genuinely new.
 //
 // They overlap but neither implies the other: an entry can hold factors we found
@@ -4322,7 +4314,6 @@ function mergePulledEcm(remoteEcm, ranges) {
   // Withdrawn submissions' curves stay out, whatever GitHub still holds (see applyWithdrawals).
   const merged = applyWithdrawals(applyDeletionsToEcm(mergeEcmData(remoteEcm), deletedHere()), loadContributions());
   const changed = JSON.stringify(merged) !== before;
-  // Runs from GitHub are not marked NEW: NEW means a new factor (see markNewFactor).
   if (changed) {
     // Does GitHub need any of this? Only if the merge holds something GitHub's file
     // lacks. When the new runs came FROM GitHub — logged from another browser or
@@ -5380,91 +5371,7 @@ async function pushGuard() {
   return { ok: true };
 }
 
-// ── NEW: gained a factor since you last opened it ────────────────────────────
-// Any route that adds a factor an entry did not hold marks it — an ECM or P±1 import
-// (a split or kept composite too), FactorDB results, a factor added by hand, the sieve,
-// a pull from your other machines: a NEW badge on the tile, and a line in the entry's
-// window saying what came in. Opening the entry clears it. Curves are not news: every
-// import adds runs to hundreds of entries, and NEW used to mark them all — while only
-// pulls marked anything, so for one browser doing all the imports it showed nothing.
-// A browser starting from nothing (a first visit, or after "Clear all local data")
-// marks nothing on a pull: every entry would be "new".
-const NEW_SINCE_KEY = 'eulerFDB_newSince_v1';
-let _newSince = null;
-function loadNewSince() {
-  if (_newSince) return _newSince;
-  let m = {};
-  try { m = JSON.parse(kvGet(NEW_SINCE_KEY) || '{}') || {}; } catch (e) { m = {}; }
-  // Marks from before NEW meant "a new factor" may hold only curves: they mean nothing now.
-  for (const [n, x] of Object.entries(m)) if (!x || !Array.isArray(x.factors) || !x.factors.length) delete m[n];
-  return (_newSince = m);
-}
-function saveNewSince(m) {
-  _newSince = m;
-  try { kvSet(NEW_SINCE_KEY, JSON.stringify(m)); } catch (e) { logSwallowed('newSince/save', e); }
-  updateNewCount();
-}
-// The count on the NEW filter button — kept current whenever marks are added or seen.
-function updateNewCount() {
-  if (typeof document === 'undefined') return;
-  const el = document.getElementById('newCount');
-  if (!el) return;
-  const k = Object.keys(loadNewSince()).length;
-  el.textContent = k ? ' ' + k : '';
-  if (el.parentElement && el.parentElement.classList) el.parentElement.classList.toggle('has-new', k > 0);
-}
-// PURE: the factors a pull added, entry by entry — ones that were not there before.
-function pullNews(beforeFactors, afterFactors) {
-  const out = {};
-  for (const [n, fs] of Object.entries(afterFactors || {})) {
-    const had = new Set((beforeFactors || {})[n] || []);
-    const added = (fs || []).filter(f => !had.has(f));
-    if (added.length) out[n] = { factors: added };
-  }
-  return out;
-}
-function pickEntries(map, keys) { const out = {}; for (const k of keys) if (map && map[k]) out[k] = map[k]; return out; }
-// PURE: marks build up until seen — the new factors, as a set.
-function addNewsTo(marks, news, now) {
-  const out = Object.assign({}, marks);
-  for (const [n, x] of Object.entries(news || {})) {
-    if (!x || !x.factors || !x.factors.length) continue;
-    const had = (out[n] && out[n].factors) || [];
-    out[n] = { factors: Array.from(new Set([...had, ...x.factors.map(String)])), at: now };
-  }
-  return out;
-}
-// PURE: the mark as words — "2 new factors (14d, 15d)".
-function newSinceText(mark) {
-  const f = (mark && mark.factors) || [];
-  return f.length ? f.length + ' new factor' + (f.length === 1 ? '' : 's') + ' (' + f.map(x => String(x).length + 'd').join(', ') + ')' : '';
-}
-function recordNews(news) {
-  const k = Object.keys(news || {});
-  if (!k.length) return;
-  saveNewSince(addNewsTo(loadNewSince(), news, Date.now()));
-  addLog('New from GitHub: ' + k.length + ' entr' + (k.length === 1 ? 'y gained' : 'ies gained') + ' factors — marked NEW', 'ok');
-}
-// One new factor on one entry — called where a factor the entry did not hold is added,
-// never from the discovery history, which lacks factors recorded before it existed.
-function markNewFactor(n, factor) {
-  saveNewSince(addNewsTo(loadNewSince(), { [String(n)]: { factors: [String(factor).split('^')[0]] } }, Date.now()));
-}
-function markSeen(n) {
-  const m = loadNewSince();
-  if (!m[String(n)]) return;
-  const next = Object.assign({}, m); delete next[String(n)];
-  saveNewSince(next);
-  try { document.querySelectorAll('.card[data-n="' + n + '"] .badge-new').forEach(el => el.remove()); }
-  catch (e) { logSwallowed('newSince/tile', e); }
-}
-
-// The merge step of a pull — the same for the chunked layout and the old single file.
-// recordBase notes what GitHub held, between the merge and the second flush, exactly
-// where the old inline code did.
 function mergePulledMain(payload, skipRender, recordBase) {
-  const newsKeys = Object.keys((payload && payload.fdbCache) || {});
-  const factorsBefore = (localHasMainData() && newsKeys.length) ? pickEntries(factorsFromPayload(buildSyncPayload()), newsKeys) : null;
   const dirtyBefore = dirtySnapshot();
   // FLUSH FIRST, or the comparison measures the wrong thing.
   //
@@ -5503,10 +5410,6 @@ function mergePulledMain(payload, skipRender, recordBase) {
   fetchLastUpdateTime();
   const pulledCount = Object.keys(fdbCache || {}).length;
   setGHStatus('✓ Pulled from GitHub — ' + pulledCount + ' entries merged', 'ok');
-  if (factorsBefore) {
-    try { recordNews(pullNews(factorsBefore, pickEntries(factorsFromPayload(buildSyncPayload()), newsKeys))); }
-    catch (e) { logSwallowed('newSince/factors', e); }
-  }
   // Back to exactly what was pending BEFORE the pull. What the pull brought in came
   // from GitHub and needs no push — but anything already waiting still is. This was
   // an unconditional markClean(), so pressing Pull with changes pending turned the
@@ -6971,7 +6874,7 @@ async function exportNextRuns() {
     + 'Two kinds qualify, and either is enough:\n\n'
     + '  • NO KNOWN FACTORS — nothing has been found on it at all, so a first\n'
     + '    factor is both the likeliest find and the most useful one.\n'
-    + '  • FDB UNDETERMINED — we asked and FactorDB came back with nothing, so\n'
+    + '  • FACTORDB HAS NOTHING — we asked and FactorDB came back with nothing, so\n'
     + '    your ECM is the only thing that will move it.\n\n'
     + '  1    no preference — rank purely by odds per CPU-second\n'
     + '  2    count them as twice as valuable\n'
@@ -7671,9 +7574,9 @@ function fdbCheckSets(staleDays) {
     // be missing. The check to run after every euler.py submit. (Was "ours",
     // "ahead" and a size-gated "submitted".)
     submitted:  base.filter(e => factorsFdbLacks(e).length > 0).sort(byN),
-    never:      base.filter(e => e.status === 'unknown').sort(byN),
+    never:      base.filter(e => e.status === 'unknown' && !isFdbUndetermined(e, fdbCache[fdbKeyOf(e.n)])).sort(byN),
     old:        base.filter(e => e.status !== 'full' && stale(e)).sort(byN),
-    fdb:        base.filter(e => e.status === 'fdb-unknown').sort(byN),
+    fdb:        base.filter(e => e.status === 'unknown' && isFdbUndetermined(e, fdbCache[fdbKeyOf(e.n)])).sort(byN),
     everything: base.filter(e => e.status !== 'full').sort(byN),
   };
 }
@@ -9184,7 +9087,6 @@ function recordEcmFactor(entry, factorStr, method, opts) {
   // Every log find used to be 'e', so a factor a P-1 run found was labelled "your ECM".
   const code = (method === 'P-1' || method === 'P+1') ? 'p' : 'e';
   try { recordDiscovery(n, factorStr, code); } catch(e) { logSwallowed('recordEcmFactor/history', e); }
-  try { markNewFactor(n, factorStr); } catch(e) { logSwallowed('recordEcmFactor/new', e); }   // past the 'dup' check: new to the entry
 
   // Log to changelog data layer (panel removed, but sync payload still carries it).
   try { addChangelogEntry(n, status === 'full' ? 'promoted' : 'updated', 'ECM factor ' + factorStr + ' (' + factorStr.length + 'd)' + (isPrime ? '' : ' [composite]') + by); } catch(e) { logSwallowed('recordEcmFactor/changelog', e); }
@@ -9456,14 +9358,6 @@ function applyFdbResult(data, n, numberStr) {
   try {
     for (const f of fdbPrimes) recordDiscovery(n, f, 'f');
   } catch(e) { logSwallowed('applyFdbResult/history', e); }
-  // NEW: what FactorDB brought that the entry did not hold. Judged against the entry's
-  // own factors, not the history — that lacks factors recorded before it existed.
-  if (entry) {
-    try {
-      const had = new Set(priorOwn.map(f => String(f).split('^')[0]));
-      for (const f of merged) { const b = String(f).split('^')[0]; if (!had.has(b)) markNewFactor(n, b); }
-    } catch(e) { logSwallowed('applyFdbResult/new', e); }
-  }
 
   // Source: 'fdb' only if FDB covers every prime base we hold, at >= the power
   // we hold. Compare by base + exponent so "5" is covered by FDB's "5^2".
@@ -9629,9 +9523,10 @@ function applyFdbResult(data, n, numberStr) {
       addFdbUnknown(n);
       entry._fdbUnknown = true;
       if (priorCount === 0) {
-        // Nothing of our own either — 'fdb-unknown' is the whole truth.
-        if (entry.status !== 'fdb-unknown') statusChanged = true;
-        entry.status = 'fdb-unknown';
+        // Nothing of our own either: nothing is known — one category, whether or not
+        // FactorDB was asked (that fact is the flag above).
+        if (entry.status !== 'unknown') statusChanged = true;
+        entry.status = 'unknown';
       }
       // With factors of our own, 'partial' stays: it describes OUR knowledge
       // correctly. The _fdbUnknown flag carries the rest of the story.
@@ -10502,7 +10397,6 @@ function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, 
   // invisible to the yield report, the finds column and factorProvenance. It
   // showed as belonging to nobody.
   try { recordDiscovery(n, factorStr, prov); } catch (err) { logSwallowed('manualAdd/prov', err); }
-  try { markNewFactor(n, factorStr); } catch (err) { logSwallowed('manualAdd/new', err); }
 
   // MERGE into the cache record, do not replace it.
   //
@@ -10721,7 +10615,6 @@ function applyFilters(opts) {
     if (v.n != null) window._fdbCacheByN[v.n] = v;
   }
   const ecmData = loadECM();
-  const newMarks = activeFilter === 'new' ? loadNewSince() : null;
   filtered = allEntries.filter(e => {
     let matchFilter;
     if (activeFilter === 'all') {
@@ -10735,8 +10628,6 @@ function applyFilters(opts) {
       // finished a number FactorDB knows nothing about is the strongest case of
       // being ahead of it, not a reason to hide the entry.
       matchFilter = factorsFdbLacks(e).length > 0;
-    } else if (activeFilter === 'new') {
-      matchFilter = !!newMarks[String(e.n)];                      // what came in since you last looked
     } else {
       matchFilter = e.status === activeFilter;
     }
@@ -10930,8 +10821,7 @@ function renderGrid() {
       partial:        '<span class="card-badge badge-partial">◐ PARTIAL</span>',
       composite:      '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>',
       attempted:      '<span class="card-badge badge-attempted">⟳ ECM</span>',
-      'fdb-unknown':  '<span class="card-badge badge-fdb-unknown">◌ FDB UNDETERMINED</span>',
-    }[e.status] || '<span class="card-badge badge-unknown">○ NEVER CHECKED</span>';
+    }[e.status] || '<span class="card-badge badge-unknown">○ UNDETERMINED</span>';
 
     // No "⟳" marker beside the status badge. It meant "ECM runs are logged", but it
     // is the universal refresh symbol, so it read as a refresh button — one that did
@@ -10947,12 +10837,9 @@ function renderGrid() {
       ? `<span class="card-badge badge-ahead" title="We hold ${heldCount} factor(s); ${heldCount - aheadCount} of them are on FactorDB. ${aheadCount} would be submitted.">↑ ${heldCount}/${heldCount - aheadCount} FDB</span>`
       : '';
 
-    const newMark = loadNewSince()[String(e.n)];
-    const newBadge = newMark
-      ? `<span class="card-badge badge-new" title="Since you last opened it: ${escHtml(newSinceText(newMark))}">NEW</span>` : '';
     return `<div class="card ${e.status}" onclick="openModal(${e.n})" style="position:relative" data-n="${e.n}">
       <div class="card-label">E(${e.n})<span class="card-sign" title="E(${e.n}) is ${signWord}">${signWord}</span></div>
-      ${badge}${aheadBadge}${newBadge}
+      ${badge}${aheadBadge}
       <div class="card-lazy" style="min-height:28px"></div>
     </div>`;
   }).join('');
@@ -11161,13 +11048,12 @@ function dismissFullyFactored() {
 function renderStats() {
   // Single pass over allEntries for all status counts (was 6 separate .filter() passes)
   const ecmD = loadECM();
-  let full = 0, partial = 0, unknown = 0, fdbUnknown = 0, composite = 0, attempted = 0;
+  let full = 0, partial = 0, unknown = 0, composite = 0, attempted = 0;
   for (const e of allEntries) {
     switch (e.status) {
       case 'full':        full++; break;
       case 'partial':     partial++; break;
       case 'unknown':     unknown++; break;
-      case 'fdb-unknown': fdbUnknown++; break;
       case 'composite':   composite++; break;
     }
     if (e.status !== 'full' && (ecmD[String(e.n)] || []).length > 0) attempted++;
@@ -11216,7 +11102,7 @@ function renderStats() {
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
     <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
     <span class="stat-item" style="color:var(--teal);cursor:pointer;text-decoration:underline dotted" onclick="showYieldReport()" title="Click for yield by ECM level — effort spent vs factors found"><strong>${attempted}</strong> ECM logged</span>
-    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> unknown · <strong>${fdbUnknown}</strong> fdb-unknown</span>
+    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> undetermined</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
     <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (7900)</span>
     ${calibHtml}
@@ -11302,8 +11188,7 @@ function openModal(n, loaded) {
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
-    'fdb-unknown': { icon:'◌', color:'#9999cc', label:'FDB Undetermined', desc:'We asked and FactorDB has no factorisation for it — it has not even settled whether the number is composite. Nothing else is working on it, so your own ECM is the only thing that will move it.' },
-       unknown:   { icon:'○', color:'var(--red)',     label:'Never Checked',         desc:'We have not asked FactorDB about this number yet. Checking is cheap and almost always tells us something — Export FDB check list → "never".' },
+       unknown:   { icon:'○', color:'var(--red)',     label:'Undetermined',          desc:'No factor of this number is known, and it is not even settled whether it is prime — FactorDB has not determined it, or has not been asked yet. A first factor is the likeliest find here, and the most useful: the sieve and ECM are where it comes from.' },
     composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
     attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
@@ -11476,8 +11361,6 @@ function openModal(n, loaded) {
       + copyBtn + '<strong>' + e.val + '</strong><span class="cofactor-fdb-arrow">↗</span></a>'
       + '</div>';
   }
-  const newMarkM = loadNewSince()[String(n)];
-  const newHtml   = newMarkM ? `<div class="new-since-line">✦ Since you last opened it: ${escHtml(newSinceText(newMarkM))}</div>` : '';
   let contribHtmlM = '';
   try { contribHtmlM = contributionsHtml(n); } catch (err) { logSwallowed('modal/contributions', err); }
   const noteHtml  = e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;padding:8px 10px;border-left:2px solid var(--border2)">${escHtml(e.note)}</div>` : '';
@@ -11536,7 +11419,7 @@ function openModal(n, loaded) {
 
   document.getElementById('modalBody').innerHTML = `
     ${summaryHtml}
-    ${newHtml}${noteHtml}
+    ${noteHtml}
     ${factorsHtml}
     ${valueHtml}
     <div class="modal-section">
@@ -11570,7 +11453,6 @@ function openModal(n, loaded) {
   `;
 
   document.getElementById('modalBackdrop').classList.add('open');
-  markSeen(n);                 // you have now seen what came in
 }
 
 // One-off modal check for cofactor
@@ -12600,7 +12482,7 @@ function buildECMSection(n, e) {
       // The sieve as a METHOD, alongside ECM and P±1 — it is one. Levels it has
       // cleared read "100%": certain — every prime below 10^k was tried, so a factor of
       // up to k digits would have been found — where every other cell is a chance.
-      const provenCell = (k) => `<td title="Proven: trial division to 10^${k} tried every prime below it, so any factor of up to ${k} digits would have been found" style="color:var(--green);font-size:10px">100%</td>`;
+      const provenCell = (k) => `<td title="Proven: trial division to 10^${k} tried every prime below it, so any factor of up to ${k} digits would have been found" style="font-size:10px;color:${ink(1)};${shade(1)}">100%</td>`;   // shaded as an ECM cell at >99.99%
       const sd = sieveDepthDigits(n);
       let sieveSec = null;
       try { sieveSec = entrySieveCpuSec(n, digits); } catch (err) { logSwallowed('grid/sieveCpu', err); }
@@ -12659,10 +12541,13 @@ function buildECMSection(n, e) {
       const covAt = new Map(cov.map(r => [r.d, r]));
       const sieveK = sd > 0 ? Math.round(sd) : 0;
       const labelSpan = 6 + (showPoly ? 1 : 0) + (showI ? 1 : 0);   // Method … Target
-      const perLevel = (cell) => levelCols.map(d => {
-        // A level the sieve has covered reads "100%", as in the Sieve row: certain, not
-        // an estimate (and "none" read as no coverage at all — the opposite).
-        if (sieveK && d <= sieveK) return provenCell(sieveK);
+      // A level the sieve has covered: in the Total row "100%", shaded as in the Sieve
+      // row — any factor that size would have been found. The other rows have nothing to
+      // say there: no factor that size can be left (Exists), and nothing is left to do
+      // (To 63%, To 95%, Value) — so a dash, and the reason on hover.
+      const provenDash = (k) => `<td title="Proven by the sieve to 10^${k}: no factor of up to ${k} digits is left — nothing to estimate or do here" style="color:var(--text-muted)">—</td>`;
+      const perLevel = (cell, isTotal) => levelCols.map(d => {
+        if (sieveK && d <= sieveK) return isTotal ? provenCell(sieveK) : provenDash(sieveK);
         const r = covAt.get(d);
         return r ? cell(r) : '<td style="color:var(--text-muted)">—</td>';
       }).join('');
@@ -12679,7 +12564,7 @@ function buildECMSection(n, e) {
         : r.perHr >= 0.1 ? 'var(--green)' : r.perHr >= 0.01 ? 'var(--yellow)' : 'var(--orange)';
       const summary = cov.length ? [
         sumRow('Total', 'All runs combined: if a factor of this size exists, the chance your runs have already found it',
-          perLevel(r => `<td style="font-size:10px;font-weight:600;color:${ink(r.have)};${shade(r.have)}">${fmtPct(r.have)}</td>`),
+          perLevel(r => `<td style="font-size:10px;font-weight:600;color:${ink(r.have)};${shade(r.have)}">${fmtPct(r.have)}</td>`, true),
           totalCpu > 0 ? fmtCpuTime(totalCpu) : '', true),
         // Measured and model-only estimates LOOK different, so the row does not read
         // with one confidence it has not earned.
@@ -13250,7 +13135,7 @@ function resetEntry(n) {
   const nRuns = (loadECM()[String(n)] || []).length;
   const nFac  = (e.factors || []).filter(f => f && f !== '1').length;
   const lines = ['  • its FactorDB record, including results imported from euler.py check'];
-  if (nFac)  lines.push(`  • its ${nFac} known factor${nFac === 1 ? '' : 's'} — the entry goes back to "never checked"`);
+  if (nFac)  lines.push(`  • its ${nFac} known factor${nFac === 1 ? '' : 's'} — the entry goes back to "undetermined"`);
   if (nRuns) lines.push(`  • all ${nRuns} logged ECM / P-1 / P+1 run${nRuns === 1 ? '' : 's'}`);
   if (typeof confirm === 'function'
       && !confirm(`Reset E(${n})?\n\nThis deletes, for this entry:\n${lines.join('\n')}`)) return;
@@ -13782,9 +13667,7 @@ async function _fixIntegrityIssues(scan) {
     if (Array.isArray(e.factors) && e.factors.length) continue; // re-verify: factors appeared since the scan
     const rec = fdbCache[fdbKeyOf(e.n)];
     const st  = rec && rec.status;
-    e.status = ['C', 'CF'].includes(st) ? 'composite'
-             : st === 'U'               ? 'fdb-unknown'
-             : 'unknown';
+    e.status = ['C', 'CF'].includes(st) ? 'composite' : 'unknown';
     e.cofactor = null;
     fixed.demotedEmpty++;
     needsRecheck.push(it.n);   // FactorDB may well know factors we never recorded
@@ -14263,34 +14146,22 @@ async function showSievePrompt() {
     const inRange = sieveCandidates(false, nFrom, nTo);
     if (!inRange.length) { alert('No unfinished entries in that range.'); continue; }
     const nU  = inRange.filter(e => e.status === 'unknown').length;
-    const nFU = inRange.filter(e => e.status === 'fdb-unknown').length;
     statuses = null;
-    if (nU + nFU) {
+    if (nU) {
       const sRaw = prompt(
         'Which entries?\n\n'
-        + '  "all"      every unfinished entry in range           ' + inRange.length.toLocaleString() + '\n'
-        + '  "nothing"  nothing known about them at all           ' + (nU + nFU).toLocaleString() + '\n\n'
-        + 'Or one half of that on its own:\n'
-        + '  "never"    never checked on FactorDB                 ' + nU.toLocaleString() + '\n'
-        + '  "fdb"      checked — FactorDB has no factorisation   ' + nFU.toLocaleString() + '\n\n'
+        + '  "all"      every unfinished entry in range   ' + inRange.length.toLocaleString() + '\n'
+        + '  "nothing"  undetermined — nothing known      ' + nU.toLocaleString() + '\n\n'
         + 'The sieve tests the cofactor, so entries that already have factors have\n'
         + 'usually had the easy ones taken. A first small factor is most likely — and\n'
         + 'worth most — on numbers nothing has touched yet.',
         'all');
       if (sRaw === null) return;
       const a = sRaw.trim().toLowerCase();
-      // Same vocabulary as the Check prompt, deliberately. These two dialogs used
-      // "unknown" for different things — both categories here, only the
-      // never-checked one there — which is precisely the confusion the rename is
-      // meant to end.
-      if (/^(nothing|nothingknown|both|none|n)$/.test(a))  statuses = ['unknown', 'fdb-unknown'];
-      else if (/^(never|unchecked|u|unknown)$/.test(a))    statuses = ['unknown'];
-      else if (/^(fdb|f|undetermined)$/.test(a))           statuses = ['fdb-unknown'];
+      if (/^(nothing|nothingknown|none|n|unknown|never|fdb)$/.test(a)) statuses = ['unknown'];
       // anything else, including "all" and an empty answer, leaves it unrestricted
     }
-    const scope = !statuses ? 'unfinished'
-                : statuses.length === 2 ? 'with nothing known'
-                : statuses[0] === 'unknown' ? 'never-checked' : 'FDB-undetermined';
+    const scope = !statuses ? 'unfinished' : 'undetermined';
 
     const all = sieveCandidates(false, nFrom, nTo, statuses);
     const fresh = sieveCandidates(true, nFrom, nTo, statuses);
@@ -14467,7 +14338,6 @@ function applySieveFindings() {
     let val;
     try { val = BigInt(e.val); } catch(err) { logSwallowed('sieveApply/val', err); continue; }
     const add = [];
-    const hadBases = new Set((e.factors || []).map(x => String(x).split('^')[0]));
     const rejectedBefore = rejected;
     for (const h of f.hits) {
       // Re-verify: the data may have changed since the scan, and writing a factor
@@ -14477,7 +14347,6 @@ function applySieveFindings() {
       } catch(err) { logSwallowed('sieveApply/verify', err); rejected++; continue; }
       add.push(h.exp > 1 ? h.p + '^' + h.exp : h.p);
       try { recordDiscovery(f.n, h.p, 's'); } catch(err) { logSwallowed('sieveApply/history', err); }
-      if (!hadBases.has(String(h.p))) { try { markNewFactor(f.n, h.p); } catch(err) { logSwallowed('sieveApply/new', err); } }
       applied++;
     }
     // Sieved to its bound now that its factors are in — unless one was rejected.
@@ -15758,7 +15627,6 @@ if (typeof document !== 'undefined' && document.addEventListener) {
 // Step 1: render synchronously with whatever is available right now
 try { loadGHSettingsToUI(); } catch(e) { console.error('loadGHSettingsToUI', e); }
 try { updateVisitorMode(); } catch(e) { console.error('updateVisitorMode', e); }
-try { updateNewCount(); } catch(e) { console.error('updateNewCount', e); }
 try { fetchLastUpdateTime(); } catch(e) { console.warn('fetchLastUpdateTime failed:', e.message); }
 
 try { renderLog(); } catch(e) { console.warn('renderLog failed:', e.message); }
@@ -15834,6 +15702,8 @@ setTimeout(async () => {
     // it maintained (_seedAddedNew) was written and cleared but never actually
     // read, so nothing depended on it.
     try { localStorage.removeItem('eulerFDB_seedNew_v1'); } catch(e) { logSwallowed('cleanup/seedNewKey', e); }
+    // The NEW category is gone; so is what it kept.
+    try { localStorage.removeItem('eulerFDB_newSince_v1'); } catch(e) { logSwallowed('cleanup/newSinceKey', e); }
     allEntries  = buildEntries();
     // Step 1's premature render (before eulerValues had loaded) computed and
     // permanently cached "no recommendation" / "no CPU total" for every entry that
@@ -15843,7 +15713,7 @@ setTimeout(async () => {
     // though real values are now loaded and a fresh computation would work fine.
     invalidateNextRunCache();
     invalidateCpuTotal();
-    applyFdbUnknownSet();              // restore fdb-unknown from dedicated localStorage set
+    applyFdbUnknownSet();              // restore the 'FactorDB had nothing' flag from its own set
     replayFDBCache();
     // Ensure no fully-factored entry is stuck as 'attempted' (index cache by n once)
     const cacheByN = new Map();
