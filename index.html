@@ -6093,8 +6093,14 @@ function reconcileSubmitted() {
   if (cleared) saveSubmitted(s);
   return { cleared, remaining: Object.keys(s).length };
 }
-function exportFDBSubmission() {
-  if (valuesMissing(null)) { needValues(null, 'the FactorDB submission').then(() => exportFDBSubmission()); return; }
+// Holds the values while it runs (see holdingValues).
+async function exportFDBSubmission(...args) { return holdingValues(_exportFDBSubmission, args); }
+async function _exportFDBSubmission(loaded) {
+  // Every factor is still checked against E(n) before it goes out, so the values are
+  // needed — but only for the entries holding factors FactorDB lacks, not all 17,500.
+  // (A failed load runs it once more without them; those entries are then skipped.)
+  const need = allEntries.filter(e => (e.factors || []).some(f => f && f !== '1') && factorsFdbLacks(e).length).map(e => e.n);
+  if (!loaded && valuesMissing(need)) { needValues(need, 'the FactorDB submission').then(() => exportFDBSubmission(true)); return; }
   if (!valuesIndexed()) {
     alert('Euler values still loading — please wait and try again.');
     return;
@@ -6107,7 +6113,16 @@ function exportFDBSubmission() {
   let count = 0, skippedNoVal = 0, skippedTooBig = 0, skippedBadFactors = 0;
 
   let skippedFdb = 0, skippedAllFdb = 0, withheldFactors = 0;
+  // Thousands of entries to check take a while (each value read into a BigInt): the
+  // page is let breathe every 40, and says how far it has got. A small job never
+  // pauses, so it still finishes before this returns.
+  const heavy = need.length > 200;
+  let seenN = 0;
   for (const e of allEntries) {
+    if (heavy && ++seenN % 40 === 0) {
+      setStatus('Checking factors against E(n) for the submission: ' + seenN.toLocaleString() + ' of ' + allEntries.length.toLocaleString() + '…', '');
+      await new Promise(r => setTimeout(r, 0));
+    }
     // Dedupe here too (not just at write time): factor lists can arrive via GitHub
     // pull from a device that hasn't run the one-time cleanup migration yet.
     // A "factor" equal to E(n) itself says nothing: FactorDB's way of listing a number it
@@ -6143,7 +6158,9 @@ function exportFDBSubmission() {
     // is where a factor wrongly recorded as p^2 became "N = p*p*..." and got sent
     // as a false claim. Each factor's full power must divide, not just its base.
     let bad = false, valBig = null;
-    try { valBig = BigInt(e.val); } catch(err) { logSwallowed('fdbSubmit/val', err); bad = true; }
+    // Through the shared memo: clampExponentsToValue below reads the same value, and
+    // two conversions of a 137,000-digit number cost twice the 11 ms.
+    try { valBig = bigOfDecimal(e.val); if (valBig == null) bad = true; } catch(err) { logSwallowed('fdbSubmit/val', err); bad = true; }
     if (!bad) {
       for (const f of factors) {
         const [bStr, xStr] = String(f).split('^');
@@ -6220,7 +6237,7 @@ function exportFDBSubmission() {
     // factor that is not a decimal number, so nothing malformed reaches FactorDB.
     // What was wrong was the app claiming to have submitted something it had not.
     if (!expanded.length) { skippedAllFdb++; continue; }
-    lines.push(e.val + '=' + expanded.join('*'));
+    lines.push('E(' + e.n + ')=' + expanded.join('*'));   // FactorDB's name for it, not its digits
     count++;
     exportedNs.push(e.n);
   }
@@ -6234,7 +6251,8 @@ function exportFDBSubmission() {
   }
 
   const header = '# FactorDB submission — ' + count + ' numbers — generated ' + new Date().toISOString().slice(0,10) + '\n' +
-                 '# Paste into https://factordb.com/report.php using "Multiple factors per line, base 10"\n';
+                 '# Numbers are named E(n), as FactorDB writes them. Send with:  py euler.py submit factordb_submission.txt --commit\n'
+               + '# (it checks every factor against E(n) itself first, and reports through FactorDB\'s API, which reads E(n))\n';
   const blob = new Blob([header + lines.join('\n') + '\n'], { type: 'text/plain' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
@@ -7657,11 +7675,14 @@ const FDB_CHECK_SET_MATCH = {
   everything: /^(everything|every|all|a|1)$/i,
 };
 
+// The numbers go out as E(n) — FactorDB's own name for them (its E(n) is the Euler
+// zigzag number, at even n exactly |E(n)|) — not as their digits. The list was every
+// picked number written out in full: hundreds of MB for a few thousand entries, more
+// than a browser tab could build. Now it is a few KB, and needs no value loaded.
 function exportFDBCheckList() {
-  if (valuesMissing(null)) { needValues(null, 'the FactorDB list').then(() => exportFDBCheckList()); return; }
   const sets = fdbCheckSets(STALE_SCOPE_DAYS);
-  const mb = (b) => (b / 1024 / 1024).toFixed(1) + 'MB';
-  const bytesOf = (list) => list.reduce((n, e) => n + e.val.length, 0);
+  const mb = (d) => (d / 1e6).toFixed(1) + 'M digits';
+  const bytesOf = (list) => list.reduce((n, e) => n + entryDigits(e), 0);
   const entries = (n) => n.toLocaleString() + ' entr' + (n === 1 ? 'y' : 'ies');
   // Every option computes its count and size from ITS OWN list — no separately kept
   // totals that could be reported against the wrong set.
@@ -7701,7 +7722,7 @@ function exportFDBCheckList() {
 
   // Two matching files, same order. Labels are kept separate so the numbers file
   // stays machine-clean, exactly like the ECM export's numbers file.
-  downloadText('fdb_numbers.txt', picked.map(e => e.val).join('\n') + '\n');
+  downloadText('fdb_numbers.txt', picked.map(e => 'E(' + e.n + ')').join('\n') + '\n');
   downloadText('fdb_labels.txt',  picked.map(e => 'E' + e.n).join('\n') + '\n');
   addLog('Exported ' + entries(picked.length) + ' ("' + chosen.key + '") for euler.py check', 'ok');
   // Says what was exported, and nothing about size limits: euler.py has none. The old
@@ -7724,13 +7745,16 @@ function exportFDBCheckList() {
 // Holds the values while it runs (see holdingValues).
 async function importFDBResults(...args) { return holdingValues(_importFDBResults, args); }
 async function _importFDBResults(file) {
-  if (valuesMissing(null)) await needValues(null, 'the FactorDB import');
   let data;
   try { data = JSON.parse(await file.text()); }
   catch(e) { alert('Could not read that file as JSON: ' + e.message); return; }
 
   let applied = 0, skipped = 0, notFound = 0, biggest = 0;
   const all = Object.entries(data);
+  // Each result's factors are checked against E(n) as it is applied: the values of
+  // the entries this file names are loaded for that — those, not all of them.
+  const named = all.map(([label]) => { const m = String(label).match(/^E?(\d+)$/); return m ? parseInt(m[1]) : null; }).filter(n => n != null);
+  if (valuesMissing(named)) await needValues(named, 'the FactorDB import');
   let done = 0;
   for (const [label, rec] of all) {
     // Every 250 entries: say how far it has got, and let the page breathe — it used to
