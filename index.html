@@ -1607,6 +1607,11 @@ async function initAppStore() {
     if (legacy != null && legacy !== '') { _kv[key] = legacy; _kvDirty.add(key); migrated.push(key); }
   }
   _kvReady = true;
+  // Anything read before the store opened is forgotten now, and what was worked out
+  // from it: the first render runs before this, and must not leave the rest of the
+  // session seeing an empty store.
+  _ecmCache = null; _cofDigCache = null; _historyCache = null; _provIndex = null; _calibCache = null;
+  try { _yieldCalibCache = null; } catch (e) { logSwallowed('initAppStore/yieldCalib', e); }
   if (migrated.length) {
     await flushKvNow(); // confirm the IDB write landed…
     for (const key of migrated) {
@@ -1619,10 +1624,17 @@ async function initAppStore() {
   return _kvReady;
 }
 
+// A read made before the store is open (the first, synchronous render) is answered
+// but NOT remembered. Remembered, it was empty — and stayed empty after the store
+// opened: the page showed no ECM runs, the pull then saw "no ECM data here" and
+// downloaded every ECM file again (~8 MB, seconds, on every visit), and its merge
+// wrote GitHub's runs over yours, losing any not yet pushed.
 function loadECM() {
   if (_ecmCache) return _ecmCache;
-  try { _ecmCache = JSON.parse(kvGet(ECM_KEY) || '{}'); } catch(e) { logSwallowed('loadECM/parse', e); _ecmCache = {}; }
-  return _ecmCache;
+  let v;
+  try { v = JSON.parse(kvGet(ECM_KEY) || '{}'); } catch(e) { logSwallowed('loadECM/parse', e); v = {}; }
+  if (_kvReady) _ecmCache = v;
+  return v;
 }
 let _ecmCache = null; // in-memory cache, invalidated on write
 
@@ -1980,7 +1992,10 @@ function saveECM(d) {
 let _cofDigCache = null;
 function loadCofDigitsCache() {
   if (_cofDigCache) return _cofDigCache;
-  try { _cofDigCache = JSON.parse(kvGet(COFDIG_KEY) || '{}'); } catch(e) { logSwallowed('loadCofDigits/parse', e); _cofDigCache = {}; }
+  let v;
+  try { v = JSON.parse(kvGet(COFDIG_KEY) || '{}'); } catch(e) { logSwallowed('loadCofDigits/parse', e); v = {}; }
+  if (!_kvReady) return v;                 // before the store is open: answered, not remembered (see loadECM)
+  _cofDigCache = v;
   return _cofDigCache;
 }
 let _cofDigSaveTimer = null;
@@ -2022,11 +2037,13 @@ let _provIndex = null;   // Map "n|hash" -> srcCode, built lazily from the histo
 
 function loadHistory() {
   if (_historyCache) return _historyCache;
+  let v;
   try {
     const raw = JSON.parse(kvGet(HISTORY_KEY) || '[]');
-    _historyCache = Array.isArray(raw) ? raw : [];
-  } catch(e) { logSwallowed('loadHistory/parse', e); _historyCache = []; }
-  return _historyCache;
+    v = Array.isArray(raw) ? raw : [];
+  } catch(e) { logSwallowed('loadHistory/parse', e); v = []; }
+  if (_kvReady) _historyCache = v;         // before the store is open: answered, not remembered (see loadECM)
+  return v;
 }
 function saveHistory(h) {
   _historyCache = h;
@@ -11585,10 +11602,12 @@ let _calibCache = null;
 
 function loadCalib() {
   if (_calibCache) return _calibCache;
-  try { _calibCache = JSON.parse(kvGet(CALIB_KEY) || '{"s":[]}'); }
-  catch { _calibCache = { s: [] }; }
-  if (!Array.isArray(_calibCache.s)) _calibCache.s = [];
-  return _calibCache;
+  let v;
+  try { v = JSON.parse(kvGet(CALIB_KEY) || '{"s":[]}'); }
+  catch { v = { s: [] }; }
+  if (!v || !Array.isArray(v.s)) v = Object.assign(v || {}, { s: [] });
+  if (_kvReady) _calibCache = v;           // before the store is open: answered, not remembered (see loadECM)
+  return v;
 }
 function saveCalib(c) {
   _calibCache = c;
