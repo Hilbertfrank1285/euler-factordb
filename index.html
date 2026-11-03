@@ -1470,6 +1470,11 @@ const IDB_KEYS = new Set([
   'eulerFDB_calib_v1',        // CALIB_KEY     — timing calibration samples
   'eulerFDB_history_v1',      // HISTORY_KEY   — append-only discovery log (uncapped)
   'eulerFDB_verifiedComplete_v1', // VERIFIED_KEY — entries confirmed complete externally
+  // SYNC_BASE_KEY — what GitHub held at the last sync. 2.8 million characters already
+  // (every run's count, every entry's factors) and growing with each run: in
+  // localStorage it would soon pass the ~5 MB limit, the save would fail, and every
+  // visit would download everything again. Read only after the store has opened.
+  'eulerFDB_syncBase_v1',
 ]);
 let _kv = Object.create(null);      // in-memory mirror (session-authoritative)
 let _kvDirty = new Set();
@@ -2405,6 +2410,7 @@ function loadFDBCache() {
       full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
                     ...(v.fdbIdExact ? { fdbIdExact: v.fdbIdExact } : {}),
                     ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
+                    ...('fdbAt' in v ? { fdbAt: v.fdbAt || 0, ...(v.fdb ? { fdb: v.fdb } : {}) } : {}),
                     ...(factors ? { factors } : {}) };
       // Also repopulate fdbFactors so replay + display work
       if (factors && factors.length) {
@@ -2487,6 +2493,8 @@ function saveFDBCache(c) {
                   // FactorDB's id for this number — lets later checks use a tiny
                   // ?id= URL instead of sending the whole number.
                   ...(v.fdbIdExact ? { fdbIdExact: v.fdbIdExact } : {}),
+                  // FactorDB's own answer and when (see fdbAnswer); 0 = never asked.
+                  ...('fdbAt' in v ? { fdbAt: v.fdbAt || 0, ...(v.fdb ? { fdb: v.fdb } : {}) } : {}),
                   factors: slimFactors.length ? slimFactors : undefined };
     // Store full factors in memory keyed by number string (for fast replay lookup)
     if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
@@ -2638,6 +2646,9 @@ let polling      = false;
 // from the save functions, cleared on a successful push. Drives the beforeunload
 // warning and the optional auto-push timer.
 let _dirty = false;
+// Counts every change marked dirty, so a push can tell whether anything changed while
+// it was uploading: those changes were not in what it sent, and must stay pending.
+let _dirtyGen = 0;
 // WHAT is waiting to go to GitHub, since the last push — shown in the Push button's
 // tooltip, so the dot is never a mystery: "Not on GitHub yet: ECM runs · pushing
 // automatically in 38 s". Also the first thing to read if it ever lights up when
@@ -2655,6 +2666,7 @@ let _pushInFlight = false;
 const AUTO_PUSH_DELAY_MS = 20000;
 
 function markDirty(what) {
+  _dirtyGen++;
   _dirty = true;
   _dirtyWhat.add(what || 'local changes');
   scheduleAutoPush();
@@ -2793,12 +2805,16 @@ function replayFDBCache() {
 
     // If this was a cofactor lookup and it resolved
     const effectiveStatus = status === 'UN' ? 'FF' : status;
+    // "FactorDB proved it" — from FactorDB's own answer. A factorisation completed
+    // HERE is full too, but its factors are not FactorDB-confirmed primes.
+    const said = fdbAnswer(cached);
+    const fdbProved = !!said && ['FF', 'P', 'PRP', 'UN'].includes(said.status);
     if (entry.cofactor === number && ['FF','P','PRP'].includes(effectiveStatus)) {
       const fdbFactors = (factors || []).filter(f => f && f !== '1');
       entry.factors  = sortFactorsAsc([...(entry.factors || []), ...fdbFactors]);
       entry.cofactor = null;
       entry.status   = 'full';
-      entry._fdbVerified = true;
+      entry._fdbVerified = fdbProved;
       entry._resolvedViaCofactor = number;
       restored++;
     }
@@ -2816,7 +2832,7 @@ function replayFDBCache() {
       entry.factors  = sortFactorsAsc(fdbFactors);
       entry.cofactor = null;
       entry.status   = 'full';
-      entry._fdbVerified = true;
+      entry._fdbVerified = fdbProved;
       restored++;
     }
 
@@ -3491,6 +3507,30 @@ function pm1ToDigits(b1, b2, method) {
 // the persistent fdb-unknown set, and a cached status of 'U'. Never having asked
 // is not evidence of anything — the right move there is to CHECK the number, not
 // to pour ECM into it.
+// ── What FactorDB itself said, and when ─────────────────────────────────────────
+// A record's `status` and `timestamp` are OURS: a factor found here moves both — to
+// CF or FF, and to now — while FactorDB has said nothing new. Read as FactorDB's
+// answer they made a number FactorDB could not factor look answered (the "our factors
+// are new" badge and the export's priority boost vanished on exactly the entries they
+// exist for), dated FactorDB checks to the day of a local find, and showed a
+// factorisation completed here as "PRIME · FDB".
+// So FactorDB's answer is kept beside them: `fdb` (its code, with an unproven
+// completeness claim recorded as CF, as applyFdbResult always has) and `fdbAt`.
+// fdbAt 0 means FactorDB has not been asked. Records from before these fields keep
+// the old reading: their status and timestamp stand for the answer.
+function fdbAnswer(rec) {
+  if (!rec) return null;
+  if ('fdbAt' in rec) return rec.fdbAt ? { status: rec.fdb || null, at: Number(rec.fdbAt) } : null;
+  return rec.status ? { status: rec.status, at: Number(rec.timestamp) || 0 } : null;
+}
+// For a write made HERE (a find, an import): carry FactorDB's answer over unchanged.
+function fdbAnswerFields(prev) {
+  const a = fdbAnswer(prev);
+  return { fdb: a ? a.status : null, fdbAt: a ? a.at : 0 };
+}
+// Has FactorDB said something about this number — a code other than U?
+function fdbHasAnswered(rec) { const a = fdbAnswer(rec); return !!a && ['FF', 'CF', 'C', 'P', 'PRP'].includes(a.status); }
+
 function isFdbUndetermined(entry, rec) {
   // A REAL ANSWER FROM FACTORDB OVERRIDES ANY OLDER MARKER, and this has to come
   // first.
@@ -3505,7 +3545,7 @@ function isFdbUndetermined(entry, rec) {
   //
   // Recency is not the test — the record is the test. A status of FF/CF/C/P/PRP
   // is FactorDB having said something, which is exactly what the marker denies.
-  if (rec && ['FF', 'CF', 'C', 'P', 'PRP'].includes(rec.status)) return false;
+  if (fdbHasAnswered(rec)) return false;
   if (entry && entry._fdbUnknown === true) return true;
   if (rec && rec.status === 'U') return true;
   try { return loadFdbUnknownSet().has(entry && entry.n); } catch (e) { return false; }
@@ -3994,7 +4034,10 @@ function bestPm1Prob(d, pm1Attempts) {
   let bestMinus = 0, bestPlus = 0;
   for (const a of pm1Attempts) {
     const b1n = parseB1(a.b1);
-    const b2n = (a.b2 ? parseB1(a.b2) : null);
+    // No B2 logged: GMP-ECM ran its default stage 2 — what the cost model, the level
+    // label (pm1ToDigits) and the planner's own prior all assume. Read as stage 1 only,
+    // the run was priced with a stage 2 it was then given no credit for.
+    const b2n = a.b2 ? parseB1(a.b2) : pm1DefaultB2(b1n);
     const p = pm1Probability(d, b1n, b2n, a.method);
     if (a.method === 'P+1') { if (p > bestPlus) bestPlus = p; }
     else                    { if (p > bestMinus) bestMinus = p; }
@@ -4469,10 +4512,16 @@ function buildSyncPayload() {
     // it, or a pull would try to merge short codes against decoded local data.
     const status = _decodeStatus(v.status);
 
-    // U (fdb-unknown) — include with status only, no factors needed
-    if (status === 'U') { full[nStr] = { status: 'U', timestamp: v.timestamp, n }; continue; }
+    // FactorDB's own answer and when, wherever known (see fdbAnswer).
+    const said = 'fdbAt' in v ? { fdbAt: v.fdbAt || 0, ...(v.fdb ? { fdb: v.fdb } : {}) } : {};
+    const holds = (v.factors || []).length || ((num && fdbFactors[num] && fdbFactors[num].factors) || []).length;
+    // U (fdb-unknown) — status only. But not when it holds factors of our own: those
+    // went out without them and never reached GitHub. Such a record is CF, as
+    // applyFdbResult now writes it, with FactorDB's U kept as its answer.
+    if (status === 'U' && !holds) { full[nStr] = { status: 'U', timestamp: v.timestamp, n, ...said }; continue; }
 
-    const entry = { status, timestamp: v.timestamp, n };
+    const entry = { status: status === 'U' ? 'CF' : status, timestamp: v.timestamp, n,
+                    ...(status === 'U' && !('fdbAt' in v) ? { fdb: 'U', fdbAt: v.timestamp || 0 } : said) };
 
     // CF/FF/P/PRP — include prime factors
     // fdbFactors is ALREADY clean (cofactor stripped at FDB-response time) — do NOT re-strip
@@ -4695,6 +4744,15 @@ function mergeFactorRecords(local, remote, valStr) {
     timestamp: Math.max(lTs, rTs) || (newer && newer.timestamp) || (older && older.timestamp),
     n: (newer && newer.n != null) ? newer.n : (older && older.n),
   };
+  // FactorDB's answer: the LATER one, from whichever side — not the newer record's,
+  // which may be newer only because of a find made here. (A tie goes to the newer
+  // record, chosen deterministically above, so both machines agree.)
+  if ((local && 'fdbAt' in local) || (remote && 'fdbAt' in remote)) {
+    const a = fdbAnswer(local), b = fdbAnswer(remote);
+    const best = !a ? b : !b ? a : b.at > a.at ? b : a.at > b.at ? a : (newer === remote ? b : a);
+    out.fdbAt = best ? best.at : 0;
+    if (best && best.status) out.fdb = best.status; else delete out.fdb;
+  }
   // Always the checked union. Setting it only when non-empty meant that when the check
   // refused everything, the record kept the refused factors from the newer side —
   // "C, holding a factor that does not divide E(n)".
@@ -4706,8 +4764,12 @@ function mergeFactorRecords(local, remote, valStr) {
 function mergeSyncPayload(remote) {
   // Schema version check — warn (don't crash) if the remote file predates the
   // current format. Missing version = legacy file (pre-v3); treat as v1.
+  // A pull of only some data/ files carries no version: it lives in meta.json. That
+  // is not an old file, and logging "schema v1 … upgrading" on every such pull was noise.
   const remoteVersion = remote.version || 1;
-  if (remoteVersion > SCHEMA_VERSION) {
+  if (remote.version == null && !('changelog' in remote)) {
+    /* range files only — meta.json (version, changelog) was unchanged: nothing to say */
+  } else if (remoteVersion > SCHEMA_VERSION) {
     addLog(`⚠ results.json is schema v${remoteVersion} but this app expects v${SCHEMA_VERSION}. Update the app — pulling anyway, some fields may be ignored.`, 'warn');
   } else if (remoteVersion < SCHEMA_VERSION) {
     addLog(`Note: results.json is schema v${remoteVersion} (current is v${SCHEMA_VERSION}). Pulling and upgrading on next push.`, '');
@@ -4815,10 +4877,14 @@ function mergeSyncPayload(remote) {
   // recomputing it locally.
   if (Array.isArray(remote.history) && remote.history.length) {
     try { mergeHistory(remote.history); } catch(e) { logSwallowed('merge/history', e); }
-    try { mergeContributions(remote.contributions); } catch(e) { logSwallowed('merge/contributions', e); }
-    try { mergeQueue(remote.queue); } catch(e) { logSwallowed('merge/queue', e); }
-    try { mergeSieveLog(remote.sieveLog); } catch(e) { logSwallowed('merge/sieveLog', e); }
   }
+  // Not inside the history test: these live in data/meta.json and history in the
+  // per-range files, so a pull that fetched only meta.json — a withdrawal or a queue
+  // change made on another machine — carries them with no history at all. Each merge
+  // ignores a list that is absent.
+  try { mergeContributions(remote.contributions); } catch(e) { logSwallowed('merge/contributions', e); }
+  try { mergeQueue(remote.queue); } catch(e) { logSwallowed('merge/queue', e); }
+  try { mergeSieveLog(remote.sieveLog); } catch(e) { logSwallowed('merge/sieveLog', e); }
 
   if (remote.verifiedComplete && typeof remote.verifiedComplete === 'object') {
     try { mergeVerifiedComplete(remote.verifiedComplete, remote.verifiedCleared); } catch(e) { logSwallowed('merge/verifiedComplete', e); }
@@ -4842,7 +4908,7 @@ function mergeSyncPayload(remote) {
       // whichever side is behind rather than needing a tombstone.
       const answered = new Set();
       for (const rec of Object.values(fdbCache)) {
-        if (rec && rec.n != null && ['FF', 'CF', 'C', 'P', 'PRP'].includes(rec.status)) {
+        if (rec && rec.n != null && fdbHasAnswered(rec)) {
           answered.add(parseInt(rec.n));
         }
       }
@@ -5181,7 +5247,14 @@ function recordDeletion({ runs = [], entries = [] } = {}) {
   for (const n of entries) d.entries.add(String(n));
   kvSet(DELETED_HERE_KEY, JSON.stringify({ runs: [...d.runs], entries: [...d.entries] }));
 }
-function clearDeletedHere() { kvSet(DELETED_HERE_KEY, JSON.stringify({ runs: [], entries: [] })); }
+function clearDeletedHere(sent) {
+  if (!sent) { kvSet(DELETED_HERE_KEY, JSON.stringify({ runs: [], entries: [] })); return; }
+  // Only what the push carried: a deletion made while it was uploading is still to go.
+  const d = deletedHere();
+  for (const id of sent.runs) d.runs.delete(id);
+  for (const n of sent.entries) d.entries.delete(n);
+  kvSet(DELETED_HERE_KEY, JSON.stringify({ runs: [...d.runs], entries: [...d.entries] }));
+}
 function hasDeletionsPending() { const d = deletedHere(); return d.runs.size > 0 || d.entries.size > 0; }
 
 // A run's identity, by the merge's rule: same entry, same method, same B1.
@@ -5200,46 +5273,115 @@ function applyDeletionsToEcm(ecm, del) {
 }
 
 // PURE: {n: [factor, …]} from a sync payload — this browser's or GitHub's copy.
+// Prime powers are kept as written ("5^2"): 2,465 of GitHub's factors are one, and
+// dropping them made "5" on GitHub against "5^2" here look like a lost factor.
 function factorsFromPayload(payload) {
   const out = {};
   for (const [k, rec] of Object.entries((payload && payload.fdbCache) || {})) {
-    const fs = ((rec && rec.factors) || []).map(f => _decodeFactor(String(f))).filter(f => /^\d+$/.test(f) && f !== '1');
+    const fs = ((rec && rec.factors) || []).map(f => _decodeFactor(String(f))).filter(f => /^\d+(\^\d+)?$/.test(f) && f !== '1');
     if (fs.length) out[String(rec && rec.n != null ? rec.n : k)] = fs;
   }
   return out;
 }
+// PURE: a factor as written — "p" or "p^k" — as a number; null if it is neither.
+function factorBigOf(f) {
+  const m = /^(\d+)(?:\^(\d+))?$/.exec(String(f));
+  if (!m) return null;
+  try { return BigInt(m[1]) ** BigInt(m[2] || 1); } catch (e) { return null; }
+}
 
 // PURE: what a push would remove from GitHub that was not deleted here.
-function pushLosses(base, localEcm, localFactors, del, values) {
+// `ctx` (optional) carries the deliberate corrections the guard must not call losses:
+//   ledger     — the contributions ledger: a WITHDRAWN submission's curves are gone on
+//                purpose, and every merge takes them out again (applyWithdrawals);
+//   isSelf     — (n, f) → f is E(n) itself, which the repair removes from records;
+//   composite  — (n) → FactorDB says E(n) is composite, so a factor equal to the whole
+//                unfactored rest is the cofactor artefact the integrity fixer strips.
+// With E(n)'s value at hand, a factor that does not divide it is provably not one —
+// the merge refuses it for the same reason — so its removal here is no loss either.
+function pushLosses(base, localEcm, localFactors, del, values, ctx) {
   const lost = { runs: [], factors: [] };
   if (!base) return lost;
   del = del || { runs: new Set(), entries: new Set() };
+  ctx = ctx || {};
+  // Curves withdrawn, per run. GitHub's copy is kept compact — counts, no sigmas — so
+  // applyWithdrawals cannot be used on it; the counts are subtracted instead. A
+  // non-ECM run the submission created goes whole (Infinity).
+  const gone = new Map();
+  for (const r of ctx.ledger || []) {
+    if (!r || r.decision !== 'withdrawn' || !r.added || !Array.isArray(r.added.runs)) continue;
+    for (const run of r.added.runs) {
+      const k = Array.isArray(run.sigmas) && run.sigmas.length ? run.sigmas.length
+              : (run.created && run.method !== 'ECM' ? Infinity : 0);
+      if (k) { const id = ecmRunId(run.n, run); gone.set(id, (gone.get(id) || 0) + k); }
+    }
+  }
   const mine   = mergeEcmInto(localEcm, {});                          // normalised, as the merge sees it
   const merged = mergeEcmInto(localEcm, applyDeletionsToEcm(base.ecm || {}, del));
   for (const [n, runs] of Object.entries(merged)) {
     for (const a of runs) {
-      const hit = (mine[n] || []).find(x => ecmRunId(n, x) === ecmRunId(n, a));
+      const id = ecmRunId(n, a);
+      const hit = (mine[n] || []).find(x => ecmRunId(n, x) === id);
       const ac = parseInt(a.curves) || 0, hc = hit ? (parseInt(hit.curves) || 0) : 0;
-      if (!hit)         lost.runs.push({ n: Number(n), method: a.method, b1: a.b1, curves: ac, why: 'missing' });
-      else if (ac > hc) lost.runs.push({ n: Number(n), method: a.method, b1: a.b1, curves: ac - hc, why: 'fewer curves' });
+      const slack = gone.get(id) || 0;
+      // A missing run is a loss even at a count of 0 (a P±1 run's is often blank).
+      if (!hit) { if (Math.max(ac, 1) > slack) lost.runs.push({ n: Number(n), method: a.method, b1: a.b1, curves: ac, why: 'missing' }); }
+      else if (ac - hc > slack) lost.runs.push({ n: Number(n), method: a.method, b1: a.b1, curves: ac - hc - slack, why: 'fewer curves' });
     }
   }
   for (const [n, fs] of Object.entries(base.factors || {})) {
     if (del.entries.has(String(n))) continue;
     const have = (localFactors && localFactors[n]) || [];
     let prod = 1n;
-    for (const f of have) { try { prod *= BigInt(f); } catch (e) { /* not a number — contributes nothing */ } }
+    for (const f of have) { const F = factorBigOf(f); if (F) prod *= F; }   // not a number — contributes nothing
+    let V = null;
+    if (values && values[n]) { try { V = BigInt(values[n]); } catch (e) { V = null; } }
     for (const f of fs) {
       if (have.includes(f)) continue;
       // E(n) itself was never a factor (FactorDB's C answer listed it as one, and the
-      // repair removes it). Its absence is not a loss — values are E(n), by entry.
+      // repair removes it). Its absence is not a loss — values are E(n), by entry; the
+      // index (digit count and leading digits) tells it without the value.
       if (values && values[n] && String(f) === String(values[n])) continue;
-      let implied = false;
-      try { const F = BigInt(f); implied = F > 1n && prod % F === 0n; } catch (e) { /* unparseable — not implied */ }
-      if (!implied) lost.factors.push({ n: Number(n), f });
+      if (ctx.isSelf && ctx.isSelf(Number(n), String(f).split('^')[0])) continue;
+      const F = factorBigOf(f);
+      if (F && F > 1n && prod % F === 0n) continue;               // still implied by what is here
+      if (F && V) {
+        if (V % F !== 0n) continue;                                // not a factor at all: a correction
+        if (F === V) continue;
+        if (ctx.composite && ctx.composite(Number(n)) && F * prod === V) continue;   // the unfactored rest
+      }
+      lost.factors.push({ n: Number(n), f });
     }
   }
   return lost;
+}
+// The corrections the loss check must know about — see pushLosses.
+function lossContext() {
+  return {
+    ledger: loadContributions(),
+    isSelf: (n, b) => isOwnNumber(b, n),
+    composite: (n) => { const r = fdbCache && fdbCache[fdbKeyOf(n)]; return !!r && (r.status === 'C' || r.status === 'CF'); },
+  };
+}
+// What a push would remove from GitHub — loading E(n) for the entries that still show a
+// lost factor, since only the value can tell a correction from a loss.
+// Also returns, as `snap`, the copy it checked — the payload, the runs, the deletions and
+// the change count, all taken together — so the push can send exactly what was checked
+// rather than building it again (176 ms a time on the full data, two to five times a push).
+async function pushLossesNow() {
+  const payload = buildSyncPayload(), ecm = loadECM(), del = deletedHere(), gen = _dirtyGen;
+  const mine = factorsFromPayload(payload);
+  const check = () => pushLosses(_syncBase, ecm, mine, del, eulerValues, lossContext());
+  let L = check();
+  if (L.factors.length) {
+    const ns = [...new Set(L.factors.map(x => x.n))];
+    if (valuesMissing(ns)) {
+      // Loading values changes no part of the payload: only what the check can prove.
+      try { await needValues(ns, 'the push check'); L = check(); }
+      catch (e) { logSwallowed('pushGuard/values', e); }
+    }
+  }
+  return { runs: L.runs, factors: L.factors, snap: { payload, ecm, del, gen } };
 }
 
 function lossMessage(L) {
@@ -5278,13 +5420,16 @@ async function ghShaAt(apiBase) {
 // Re-apply a reset after a merge brought the entry's data back. Works from the
 // FactorDB records themselves, so it does not need the entry list to be built yet.
 function resetEntryData(n) {
+  // fdbFactors too: loadFDBCache and buildSyncPayload prefer it to the stored record,
+  // so a kept copy would hand the old factors to the entry's next record.
   for (const [k, rec] of Object.entries(fdbCache)) {
-    if (rec && Number(rec.n) === Number(n)) delete fdbCache[k];
+    if (rec && Number(rec.n) === Number(n)) { delete fdbCache[k]; delete fdbFactors[k]; }
   }
+  delete fdbFactors[fdbKeyOf(n)];
   const e = entryByN(n);
   if (e) {
     if (fdbCache[fdbKeyOf(e.n)])            delete fdbCache[fdbKeyOf(e.n)];
-    if (e.cofactor && fdbCache[e.cofactor]) delete fdbCache[e.cofactor];
+    if (e.cofactor && fdbCache[e.cofactor]) { delete fdbCache[e.cofactor]; delete fdbFactors[e.cofactor]; }
     e.status = 'unknown'; e.factors = []; e.cofactor = null;
     delete e._fdbVerified; delete e._resolvedViaCofactor;
   }
@@ -5355,20 +5500,21 @@ async function pushGuard() {
     setGHStatus('GitHub changed since this browser last synced — merging first…', 'busy');
     if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s latest version to merge, so nothing was sent');
   }
-  const L = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere(), eulerValues);
+  const L = await pushLossesNow();
   if (L.runs.length || L.factors.length) {
     if (!confirm(lossMessage(L))) return stop('Push cancelled — it would have removed data from GitHub that was not deleted here');
     setGHStatus('Restoring from GitHub before pushing…', 'busy');
     if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s version to restore from, so nothing was sent');
     // Check again. The restore used to be trusted, and once could not undo the loss —
     // pushing straight after it would have erased exactly what it was meant to keep.
-    const L2 = pushLosses(_syncBase, loadECM(), factorsFromPayload(buildSyncPayload()), deletedHere(), eulerValues);
+    const L2 = await pushLossesNow();
     if (L2.runs.length || L2.factors.length) {
       return stop('Push stopped: restoring from GitHub did not bring back ' + L2.factors.length
         + ' factor(s) and ' + L2.runs.length + ' run(s), so nothing was sent — please report this');
     }
+    return { ok: true, snap: L2.snap };
   }
-  return { ok: true };
+  return { ok: true, snap: L.snap };
 }
 
 function mergePulledMain(payload, skipRender, recordBase) {
@@ -5455,11 +5601,15 @@ async function pullEcmChunks(ctx, paths) {
   addLog('Pulled ECM runs from GitHub: ' + fmtTransfer(paths.length, paths.reduce((t, p) => t + (got[p].bytes || 0), 0), Date.now() - t0), 'ok');
   const remoteEcm = joinEcmParts(paths.map(p => got[p].obj));
   const ranges = paths.map(chunkRange).filter(Boolean);
+  // Merge FIRST, then record the files as seen — as the results pull does. Recorded
+  // first, a merge that failed (storage full) left them marked as merged: never
+  // fetched again, and every push asking about runs it could not restore.
+  const changed = mergePulledEcm(remoteEcm, ranges);
   setSyncBase({
     files: Object.assign({}, (_syncBase && _syncBase.files) || {}, ...paths.map(p => ({ [p]: got[p].sha }))),
     ecm: replaceRanges((_syncBase && _syncBase.ecm) || {}, remoteEcm, ranges),
   });
-  return mergePulledEcm(remoteEcm, ranges);
+  return changed;
 }
 
 async function githubPull(skipRender) {
@@ -5621,13 +5771,22 @@ async function githubPush() {
     // GitHub during the push; re-sending would overwrite that change, so merge GitHub's
     // new version in first, plan again, and retry once.
     const ctx = syncCtx();
-    let payload = null, lastShas = {}, uploaded = [], sentPlan = [];
+    let payload = null, ecmSent = null, delSent = null, genSent = 0, lastShas = {}, uploaded = [], sentPlan = [];
     for (let attempt = 0; ; attempt++) {
       const head = await branchHead(ctx);                       // the commit this push builds on
       // Listed AT that commit, so the plan and the commit's base cannot disagree.
       const listing = (await dataListing(ctx, head ? head.commit : null)) || {};
-      payload = buildSyncPayload();
-      const plan = await planChunkedPush(payload, loadECM(), listing);
+      // What this push sends — remembered, so a change made while it uploads is not
+      // taken as sent: not marked clean, not recorded as on GitHub, not forgotten.
+      // The first attempt sends the copy the guard checked, taken in one synchronous
+      // step; a retry merged GitHub's newer version in, so it builds afresh.
+      if (attempt === 0 && guard.snap) {
+        ({ payload, ecm: ecmSent, gen: genSent, del: delSent } = guard.snap);
+      } else {
+        payload = buildSyncPayload(); ecmSent = loadECM();
+        genSent = _dirtyGen; delSent = deletedHere();     // synchronous with the build: nothing runs between
+      }
+      const plan = await planChunkedPush(payload, ecmSent, listing);
       lastShas = Object.assign({}, listing);
       if (!plan.length) { uploaded = []; break; }
       setGHStatus('Pushing ' + plan.length + ' changed file' + (plan.length === 1 ? '' : 's') + ' in one commit…', 'busy');
@@ -5639,10 +5798,11 @@ async function githubPush() {
       addLog('GitHub changed during the push — merging it in and retrying', 'warn');
       if (!await pullBothFromGitHub()) throw new Error('GitHub changed during the push, and its new version could not be fetched to merge — nothing was sent');
     }
-    // GitHub now holds exactly this browser's copy: every differing file was sent.
-    setSyncBase({ files: lastShas, ecm: loadECM(), factors: factorsFromPayload(payload) });
-    clearDeletedHere();
-    markClean();
+    // GitHub now holds exactly the copy this push built: every differing file was sent.
+    setSyncBase({ files: lastShas, ecm: ecmSent, factors: factorsFromPayload(payload) });
+    clearDeletedHere(delSent);
+    if (_dirtyGen === genSent) markClean();
+    else { addLog('Changes made during the push are still to go — they follow with the next one', ''); scheduleAutoPush(); updateDirtyIndicator(); }
     const pushTime = new Date();
     const took = pushTime.getTime() - tPush;
     const moved = fmtTransfer(uploaded.length, sentPlan.reduce((t, x) => t + (x.bytes || 0), 0), took);
@@ -5875,6 +6035,10 @@ function clearAllLocalData() {
   // Refuse while anything is unpushed. This is the one button that can destroy
   // data with no undo, and the dialog's promise only holds if GitHub already has
   // everything.
+  // A visitor never pushes, so "is it all on GitHub?" cannot be asked — and refusing
+  // left no way at all to reset a broken copy. Say what is at stake and let them choose.
+  const visitor = isVisitor();
+  if (!visitor) {
   const risk = unpushedWork();
   if (risk.length) {
     alert('Not clearing — there is work here that GitHub does not have:\n\n'
@@ -5883,6 +6047,7 @@ function clearAllLocalData() {
       + 'the dot on Push to go out, then try again. (Runs and factors go up together,\n'
       + 'in one commit.)');
     return;
+  }
   }
 
   // Custom in-page confirm (native confirm() can be permanently blocked by Chrome)
@@ -5900,9 +6065,11 @@ function clearAllLocalData() {
         • FDB cache (all query results)<br>
         • ECM logs<br>
         • Changelog &amp; activity log<br>
-        • FDB-unknown &amp; seed-new sets
+        • FactorDB-undetermined markers
       </div>
-      <div style="margin-bottom:16px;color:var(--text-muted)">GitHub token is kept. Pull from GitHub afterwards to restore your data.</div>
+      <div style="margin-bottom:16px;color:var(--text-muted)">${visitor
+        ? 'This browser is not signed in to GitHub, so it cannot check that everything here is there. The shared data comes back on the next load; anything you logged or imported here and have not sent as a submission is lost.'
+        : 'GitHub token is kept. Pull from GitHub afterwards to restore your data.'}</div>
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <button id="clearCancelBtn" style="padding:7px 16px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);cursor:pointer">Cancel</button>
         <button id="clearConfirmBtn" style="padding:7px 16px;background:var(--red-dim);border:1px solid var(--red);color:var(--red);cursor:pointer;font-weight:600">Delete everything</button>
@@ -5945,10 +6112,18 @@ function doClearAllLocalData() {
   // Drop the in-memory mirror first (and cancel any pending flush) so a debounced
   // write can't resurrect what we just deleted.
   if (_kvFlushTimer) { clearTimeout(_kvFlushTimer); _kvFlushTimer = null; }
+  // The debounced writers too: each would write its old data into the fresh store a
+  // moment later — the FactorDB records within 400 ms, in time to reach IndexedDB
+  // before the reload — and a pending push would send from a store being emptied.
+  if (_fdbSaveTimer) { clearTimeout(_fdbSaveTimer); _fdbSaveTimer = null; }
+  _fdbSavePending = null;
+  if (_cofDigSaveTimer) { clearTimeout(_cofDigSaveTimer); _cofDigSaveTimer = null; }
+  if (_valueMetaTimer) { clearTimeout(_valueMetaTimer); _valueMetaTimer = null; }
+  if (_autoPushTimer) { clearTimeout(_autoPushTimer); _autoPushTimer = null; }
+  if (_ecmPushTimer) { clearTimeout(_ecmPushTimer); _ecmPushTimer = null; }
   _kv = Object.create(null); _kvDirty.clear();
   _ecmCache = null; _cofDigCache = null;
   _syncBase = null;   // forget what GitHub held too: the next pull must download everything again
-  _newSince = null;
   const wipeIdb = (async () => {
     const db = await openAppDB();
     if (!db) return;
@@ -6047,8 +6222,14 @@ async function _exportFDBSubmission(loaded) {
     // pull from a device that hasn't run the one-time cleanup migration yet.
     // A "factor" equal to E(n) itself says nothing: FactorDB's way of listing a number it
     // cannot factor, or a prime E(n) being its own factorisation. Nothing to send.
-    const factors = dedupeCompositeFactors((e.factors || []).filter(f => f && f !== '1' && String(f).split('^')[0] !== String(e.val)));
+    const factors = dedupeCompositeFactors((e.factors || []).filter(f => { if (!f || f === '1') return false;
+      const b = String(f).split('^')[0];
+      return b !== String(e.val) && !isOwnNumber(b, e.n); }));
     if (!factors.length) continue;
+    // FactorDB holding everything is decided FIRST: it needs no value, and only the
+    // entries it leaves were loaded — so every covered entry was being counted as
+    // "skipped (no value)" before reaching the check that actually applies to it.
+    if (!factorsFdbLacks(e).length) { skippedFdb++; continue; }
     if (!e.val) { skippedNoVal++; continue; }
 
     // FactorDB report.php accepts large numbers; cap only at a genuinely huge size.
@@ -6071,7 +6252,6 @@ async function _exportFDBSubmission(loaded) {
     // factorsFdbLacks answers per factor, using fdbHas, then provenance, then the
     // source tag only as a last resort. An entry is skipped when it leaves nothing.
     const cached = fdbCache[fdbKeyOf(e.n)];
-    if (!factorsFdbLacks(e).length) { skippedFdb++; continue; }
 
     // Verify every factor against E(n) BEFORE writing a submission line. These go
     // to a public database, so a wrong line is worse than a missing one — and this
@@ -6937,7 +7117,7 @@ async function exportNextRuns() {
           n: e.n, entry: e, digits: runDigits, fdbUnknown,   // keep entry ref; resolve value lazily
           method: r.method, b1: r.b1, b2: r.b2, rawB1: r.rawB1, rawB2: r.rawB2,
           curves: r.curves, rawCurves: r.rawCurves,
-          gain: parseFloat(r.gain) || 0, cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
+          gain: recGain(r), cpuTime: r.cpuTime || 0, targetDigits: r.targetDigits,
         });
       }
     }
@@ -7566,7 +7746,9 @@ function fdbCheckSets(staleDays) {
   const base   = allEntries.filter(e => entryDigits(e) && e.n > 2);
   const days   = staleDays || 31;
   const cutoff = Date.now() - days * 86400000;
-  const stale  = (e) => { const rec = fdbCache[fdbKeyOf(e.n)]; return !!(rec && rec.timestamp && rec.timestamp < cutoff); };
+  // Stale = FactorDB last answered before the cutoff. A local find since does not
+  // make FactorDB's answer any newer.
+  const stale  = (e) => { const said = fdbAnswer(fdbCache[fdbKeyOf(e.n)]); return !!(said && said.at && said.at < cutoff); };
   const byN    = (a, b) => a.n - b.n;
   return {
     // Factors we hold that FactorDB lacks — sent or not, ANY size, and including
@@ -7857,7 +8039,7 @@ function submissionOwner(blk, cache) {
 // "Covered to tN": the highest level at the 63% target, or proven empty by the sieve.
 function coveredTo(e, digits, attempts, sd) {
   let covered = 0;
-  for (const r of computeCostToFinish(e, digits, attempts)) {
+  for (const r of costForEntry(e, digits, attempts)) {
     if (r.have >= COST_TARGET_LO || (sd > 0 && r.d <= sd)) covered = Math.max(covered, r.d);
   }
   return covered;
@@ -9070,7 +9252,7 @@ function recordEcmFactor(entry, factorStr, method, opts) {
   // to prevent, on exactly the entries where new work had just been done.
   const cacheStatus = status === 'full' ? 'FF' : 'CF';
   const prevRec = fdbCache[fdbKeyOf(entry.n)] || {};
-  fdbCache[fdbKeyOf(entry.n)] = { ...prevRec,
+  fdbCache[fdbKeyOf(entry.n)] = { ...prevRec, ...fdbAnswerFields(fdbCache[fdbKeyOf(entry.n)]),
     status: cacheStatus, factors: merged, timestamp: Date.now(), source: 'import', n };
   fdbFactors[fdbKeyOf(entry.n)] = { factors: merged };
   saveFDBCache(fdbCache);
@@ -9431,7 +9613,15 @@ function applyFdbResult(data, n, numberStr) {
   // would have erased them from GitHub (the push guard caught 121 about to go).
   const verifiedStatus = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF'
                        : (status === 'C' && merged.length) ? 'CF'
+                       // U while holding factors of our own: the record is OURS, and
+                       // ours is CF. Kept as U, the sync payload sent it without its
+                       // factors (a U record is status only) — so a sieve find on a
+                       // number FactorDB then answered U never reached GitHub.
+                       // FactorDB's U is kept as its answer, in `fdb`.
+                       : (status === 'U' && merged.length) ? 'CF'
                        : status;
+  // FactorDB's own answer: its code, except an unproven completeness claim (CF).
+  const fdbSaid = (['FF','P','PRP'].includes(status) && !provesFull) ? 'CF' : status;
   // What FACTORDB HOLDS, as distinct from who found each factor first.
   //
   // Provenance answers "who found it", and recordDiscovery deliberately keeps the
@@ -9449,9 +9639,10 @@ function applyFdbResult(data, n, numberStr) {
   // Retiring it here is what stops the set accumulating markers its own cache
   // records contradict — the state that made a tile claim "FDB has nothing on
   // this" beside a modal saying FactorDB held every factor.
-  if (['FF', 'CF', 'C', 'P', 'PRP'].includes(verifiedStatus)) removeFdbUnknown(n);
+  if (['FF', 'CF', 'C', 'P', 'PRP'].includes(fdbSaid)) removeFdbUnknown(n);
 
   const cacheEntry = { status: verifiedStatus, factors: merged, timestamp: Date.now(), source, n,
+                       fdb: fdbSaid, fdbAt: Date.now(),
                        ...(fdbPrimes.length ? { fdbHas: fdbPrimes.slice() } : {}),
                        ...(fdbIdExact ? { fdbIdExact } : {}) };
   if (n != null) {                     // kept under the entry, not its number
@@ -10384,7 +10575,22 @@ function dedupeCompositeFactors(list) {
 // changelog, caches, redraw — kept as one function so any other path that ever adds a
 // verified factor goes through exactly the same steps as the modal's "Add known factor".
 function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, label) {
-  e.factors = [...(e.factors || []), factorStr];
+  // Combined with a power of the same prime already held, and sorted. The factor was
+  // verified against the REMAINING cofactor, so "5^2" added beside "5" means 5^3 —
+  // exponents add. Appended as a second entry, the next sync merge (which takes the
+  // larger exponent: collapseFactorPowers) would have kept 5^2 and lost a factor 5.
+  const add = parseFactorPower(factorStr);
+  let combined = false;
+  const list = (e.factors || []).map(f => {
+    if (combined) return f;
+    const cur = parseFactorPower(f);
+    if (cur.base !== add.base) return f;
+    combined = true;
+    const k = cur.exp + add.exp;
+    return k > 1 ? cur.base + '^' + k : cur.base;
+  });
+  if (!combined) list.push(factorStr);
+  e.factors = sortFactorsAsc(list);
   e.cofactor = null;
   e.status = 'partial';
 
@@ -10406,16 +10612,16 @@ function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, 
   // the bug §14 exists to prevent. fdbId is the cheap re-check handle for numbers
   // too big to query by value.
   const prev = fdbCache[fdbKeyOf(e.n)] || {};
-  fdbCache[fdbKeyOf(e.n)] = { ...prev,
+  fdbCache[fdbKeyOf(e.n)] = { ...prev, ...fdbAnswerFields(fdbCache[fdbKeyOf(e.n)]),
     status: e.status === 'full' ? 'FF' : 'CF',
     factors: e.factors, timestamp: Date.now(), source, n };
   fdbFactors[fdbKeyOf(e.n)] = { factors: e.factors };
   saveFDBCache(fdbCache);
 
-  // FactorDB is not undetermined about this number any more — and this is the one
-  // rule for saying so, rather than a third hand-rolled set edit.
-  removeFdbUnknown(n);
-  e._fdbUnknown = false;
+  // FactorDB's "undetermined" marker stays: a factor found HERE tells FactorDB
+  // nothing. It is what marks these factors as new to FactorDB and worth submitting —
+  // removing it here hid the badge on exactly the entries it is for. A real answer
+  // from FactorDB retires it (applyFdbResult).
 
   const newRemMsg = newRemaining > 1n
     ? ' — remaining cofactor: ' + String(newRemaining).length + ' digits'
@@ -10426,7 +10632,7 @@ function commitKnownFactor(n, e, factorStr, remaining, factorBig, prov, source, 
   scheduleECMPush();
   invalidateNextRunCache(); // cofactor shrank — cached recommendation is stale
   invalidateCpuTotal();
-  applyFilters(); renderStats();
+  applyFilters({ keepPage: true }); renderStats();   // stay on the page you were browsing
 }
 
 // PURE: a typed factor in canonical form — "00123" → "123", "05^02" → "5^2", "5^1" → "5".
@@ -10609,11 +10815,8 @@ function factorsFdbLacks(e) {
 }
 
 function applyFilters(opts) {
-  // Build fast n→fdbCache lookup for filter checks
-  window._fdbCacheByN = {};
-  for (const v of Object.values(fdbCache)) {
-    if (v.n != null) window._fdbCacheByN[v.n] = v;
-  }
+  // (An n→record map was rebuilt here on every call — every keystroke in the search
+  // box walked all ~17,000 records — and nothing read it.)
   const ecmData = loadECM();
   filtered = allEntries.filter(e => {
     let matchFilter;
@@ -10638,22 +10841,28 @@ function applyFilters(opts) {
       (e.val ? e.val.startsWith(q) : (q.length <= 17 && entryLead(e).startsWith(q)));
     return matchFilter && matchSearch;
   });
-  // Sort
+  // Sort. Each entry's key is worked out ONCE, before sorting: the comparator runs
+  // n log n times — about 500,000 key lookups for 17,500 entries — and the CPU key
+  // runs the time model over every logged run. Sorting by CPU took half a second on
+  // every keystroke in the search box.
+  const keyOf = (fn) => { const m = new Map(); for (const e of filtered) m.set(e, fn(e)); return m; };
   if (sortMode === 'n-desc') {
     filtered.sort((a, b) => b.n - a.n);
   } else if (sortMode === 'cpu-asc' || sortMode === 'cpu-desc') {
+    const cpu = keyOf(e => getTotalCpuForEntry(e) || 0);
     filtered.sort((a, b) => {
-      const ca = getTotalCpuForEntry(a) || 0;
-      const cb = getTotalCpuForEntry(b) || 0;
+      const ca = cpu.get(a);
+      const cb = cpu.get(b);
       if (!ca && !cb) return a.n - b.n;
       if (!ca) return 1;
       if (!cb) return -1;
       return sortMode === 'cpu-desc' ? cb - ca : ca - cb;
     });
   } else if (sortMode === 'nextrun-asc' || sortMode === 'nextrun-desc') {
+    const next = keyOf(getNextRunTimeForEntry);
     filtered.sort((a, b) => {
-      const na = getNextRunTimeForEntry(a);
-      const nb = getNextRunTimeForEntry(b);
+      const na = next.get(a);
+      const nb = next.get(b);
       // entries with no recommended run (e.g. fully factored) sort last
       if (na == null && nb == null) return a.n - b.n;
       if (na == null) return 1;
@@ -10667,11 +10876,10 @@ function applyFilters(opts) {
   } else if (sortMode === 'nfac-asc' || sortMode === 'nfac-desc') {
     filtered.sort((a, b) => compareByValue(a, b, knownFactorCount(a), knownFactorCount(b), sortMode === 'nfac-desc'));
   } else if (sortMode === 'fdb-asc' || sortMode === 'fdb-desc') {
+    const at = keyOf(e => { const i = getFdbCheckInfo(e); return i ? i.timestamp : 0; });
     filtered.sort((a, b) => {
-      const ia = getFdbCheckInfo(a);
-      const ib = getFdbCheckInfo(b);
-      const ta = ia ? ia.timestamp : 0;
-      const tb = ib ? ib.timestamp : 0;
+      const ta = at.get(a);
+      const tb = at.get(b);
       if (!ta && !tb) return a.n - b.n;
       if (!ta) return 1;
       if (!tb) return -1;
@@ -10689,17 +10897,17 @@ function applyFilters(opts) {
   renderStats();
 }
 
+// Priced at workingDigitsFor, as the yield report does. getCofactorDigits is null for
+// a fully factored entry, so every run on an entry that got FINISHED — measured runs
+// included — counted as no time at all.
 function getTotalCpuForEntry(e) {
   const ecmData  = loadECM();
   const attempts = ecmData[String(e.n)] || [];
   if (!attempts.length) return null;
-  const digits = getCofactorDigits(e);
-  if (!digits) return null;
+  const w = workingDigitsFor(e), digits = w ? w.digits : 0;
   let total = 0;
   for (const a of attempts) {
-    const b1n = parseB1(a.b1);
-    const b2n = (a.b2 ? parseB1(a.b2) : null);
-    const s   = attemptCpuSeconds(a, digits);
+    const s = attemptCpuSeconds(a, digits);
     if (s) total += s;
   }
   return total > 0 ? total : null;
@@ -10716,7 +10924,9 @@ let _nextRunCache = new Map();
 // import), then rebuilt in idle moments, a slice at a time, so it is usually ready.
 let _planCache = new Map();
 function attemptsSig(att) {
-  return (att || []).map(a => a.method + ':' + a.b1 + ':' + (a.b2 || '') + ':' + (a.curves || '')).join(',');
+  // Every field the coverage model reads: method, bounds, curves — and I, which
+  // ecmProbForDigit uses too.
+  return (att || []).map(a => a.method + ':' + a.b1 + ':' + (a.b2 || '') + ':' + (a.curves || '') + ':' + (a.I || '')).join(',');
 }
 function planForEntry(n, digits, attempts, sd) {
   const sig = digits + '|' + sd + '|' + attemptsSig(attempts);
@@ -10726,6 +10936,18 @@ function planForEntry(n, digits, attempts, sd) {
   try { recs = recommendNextRun(digits, attempts || [], sd) || []; } catch (err) { recs = []; }
   _planCache.set(n, { sig, recs });
   return recs;
+}
+// The coverage rows (computeCostToFinish) per entry, on the same terms as the plans:
+// the entry window's summary line and its ECM section each worked them out afresh.
+let _costCache = new Map();
+function costForEntry(e, digits, attempts) {
+  const n = e && e.n;
+  const sig = digits + '|' + sieveDepthDigits(n) + '|' + attemptsSig(attempts);
+  const hit = _costCache.get(n);
+  if (hit && hit.sig === sig) return hit.rows;
+  const rows = computeCostToFinish(e, digits, attempts);
+  _costCache.set(n, { sig, rows });
+  return rows;
 }
 let _planWarmTimer = null;
 function schedulePlanWarm(delayMs) {
@@ -10743,7 +10965,7 @@ function schedulePlanWarm(delayMs) {
     }
   }, delayMs == null ? 1500 : delayMs);
 }
-function invalidateNextRunCache() { _nextRunCache = new Map(); _planCache = new Map(); schedulePlanWarm(); }
+function invalidateNextRunCache() { _nextRunCache = new Map(); _planCache = new Map(); _costCache = new Map(); schedulePlanWarm(); }
 function getNextRunForEntry(e) {
   if (e.status === 'full') return null;
   if (_nextRunCache.has(e.n)) return _nextRunCache.get(e.n);
@@ -10774,11 +10996,10 @@ function getFdbCheckInfo(e) {
     e.cofactor && !e.cofactor.startsWith('(') ? e.cofactor : null,
   ].filter(Boolean);
   let best = null;
+  // When FACTORDB answered — not when the record last changed (a local find).
   for (const num of targets) {
-    const cached = fdbCache[num];
-    if (cached && cached.timestamp) {
-      if (!best || cached.timestamp > best.timestamp) best = cached;
-    }
+    const said = fdbAnswer(fdbCache[num]);
+    if (said && said.at && (!best || said.at > best.timestamp)) best = { timestamp: said.at, status: said.status };
   }
   return best;
 }
@@ -10971,13 +11192,10 @@ function computeTotalCpuSec() {
   let total = 0;
   for (const [nStr, attempts] of Object.entries(ecmD)) {
     const entry = entryByN(parseInt(nStr));
-    const digits = entry ? getCofactorDigits(entry) : null;
-    if (!digits) continue;
-    for (const a of attempts) {
-      const b1n = parseB1(a.b1);
-      const b2n = (a.b2 ? parseB1(a.b2) : null);
-      total += attemptCpuSeconds(a, digits);
-    }
+    // workingDigitsFor, like getTotalCpuForEntry and the yield report: a finished
+    // entry's runs are time spent too, and measured ones need no size at all.
+    const w = entry ? workingDigitsFor(entry) : null, digits = w ? w.digits : 0;
+    for (const a of attempts) total += attemptCpuSeconds(a, digits) || 0;
   }
   // The sieve's share: timed runs as measured, earlier sieving at their speed — the
   // same figure as the yield report's Sieve row.
@@ -11207,8 +11425,10 @@ function openModal(n, loaded) {
   // checked by "Check all" and a large one that came back through the export →
   // script → import loop both store the same cache status, so both land here the
   // same way.
-  const _fdbVerdict = (entryFDBByVal && entryFDBByVal.status)
-                   || (entryFDBByCofactor && entryFDBByCofactor.status) || null;
+  // FactorDB's OWN answer — a factorisation completed here is FF in the record, and
+  // read from there showed every factor as "PRIME · FDB".
+  const _fdbVerdict = ((fdbAnswer(entryFDBByVal) || {}).status)
+                   || ((fdbAnswer(entryFDBByCofactor) || {}).status) || null;
   const allVerifiedPrime   = ['FF', 'P', 'PRP'].includes(_fdbVerdict) ||
                              e._fdbVerified === true;
 
@@ -11327,7 +11547,9 @@ function openModal(n, loaded) {
 
   // Cofactor + FactorDB result
     // Value
-  // Value — store in a global map to avoid attribute escaping issues with large numbers
+  // Value — store in a global map to avoid attribute escaping issues with large numbers.
+  // trimValues empties the map a minute after values were last used, with the window
+  // still open: the button then copies the number as shown, which is the whole value.
   window._eulerValMap = window._eulerValMap || {};
   window._eulerValMap[n] = e.val || '';
   // `let`, because this was an undeclared assignment writing to a global that
@@ -11353,7 +11575,7 @@ function openModal(n, loaded) {
     const fdbLink = (rec && rec.fdbIdExact)
       ? 'https://factordb.com/index.php?id=' + encodeURIComponent(rec.fdbIdExact)
       : 'https://factordb.com/?query=' + encodeURIComponent('E(' + n + ')');
-    const copyBtn = '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || this.dataset.fallback || \"\", this)" title="Copy value">⎘</button>';
+    const copyBtn = '<button class="copy-btn" id="' + valCopyId + '" onclick="event.preventDefault();event.stopPropagation();copyToClipboard(window._eulerValMap && window._eulerValMap[' + n + '] || (this.parentElement.querySelector(\'strong\') || {}).textContent || \'\', this)" title="Copy value">⎘</button>';
     valueHtml = '<div class="modal-section"><div class="modal-section-label">|E(' + n + ')| Value'
       + ' <span style="font-size:9px;color:var(--text-muted);font-weight:400">— click to open on FactorDB</span>'
       + '</div>'
@@ -11397,7 +11619,7 @@ function openModal(n, loaded) {
         try { covered = coveredTo(e, dg, att, sd); } catch (err) { logSwallowed('modal/summary/coverage', err); }
         let next = '';
         try {
-          const rec = (recommendNextRun(dg, att, sd) || [])[0];
+          const rec = (planForEntry(n, dg, att, sd) || [])[0];       // the tile's plan, usually already made
           if (rec) next = rec.method + ' B1=' + rec.b1 + (rec.curves ? ', ' + rec.curves + ' curves' : '');
         } catch (err) { logSwallowed('modal/summary/next', err); }
         parts.push(dg.toLocaleString() + '-digit cofactor');
@@ -11408,7 +11630,8 @@ function openModal(n, loaded) {
       // the factor chips are relative to. It was the one fact only the old FactorDB
       // section carried. ISO, like every other date in the modal.
       const rec = (typeof fdbCache !== 'undefined' && fdbCache) ? fdbCache[fdbKeyOf(e.n)] : null;
-      const at = rec && rec.timestamp ? new Date(rec.timestamp) : null;
+      const said = fdbAnswer(rec);
+      const at = said && said.at ? new Date(said.at) : null;
       if (at && !isNaN(at)) parts.push('FactorDB checked ' + at.toISOString().slice(0, 10));
     }
     if (!parts.length) return '';
@@ -11777,8 +12000,16 @@ function fmtCpuTime(seconds) {
 // below it score zero instead of being recommended for factors that cannot be
 // there. Optional: callers without an entry to hand pass nothing and get the old
 // behaviour.
+// A recommendation's gain, in percent, as a NUMBER. `gain` is the display string,
+// rounded to two decimals — ranked on that, every run under 0.005% scored exactly
+// zero and close runs tied.
+function recGain(r) { return r ? ((r.gainPct != null ? Number(r.gainPct) : parseFloat(r.gain)) || 0) : 0; }
 function recommendNextRun(digits, attempts, provenDigits) {
-  if (!digits || digits > 100000) return null;
+  // No upper size limit. One stood at 100,000 digits — everything above about
+  // E(26600), 4,311 entries by E(35000), got no plan: no tile footer, no estimate,
+  // never an ECM candidate. The cost model prices size (stage 1 grows as d^1.5), so
+  // the ranking, not a cut-off, decides whether a big entry is worth a curve.
+  if (!digits) return null;
 
   const ecmAttempts = attempts.filter(a => a.method === 'ECM' && a.b1);
   const pm1Attempts = attempts.filter(a => (a.method === 'P-1' || a.method === 'P+1') && a.b1);
@@ -11870,7 +12101,7 @@ function recommendNextRun(digits, attempts, provenDigits) {
 
     candidates.push({
       method: 'ECM', b1: fmtB1(b1), b2: null, rawB1: b1, rawB2: null, curves: fmtCurves(addCurves),
-      rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), cpuTime: cpuSec,
+      rawCurves: addCurves, targetDigits: d, gain: gain.toFixed(2), gainPct: gain, cpuTime: cpuSec,
       reason: pBefore < 0.02
         ? 'Search the ' + d + '-digit level: ' + fmtCurves(addCurves) + ' curves at B1=' + fmtB1(b1) + ' gives ~63% odds of finding a ' + d + 'd factor IF one exists.'
         : 'Finish the ' + d + '-digit level: ' + fmtCurves(haveEff) + ' of ' + fmtCurves(targetCv) + ' curves done (' + fmtPct(pBefore) + '); +' + fmtCurves(addCurves) + ' more at B1=' + fmtB1(b1) + ' reaches ~63%.',
@@ -12087,7 +12318,7 @@ function recommendNextRun(digits, attempts, provenDigits) {
     if (newB1 && gain > 0.0005 && p1cost <= PM1_MAX_RUN_SEC) {
       candidates.push({
         method: 'P-1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
-        gain: gain.toFixed(2), cpuTime: p1cost,
+        gain: gain.toFixed(2), gainPct: gain, cpuTime: p1cost,
         reason: pm1Reason('P-1', priorP1, newB1, p1res) + heldNote(priorP1 && priorP1.b1, newB1),
       });
     }
@@ -12103,7 +12334,7 @@ function recommendNextRun(digits, attempts, provenDigits) {
     if (newB1 && gain > 0.0005 && pp1cost <= PM1_MAX_RUN_SEC) {
       candidates.push({
         method: 'P+1', b1: fmtB1(newB1), b2: 'auto', rawB1: newB1, rawB2: null, curves: null, rawCurves: 0, targetDigits: bestD,
-        gain: gain.toFixed(2), cpuTime: pp1cost,
+        gain: gain.toFixed(2), gainPct: gain, cpuTime: pp1cost,
         reason: pm1Reason('P+1', priorPp1, newB1, pp1res) + heldNote(priorPp1 && priorPp1.b1, newB1),
       });
     }
@@ -12115,7 +12346,7 @@ function recommendNextRun(digits, attempts, provenDigits) {
   // beats "fast but near-worthless". Pure speed-first wrongly ranked a 17-day P-1
   // at <0.01% above a 20-day ECM at +1.03%. A tiny epsilon on time avoids div-by-0
   // and keeps two equal-value runs ordered fastest-first.
-  const efficiency = c => parseFloat(c.gain) / Math.max(c.cpuTime, 1);
+  const efficiency = c => recGain(c) / Math.max(c.cpuTime, 1);
   candidates.sort((a, b) => (efficiency(b) - efficiency(a)) || (a.cpuTime - b.cpuTime));
   return candidates.slice(0, 3);
 }
@@ -12428,7 +12659,7 @@ function buildECMSection(n, e) {
                    p: levelCols.map(d => I > 0 ? ecmProbabilityWithI(d, b1v, cv, I) : ecmProbability(d, cv, b1v)) };
         }
         if ((a.method === 'P-1' || a.method === 'P+1') && a.b1 && digits) {
-          const b1v = parseB1(a.b1), b2v = a.b2 ? parseB1(a.b2) : null;
+          const b1v = parseB1(a.b1), b2v = a.b2 ? parseB1(a.b2) : pm1DefaultB2(b1v);   // as bestPm1Prob
           const lvl = pm1ToDigits(a.b1, a.b2, a.method);
           return { target: lvl === null ? '&lt;10d' : lvl + 'd',
                    p: levelCols.map(d => pm1Probability(d, b1v, b2v, a.method)) };
@@ -12511,7 +12742,7 @@ function buildECMSection(n, e) {
         const dateCell = last
           ? `<td style="font-size:10px;color:var(--text-dim);white-space:nowrap"${first && first !== last ? ` title="First run ${first} · last extended ${last}"` : ''}>${last}</td>`
           : '<td style="color:var(--text-muted)" title="Logged before dates were recorded">—</td>';
-        return `<tr>
+        return `<tr data-attempt="${i}">
           <td>${escHtml(a.method)}</td><td>${escHtml(a.b1 || '—')}</td><td>${escHtml(a.b2 || '—')}</td><td>${escHtml(a.curves || '—')}</td>
           ${opt(showPoly, `<td>${escHtml(a.poly || '—')}</td>`)}${opt(showI, `<td style="font-size:10px;color:var(--text-muted)">${escHtml(a.I || '—')}</td>`)}
           <td style="font-size:10px;color:var(--text-muted)">${escHtml(a.tool || 'GMP-ECM')}</td>
@@ -12536,7 +12767,7 @@ function buildECMSection(n, e) {
       // is the coverage model's own aggregation — ECM by effective curves, P±1 by best
       // run — so it agrees with that model by construction.
       let cov = [];
-      try { cov = computeCostToFinish(e, digits, attempts); }
+      try { cov = costForEntry(e, digits, attempts); }
       catch (err) { logSwallowed('grid/coverage', err); }
       const covAt = new Map(cov.map(r => [r.d, r]));
       const sieveK = sd > 0 ? Math.round(sd) : 0;
@@ -12683,7 +12914,7 @@ function buildECMSection(n, e) {
   if (digits) {
     // With the sieve depth, like the export's call — without it the modal could
     // recommend a level the sieve had already proven empty.
-    const recs = recommendNextRun(digits, attempts, sieveDepthDigits(n));
+    const recs = planForEntry(n, digits, attempts, sieveDepthDigits(n));   // shared with the summary and the tile
     if (recs && recs.length) {
       // ONE ROW PER RECOMMENDED RUN, in the attempts grid's style. These were stacked
       // cards — a heading, the plan sentence, a gain line and a finish line — so
@@ -12692,7 +12923,7 @@ function buildECMSection(n, e) {
       const rrows = recs.map((rec, i) => {
         // Value per HOUR, always. The cards switched to %/day for small figures, which
         // in one sortable column would put incomparable units side by side.
-        const eff = rec.cpuTime ? (parseFloat(rec.gain) / (rec.cpuTime / 3600)) : 0;
+        const eff = rec.cpuTime ? (recGain(rec) / (rec.cpuTime / 3600)) : 0;
         // FINISH ODDS: if this run finds a factor, the chance what remains is prime —
         // i.e. that the find completes the number. For a huge cofactor it reads ~0% and
         // says so plainly: that entry is about contributing factors, not finishing.
@@ -12700,7 +12931,7 @@ function buildECMSection(n, e) {
           confidentlyCleared(parseInt(rec.rawCurves || rec.curves) || 0, rec.rawB1 || 0),
           sieveDepthDigits(n));
         const fin = completionOdds(digits, rec.targetDigits || 0, cleared);
-        return { rec, rank: i, eff, fin, gain: parseFloat(rec.gain) || 0 };
+        return { rec, rank: i, eff, fin, gain: recGain(rec) };
       });
       // Sortable like the grid. The default is the recommender's own ranking, best value
       // first, and the ★ stays on ITS top pick whatever the sort — so re-sorting by time
@@ -12813,14 +13044,9 @@ function executeBulkDelete() {
     return;
   }
   saveECM(ecmData);
-  // Batch re-sync: update allEntries status flags directly, then render once
-  const freshECM = loadECM();
-  allEntries.forEach(e => {
-    const hasAttempts = (freshECM[String(e.n)] || []).length > 0;
-    if (e.status === 'attempted' && !hasAttempts) e.status = 'composite';
-    if (e.status !== 'attempted' && hasAttempts &&
-        (e.status === 'unknown' || e.status === 'composite')) e.status = 'attempted';
-  });
+  // Logged runs are not a status (the ECM LOGGED filter and count read the runs), so
+  // nothing to re-sync — only an 'attempted' left from older code is undone.
+  allEntries.forEach(undoAttempted);
   applyFilters();
   renderStats();
   scheduleECMPush();
@@ -12851,9 +13077,8 @@ function getBulkTargets() {
   // — the §7 bug class again (used but never declared, live error, invisible to
   // `node --check` and to every test, because nothing exercises this panel).
   //
-  // `_fdbCacheByN` did resolve, but only because applyFilters assigns it to
-  // `window` on every render, so this worked purely by render order. Building it
-  // here makes the dependency explicit rather than inherited.
+  // `_fdbCacheByN` resolved only because applyFilters assigned it to `window` on
+  // every render (it no longer does). Building it here keeps the panel self-contained.
   const ecmData = loadECM();
   const fdbByN = {};
   for (const v of Object.values(fdbCache)) if (v && v.n != null) fdbByN[v.n] = v;
@@ -12963,14 +13188,20 @@ function applyBulkECM() {
   renderStats();
 }
 
+// 'attempted' is no longer a status. It was set here, only during a session (never on
+// load), and nothing counted or filtered it: an entry whose first run was just logged
+// vanished from UNDETERMINED or NO KNOWN FACTORS, and from the totals, until a reload.
+// The ECM LOGGED filter and count work from the runs themselves.
+function undoAttempted(e) {
+  if (!e || e.status !== 'attempted') return;
+  const rec = fdbCache[fdbKeyOf(e.n)];                 // the rule replayFDBCache uses, so a reload agrees
+  e.status = rec && rec.status === 'C' ? 'composite' : 'unknown';
+}
 function syncAttemptedStatus(n) {
-  const ecmD  = loadECM();
-  const has   = (ecmD[String(n)] || []).length > 0;
   const entry = entryByN(n);
   if (entry) {
-    if (entry.status === 'full') return; // fully factored — never show as ECM logged
-    if (has && (entry.status === 'unknown' || entry.status === 'composite')) entry.status = 'attempted';
-    else if (!has && entry.status === 'attempted') entry.status = 'composite';
+    if (entry.status === 'full') return;
+    undoAttempted(entry);
   }
   // Use renderGrid directly — syncAttemptedStatus can be called during renders
   renderGrid();
@@ -13072,10 +13303,10 @@ function deleteECMAttempt(n, i) {
   const existing = document.getElementById(rowId);
   if (existing) { existing.remove(); return; } // toggle off if already showing
 
-  const tbody = document.querySelector('#ecmSection_' + n + ' tbody');
-  if (!tbody) return;
-  const rows  = tbody.querySelectorAll('tr');
-  const targetRow = rows[idx];
+  // The run's OWN row. It was the idx-th row of the section's first table — but the
+  // rows are sorted, a Sieve row can come first, and the first table may be the
+  // recommendations: the prompt named one run and sat under another.
+  const targetRow = document.querySelector('#ecmSection_' + n + ' tr[data-attempt="' + idx + '"]');
   if (!targetRow) return;
 
   const a        = attempts[idx];
@@ -14305,6 +14536,9 @@ function saveSieveDepth(d) {
   _sieveDepthMemo = d || {};   // keep the memo in step with what is written
   try { kvSet(SIEVE_DEPTH_KEY, JSON.stringify(d || {})); markDirty('sieve depth'); }
   catch (e) { logSwallowed('saveSieveDepth', e); }
+  // The next-run cache is keyed by entry alone: a deeper sieve proves low levels empty,
+  // and the tiles went on recommending them until something else cleared it.
+  try { invalidateNextRunCache(); } catch (e) { logSwallowed('saveSieveDepth/plans', e); }
 }
 
 // Record that these entries have been trial-divided to `limit`. Keeps the DEEPEST
@@ -14360,6 +14594,7 @@ function applySieveFindings() {
     e.status = (prod === val) ? 'full' : 'partial';
     const rec = fdbCache[fdbKeyOf(e.n)];
     if (rec) {
+      Object.assign(rec, fdbAnswerFields(rec));   // FactorDB's answer, before the status becomes ours
       rec.factors = e.factors;
       rec.status = e.status === 'full' ? 'FF' : 'CF';
       // Update the source too. We just found these ourselves, so whatever the
@@ -14376,13 +14611,14 @@ function applySieveFindings() {
     // Merge, like every other write into this store — a replacing write drops
     // fdbHas and fdbId, and a sieve find is exactly when the entry has recently
     // been talked about with FactorDB.
-    else fdbCache[fdbKeyOf(e.n)] = { ...(fdbCache[fdbKeyOf(e.n)] || {}),
+    else fdbCache[fdbKeyOf(e.n)] = { ...(fdbCache[fdbKeyOf(e.n)] || {}), ...fdbAnswerFields(null),
       status: e.status === 'full' ? 'FF' : 'CF', factors: e.factors,
       timestamp: Date.now(), source: 'sieve', n: f.n };
   }
   saveFDBCache(fdbCache);
   markDirty('sieve findings');
   _pendingSieve = null;
+  invalidateNextRunCache(); invalidateCpuTotal();   // the cofactors just shrank
   allEntries = buildEntries(); replayFDBCache(); applyFilters(); renderStats();
   addLog('Small-prime sieve: recorded ' + applied + ' factor(s)' + (rejected ? ', ' + rejected + ' rejected on re-verification' : ''), 'ok');
   alert('Recorded ' + applied + ' factor(s).' + (rejected ? '\n\n' + rejected + ' were rejected because they no longer divide E(n).' : ''));
