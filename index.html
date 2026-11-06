@@ -715,8 +715,7 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
     <button class="filter-btn active" data-filter="all" title="Every entry in the range">ALL</button>
     <button class="filter-btn full" data-filter="full" title="The factors multiply back to E(n) — nothing left to find">FULLY FACTORED</button>
     <button class="filter-btn partial" data-filter="partial" title="Some factors known; a composite cofactor is still to crack">PARTIALLY FACTORED</button>
-    <button class="filter-btn composite" data-filter="composite" title="FactorDB says composite, and no factor is known yet">NO KNOWN FACTORS</button>
-    <button class="filter-btn unknown" data-filter="unknown" title="No factor known, and not even settled whether the number is prime: FactorDB has not determined it, or has not been asked">UNDETERMINED</button>
+    <button class="filter-btn composite" data-filter="composite" title="No factor is known yet — whether or not FactorDB has been asked (the ECM export and the FactorDB check know which)">NO KNOWN FACTORS</button>
     <button class="filter-btn attempted" data-filter="attempted" title="Runs are logged on them, and they are not fully factored yet">ECM LOGGED</button>
     <button class="filter-btn ahead-of-fdb" data-filter="ahead-of-fdb"
       title="Entries where we hold at least one factor FactorDB does not — exactly what Export FDB submission would send">AHEAD OF FDB</button>
@@ -774,10 +773,9 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
       <label>) &nbsp;·&nbsp; Only apply to:</label>
       <select id="bulk_filter" onchange="updateBulkPreview()" style="background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:4px 8px;outline:none">
         <option value="all">All entries in range</option>
-        <option value="unknown">Undetermined only</option>
         <option value="composite">No known factors only</option>
         <option value="partial">Partial only</option>
-        <option value="unfactored">Undetermined + No known factors + Partial</option>
+        <option value="unfactored">No known factors + Partial</option>
       </select>
     </div>
     <div class="bulk-preview" id="bulkPreview">Configure parameters above to preview affected entries.</div>
@@ -874,8 +872,7 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
 <div class="legend">
   <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Fully factored — all prime factors known</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Partially factored — some primes known, cofactor remains</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Undetermined — no factor known, primality not settled (by FactorDB, or not asked)</div>
-  <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — confirmed composite, no factors found</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> No known factors — nothing found yet, whether or not FactorDB has been asked</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div> Attempted — ECM/P-1/P+1 logged, no factors found yet</div>
   <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> FactorDB-checked today</div>
 </div>
@@ -1178,7 +1175,7 @@ function sieveSmallFactors(n, from) {
 // `statuses` restricts the sieve to given entry statuses — null/omitted means no
 // restriction, which is the historical behaviour and stays the default.
 //
-// The useful case is ['unknown']: entries where nothing is known at
+// The useful case is ['composite']: entries where nothing is known at
 // all. The sieve tests the COFACTOR, so a 'partial' entry is already smaller than
 // what it started as and its easy factors have usually gone; the never-touched
 // ones are where a first small factor is most likely and worth most. Restricting
@@ -1481,6 +1478,11 @@ let _kvDirty = new Set();
 let _kvFlushTimer = null;
 let _kvReady = false;               // true once hydrated from IDB
 let _appDBPromise = null;
+// Keys whose IndexedDB read FAILED at startup (not "absent": failed). Their value is
+// unknown, so a save would overwrite real data with whatever the session rebuilt —
+// an empty ECM store, say. kvSet refuses them (see there).
+const _kvUnread = new Set();
+let _kvFlushFailures = 0;           // consecutive IDB write failures, for the retry and the warning
 
 function openAppDB() {
   if (_appDBPromise) return _appDBPromise;
@@ -1521,6 +1523,14 @@ function kvSet(key, val) {
       return false;
     }
   }
+  if (_kvUnread.has(key)) {
+    // Its stored value could not be read, so there is nothing safe to overwrite it
+    // with. Said once, loudly: silence here is how a store gets emptied.
+    if (!_kvUnread.warned) { _kvUnread.warned = true;
+      try { alert('Storage could not be read fully at startup (' + key + '), so changes to it are NOT being saved — reload to try again, and report this if it persists.'); } catch (e) { /* no UI */ } }
+    logSwallowed('kvSet/unread:' + key, new Error('refused: value not read at startup'));
+    return false;
+  }
   _kv[key] = val;
   _kvDirty.add(key);
   scheduleKvFlush();
@@ -1537,9 +1547,21 @@ function scheduleKvFlush() {
   // millisecond of it is a window in which a reload loses the latest change.
   _kvFlushTimer = setTimeout(() => { _kvFlushTimer = null; flushKv(); }, 120);
 }
+// After a failed IndexedDB write: try again, later each time, and say so once it
+// keeps failing. (A failure used to put the keys back as dirty and stop: nothing
+// retried, nothing warned, and the next reload lost every write since.)
+function scheduleKvRetry() {
+  if (_kvFlushTimer) return;
+  const delay = Math.min(60000, 2000 * Math.pow(3, Math.max(0, _kvFlushFailures - 1)));
+  _kvFlushTimer = setTimeout(() => { _kvFlushTimer = null; flushKv(); }, delay);
+  if (_kvFlushFailures >= 2) { try { showStorageWarning(); } catch (e) { logSwallowed('kvRetry/warn', e); } }
+}
 
+// Resolves true only when the dirty keys were COMMITTED to IndexedDB. False means
+// they went to localStorage instead (no IndexedDB) or the write failed and will be
+// retried — either way the localStorage copy, if any, must be kept.
 async function flushKv() {
-  if (!_kvDirty.size) return;
+  if (!_kvDirty.size) return true;
   const keys = Array.from(_kvDirty);
   _kvDirty.clear();
   const db = await openAppDB();
@@ -1550,16 +1572,18 @@ async function flushKv() {
       try { localStorage.setItem(k, _kv[k]); }
       catch(e) { if (e && e.name === 'QuotaExceededError') showStorageWarning(); else logSwallowed('flushKv/fallback', e); }
     }
-    return;
+    return false;
   }
-  await new Promise((resolve) => {
+  return new Promise((resolve) => {
+    const failed = (err) => { logSwallowed('flushKv/tx', err); keys.forEach(k => _kvDirty.add(k)); _kvFlushFailures++; scheduleKvRetry(); resolve(false); };
     try {
       const tx = db.transaction(APPDB_STORE, 'readwrite');
       const store = tx.objectStore(APPDB_STORE);
       for (const k of keys) store.put(_kv[k], k);
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => { logSwallowed('flushKv/tx', tx.error); keys.forEach(k => _kvDirty.add(k)); resolve(); };
-    } catch(e) { logSwallowed('flushKv', e); keys.forEach(k => _kvDirty.add(k)); resolve(); }
+      tx.oncomplete = () => { _kvFlushFailures = 0; resolve(true); };
+      tx.onerror    = () => failed(tx.error);
+      tx.onabort    = () => failed(tx.error || new Error('aborted'));
+    } catch(e) { failed(e); }
   });
 }
 
@@ -1567,7 +1591,7 @@ async function flushKv() {
 // so a debounced write can't be lost by navigating away mid-timer.
 async function flushKvNow() {
   if (_kvFlushTimer) { clearTimeout(_kvFlushTimer); _kvFlushTimer = null; }
-  await flushKv();
+  return flushKv();
 }
 
 // Hydrate the mirror, migrating anything still in localStorage on first run.
@@ -1584,11 +1608,13 @@ async function initAppStore() {
         for (const key of IDB_KEYS) {
           pending++;
           const req = store.get(key);
-          req.onsuccess = () => { if (req.result != null) _kv[key] = req.result; if (--pending === 0) finish(); };
-          req.onerror   = () => { logSwallowed('initAppStore/get:' + key, req.error); if (--pending === 0) finish(); };
+          // A write made before hydration finished (a fast click, a 500 ms timer) is
+          // NEWER than the stored value: it stays, and flushes as dirty.
+          req.onsuccess = () => { if (req.result != null && !(key in _kv)) _kv[key] = req.result; if (--pending === 0) finish(); };
+          req.onerror   = () => { logSwallowed('initAppStore/get:' + key, req.error); _kvUnread.add(key); if (--pending === 0) finish(); };
         }
         if (pending === 0) finish();
-        tx.onerror = () => { logSwallowed('initAppStore/tx', tx.error); finish(); };
+        tx.onerror = () => { logSwallowed('initAppStore/tx', tx.error); for (const key of IDB_KEYS) if (!(key in _kv)) _kvUnread.add(key); finish(); };
       } catch(e) { logSwallowed('initAppStore', e); resolve(); }
     });
   }
@@ -1598,7 +1624,7 @@ async function initAppStore() {
   // interrupted migration can't lose data.
   const migrated = [];
   for (const key of IDB_KEYS) {
-    if (key in _kv) continue;
+    if (key in _kv || _kvUnread.has(key)) continue;
     let legacy = null;
     try { legacy = localStorage.getItem(key); } catch(e) { logSwallowed('initAppStore/legacyRead', e); }
     if (legacy != null && legacy !== '') { _kv[key] = legacy; _kvDirty.add(key); migrated.push(key); }
@@ -1610,13 +1636,21 @@ async function initAppStore() {
   _ecmCache = null; _cofDigCache = null; _historyCache = null; _provIndex = null; _calibCache = null;
   try { _yieldCalibCache = null; } catch (e) { logSwallowed('initAppStore/yieldCalib', e); }
   if (migrated.length) {
-    await flushKvNow(); // confirm the IDB write landed…
-    for (const key of migrated) {
-      try { localStorage.removeItem(key); } catch(e) { logSwallowed('initAppStore/cleanup', e); }
+    // The localStorage copy goes ONLY once the IndexedDB write is confirmed. With no
+    // IndexedDB at all the flush writes the same values back to localStorage — and
+    // the copy was then removed anyway, on every load: the whole store survived
+    // only in memory until the next reload.
+    const landed = await flushKvNow();
+    if (landed) {
+      for (const key of migrated) {
+        try { localStorage.removeItem(key); } catch(e) { logSwallowed('initAppStore/cleanup', e); }
+      }
+      // …only then reclaim the localStorage space.
+      invalidateStorageUsage();
+      try { addLog('Moved ' + migrated.length + ' data store(s) from localStorage to IndexedDB — the ~5MB limit no longer applies', 'ok'); } catch(e) { logSwallowed('initAppStore/addLog', e); }
+    } else if (!db) {
+      try { addLog('IndexedDB is not available in this browser — data stays in localStorage (~5MB limit)', 'warn'); } catch(e) { logSwallowed('initAppStore/addLog', e); }
     }
-    // …only then reclaim the localStorage space.
-    invalidateStorageUsage();
-    try { addLog('Moved ' + migrated.length + ' data store(s) from localStorage to IndexedDB — the ~5MB limit no longer applies', 'ok'); } catch(e) { logSwallowed('initAppStore/addLog', e); }
   }
   return _kvReady;
 }
@@ -1641,17 +1675,16 @@ let _ecmCache = null; // in-memory cache, invalidated on write
 function migrateMislabeledEcm() {
   if (localStorage.getItem('eulerFDB_ecmMethodFix_v2')) return;
   const data = loadECM();
-  let before = 0, after = 0;
+  let fixed = 0;
   for (const [n, attempts] of Object.entries(data)) {
     if (!Array.isArray(attempts)) continue;
-    const pm1Before = attempts.filter(a => a.method === 'P-1' || a.method === 'P+1').length;
-    data[n] = normalizeEcmAttempts(attempts);
-    const pm1After = data[n].filter(a => a.method === 'P-1' || a.method === 'P+1').length;
-    before += pm1Before; after += pm1After;
+    const norm = normalizeEcmAttempts(attempts);
+    if (JSON.stringify(norm) !== JSON.stringify(attempts)) { data[n] = norm; fixed++; }
   }
-  const fixed = before - after;
-  saveECM(data);
-  if (fixed > 0) addLog('Fixed ' + fixed + ' mislabeled P±1→ECM run' + (fixed===1?'':'s'), 'ok');
+  // Saved only when something changed: an unconditional save marked the store dirty
+  // and queued a push on every device's first run — and, after a failed hydration,
+  // wrote an empty store over the real one.
+  if (fixed > 0) { saveECM(data); addLog('Normalised the runs of ' + fixed + ' entr' + (fixed === 1 ? 'y' : 'ies'), 'ok'); }
   localStorage.setItem('eulerFDB_ecmMethodFix_v2', '1');
 }
 
@@ -1844,7 +1877,7 @@ function migrateFalseFdbUnknown() {
         if (!e || !entryDigits(e)) continue;
         if (entryDigits(e) > limit) continue;      // plausibly a real refusal — leave it
         s.delete(n);
-        if (e.status === 'fdb-unknown') e.status = 'unknown';
+        if (e.status === 'fdb-unknown' || e.status === 'unknown') e.status = 'composite';
         e._fdbUnknown = false;
         cleared++;
       }
@@ -1914,9 +1947,9 @@ function applyFdbUnknownSet() {
     // The STATUS only changes when we know nothing ourselves. An entry with
     // factors is 'partial' — that describes OUR knowledge correctly, and is what
     // applyFdbResult writes for the same case.
-    if (e.status === 'unknown') {
+    if (e.status === 'unknown' || e.status === 'composite') {
       const held = (e.factors || []).filter(f => f && f !== '1').length;
-      if (held) e.status = 'partial';      // with nothing held it stays 'unknown': nothing known
+      e.status = held ? 'partial' : 'composite';      // with nothing held: nothing known
     }
   }
 }
@@ -2403,10 +2436,15 @@ function loadFDBCache() {
       const n   = parseInt(nStr);
       if (!(n >= 0)) continue;
       const num = fdbKeyOf(n);
-      // Restore factors: prefer in-memory fdbFactors, fall back to slim-persisted factors
-      const memFactors  = fdbFactors[num]?.factors;
+      // Restore factors from the STORE. The in-memory copy was preferred, but it is
+      // not cleared when a record's factors drop to none (a pulled correction, the
+      // integrity fixer), so it brought a removed factor back on the next load, and
+      // the next push sent the corruption out again. The store is what the merge
+      // wrote; memory only fills in when the store agrees it holds some.
       const slimFactors = v.factors ? v.factors.map(_decodeFactor) : v.factors;
-      const factors     = (memFactors && memFactors.length) ? memFactors : (slimFactors || undefined);
+      const memFactors  = fdbFactors[num]?.factors;
+      const factors     = (slimFactors && slimFactors.length) ? ((memFactors && memFactors.length) ? memFactors : slimFactors) : undefined;
+      if (!(slimFactors && slimFactors.length) && memFactors && memFactors.length) delete fdbFactors[num];
       full[num] = { status: _decodeStatus(v.status), timestamp: v.timestamp, source: v.source || null, n,
                     ...(v.fdbIdExact ? { fdbIdExact: v.fdbIdExact } : {}),
                     ...(v.fdbHas && v.fdbHas.length ? { fdbHas: v.fdbHas } : {}),
@@ -2425,7 +2463,14 @@ function loadFDBCache() {
         + 'Saving is paused until a load succeeds; the records on disk are intact.');
     }
     return full;
-  } catch { return {}; }
+  } catch (e) {
+    // NOT an empty cache: one malformed record would have had every later save
+    // write "{}" over the whole store. The load is marked incomplete, which makes
+    // saveFDBCache refuse until a load succeeds.
+    logSwallowed('loadFDBCache', e);
+    _fdbCacheLoadIncomplete = 1;
+    return {};
+  }
 }
 // True once a load has been skipped because eulerValues had no entry for it. A
 // record dropped that way is still on disk and still correct — the ONLY thing that
@@ -2547,7 +2592,7 @@ function loadLog() {
 }
 function saveLog(l) {
   try {
-    localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(-50))); // keep only last 50 in localStorage
+    localStorage.setItem(LOG_KEY, JSON.stringify(l.slice(0, 50))); // newest first (unshift): keep the 50 newest — slice(-50) kept the oldest
   } catch(e) {
     if (e.name === 'QuotaExceededError') showStorageWarning();
   }
@@ -2560,7 +2605,7 @@ function saveLog(l) {
 function buildEntries() {
   const entries = [];
   for (let n = MIN_N % 2 === 0 ? MIN_N : MIN_N + 1; n <= MAX_N; n += 2) {
-    let fact = factoData[n] || { status:'unknown', factors:[], cofactor:null };
+    let fact = factoData[n] || { status:'composite', factors:[], cofactor:null };
     // E(0) = 1 and E(2) = 1 are units — treat as fully factored with no prime factors
     if (n === 0 || n === 2) fact = { status:'full', factors:[], cofactor:null };
     entries.push({ n, sign: eulerSign(n), val: eulerValues[n] || null, ...fact });
@@ -2963,7 +3008,10 @@ const MAX_AUTO_DIGITS = 50; // kept for modal warning only
 function fetchWithTimeout(url, ms, opts = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
-  return fetch(url, { signal: controller.signal, keepalive: true, ...opts })
+  // keepalive lets a request outlive the page, but the browser REJECTS a keepalive
+  // request whose body is over 64 KiB before sending it — which is exactly the POST
+  // route, used only for numbers too long for a URL. Only bodiless requests keep it.
+  return fetch(url, { signal: controller.signal, ...(opts.body ? {} : { keepalive: true }), ...opts })
     .finally(() => clearTimeout(timer));
 }
 
@@ -3147,13 +3195,24 @@ const FDB_BREAKER_LIMIT  = 8;     // consecutive total failures before stopping
 let _fdbConsecutiveFails = 0;
 let _fdbBreakerTripped   = false;
 
+const FDB_BREAKER_COOLDOWN_MS = 5 * 60 * 1000;
+let _fdbBreakerTrippedAt = 0;
 function noteFdbFailure() {
   _fdbConsecutiveFails++;
-  if (_fdbConsecutiveFails >= FDB_BREAKER_LIMIT) _fdbBreakerTripped = true;
+  if (_fdbConsecutiveFails >= FDB_BREAKER_LIMIT) { _fdbBreakerTripped = true; _fdbBreakerTrippedAt = Date.now(); }
   return _fdbBreakerTripped;
 }
 function noteFdbSuccess() { _fdbConsecutiveFails = 0; _fdbBreakerTripped = false; }
-function fdbBreakerOpen() { return _fdbBreakerTripped; }
+// Open for five minutes after the last failure, then ONE request is let through as a
+// probe: a success resets it, a failure trips it again. It used to stay open until a
+// request succeeded — which it could not, since none was sent — so a brief outage
+// mid-import stopped every FactorDB lookup for the rest of the session.
+function fdbBreakerOpen() {
+  if (!_fdbBreakerTripped) return false;
+  if (Date.now() - _fdbBreakerTrippedAt < FDB_BREAKER_COOLDOWN_MS) return true;
+  _fdbBreakerTripped = false; _fdbConsecutiveFails = FDB_BREAKER_LIMIT - 1;   // the probe: one more failure re-trips
+  return false;
+}
 async function queryFactorDB(numberStr, knownId) {
   if (!/^\d+$/.test(numberStr)) throw new Error('Non-numeric');
 
@@ -3411,9 +3470,13 @@ async function tryResolveCompositeViaFDB(compositeStr) {
   try {
     const data = await queryFactorDB(compositeStr);
     const status = data.status === 'UN' ? 'FF' : (data.status || 'U');
+    // Only a factorisation can split it. For C and U FactorDB lists the number ITSELF
+    // as its one "factor" (see applyFdbResult): handed back as a prime, the import
+    // recorded the composite as one and could mark the entry fully factored.
+    if (!['FF', 'CF', 'P', 'PRP'].includes(status)) return [];
     const allFactors = (data.factors || [])
       .map(f => Array.isArray(f) ? (f[1] === 1 ? String(f[0]) : `${f[0]}^${f[1]}`) : String(f))
-      .filter(f => f && f !== '1');
+      .filter(f => f && f !== '1' && f !== compositeStr && f.split('^')[0] !== compositeStr);
     if (!allFactors.length) return [];
     // Same handling as applyFdbResult: for a partial (CF) result, the LAST listed
     // factor might be an unfactored composite cofactor rather than a real prime —
@@ -3817,21 +3880,26 @@ const B1EFF_MEMO_MAX = 200000;
 // The chance that ONE curve at B1 (GMP-ECM's default B2) finds a d-digit factor.
 //
 // Two sources, joined:
-//   d ≤ 25  MEASURED. Real GMP-ECM 7.0.5 (-param 0, as it runs on these numbers) on
+//   d ≤ 30  MEASURED. Real GMP-ECM 7.0.5 (-param 0, as it runs on these numbers) on
 //           thousands of numbers with a known random prime factor: 15 digits at
 //           B1=11,000 (3,000 curves), 20 digits at 11,000 / 50,000 / 250,000
 //           (12,000 / 4,000 / 2,000 curves), 25 digits at 50,000 / 1,000,000 (6,000 /
-//           400). The stage-1 + stage-2 model with K = 6.3 and a factor 1.14 fits
-//           all six within ±10% (tests.js holds the counts). GMP-ECM's own estimate
-//           — and ECM_TABLE, which comes from it — runs 25–35% optimistic here: 74
-//           curves at B1=11,000 for 20 digits measures as 85, 214 at 50,000 for 25
-//           digits as about 270.
+//           400), 30 digits at 1,000,000 (6,000 numbers with two targets each, on
+//           the owner's machine). The stage-1 + stage-2 model with K = 6.3 and a
+//           factor 1.14 fits all seven within ±10% (tests.js holds the counts).
+//           GMP-ECM's own estimate — and ECM_TABLE, which comes from it — runs
+//           21–35% optimistic at every size measured: 74 curves at B1=11,000 for 20
+//           digits measures as 105, 214 at 50,000 for 25 digits as 299, and at 30
+//           digits the table's figure sits outside the measurement's 95% band.
 //   d ≥ 35  ECM_TABLE, GMP-ECM's estimate, with the B1 ratio of the same model
 //           (K = 22.7, fitted to its tables: within ±3% of its own cross-B1 ratios).
-//           Whether its 25–35% optimism at small sizes persists here could not be
-//           measured (a 30-digit test needs ~100 finds, 3.5 hours a point); if it
-//           does, t30+ coverage is overstated by up to a quarter.
-//   25–35   a log-linear blend of the two.
+//           MEASURED at 35 digits, B1=3,000,000 (4,000 numbers, two targets each, on
+//           the owner's machine): 36 finds against the table's 28 — the table is
+//           inside the 95% band, and the small-size model (18 finds) and a table
+//           scaled by the 0.75 seen below 30 (22) are both outside it. So the
+//           optimism measured at 20–30 digits does NOT carry on here; the table is
+//           used as it stands. Above 35 digits nothing has been measured.
+//   30–35   a log-linear blend of the two.
 // Memoised on (d, B1): the planner evaluates it for every entry and level.
 const ECM_SMALL_K = 6.3, ECM_SMALL_C = 1.14;
 function ecmCurveProb(d, B1) {
@@ -3842,9 +3910,9 @@ function ecmCurveProb(d, B1) {
   const small = () => ECM_SMALL_C * semiSmoothProb(d * Math.log(10) - Math.log(ECM_SMALL_K), B1, ecmDefaultB2(B1));
   const table = () => _ecmB1EfficiencyRaw(d, B1) / ecmTableCurves(d);
   let v;
-  if (d <= 25) v = small();
+  if (d <= 30) v = small();
   else if (d >= 35) v = table();
-  else { const t = (d - 25) / 10, a = small(), b = table(); v = (a > 0 && b > 0) ? Math.exp(Math.log(a) * (1 - t) + Math.log(b) * t) : (b || a); }
+  else { const t = (d - 30) / 5, a = small(), b = table(); v = (a > 0 && b > 0) ? Math.exp(Math.log(a) * (1 - t) + Math.log(b) * t) : (b || a); }
   v = Math.min(v, 1);
   if (_b1EffMemo.size >= B1EFF_MEMO_MAX) _b1EffMemo.clear();
   _b1EffMemo.set(key, v);
@@ -4349,7 +4417,13 @@ function normalizeEcmAttempts(attempts) {
   if (!Array.isArray(attempts)) return [];
   const out = [];
   const seen = new Map();
-  for (const a of attempts) {
+  // On COPIES: it used to rewrite the caller's objects, so "did normalising change
+  // anything?" (migrateMislabeledEcm, mergePulledEcm) compared the result with an
+  // input already changed to match — relabels went unsaved, and a pulled list with
+  // two same-method/B1 rows always read as "GitHub lacks runs" and queued a push.
+  for (const a0 of attempts) {
+    if (!a0 || typeof a0 !== 'object') continue;
+    const a = Object.assign({}, a0);
     // Compact any raw (un-hashed) sigma HERE, at the one place every ECM attempt
     // list passes through — imports, merges, and GitHub pulls all call this. This
     // is what actually stops a pull from re-introducing full-size raw sigmas into
@@ -5523,7 +5597,7 @@ function resetEntryData(n) {
   if (e) {
     if (fdbCache[fdbKeyOf(e.n)])            delete fdbCache[fdbKeyOf(e.n)];
     if (e.cofactor && fdbCache[e.cofactor]) { delete fdbCache[e.cofactor]; delete fdbFactors[e.cofactor]; }
-    e.status = 'unknown'; e.factors = []; e.cofactor = null;
+    e.status = 'composite'; e.factors = []; e.cofactor = null;
     delete e._fdbVerified; delete e._resolvedViaCofactor;
   }
   saveFDBCache(fdbCache);
@@ -7965,9 +8039,11 @@ function fdbCheckSets(staleDays) {
     // be missing. The check to run after every euler.py submit. (Was "ours",
     // "ahead" and a size-gated "submitted".)
     submitted:  base.filter(e => factorsFdbLacks(e).length > 0).sort(byN),
-    never:      base.filter(e => e.status === 'unknown' && !isFdbUndetermined(e, fdbCache[fdbKeyOf(e.n)])).sort(byN),
+    // "Never" is FactorDB never asked — not "answered C": with the undetermined category merged
+    // into NO KNOWN FACTORS, a composite entry may well carry FactorDB's C.
+    never:      base.filter(e => e.status === 'composite' && !fdbAnswer(fdbCache[fdbKeyOf(e.n)]) && e._fdbUnknown !== true).sort(byN),
     old:        base.filter(e => e.status !== 'full' && stale(e)).sort(byN),
-    fdb:        base.filter(e => e.status === 'unknown' && isFdbUndetermined(e, fdbCache[fdbKeyOf(e.n)])).sort(byN),
+    fdb:        base.filter(e => e.status === 'composite' && isFdbUndetermined(e, fdbCache[fdbKeyOf(e.n)])).sort(byN),
     everything: base.filter(e => e.status !== 'full').sort(byN),
   };
 }
@@ -8599,6 +8675,13 @@ function applyWithdrawals(ecm, ledger) {
       if (removed > 0) a.curves = String(Math.max(a.sigmas.length, (parseInt(a.curves) || 0) - removed));
       if (!(parseInt(a.curves) > 0) && !a.sigmas.length && !(a.ms > 0)) list.splice(i, 1);
     } else if (run.created && run.method !== 'ECM' && !(a.ms > 0)) list.splice(i, 1);
+    else if (run.method === 'ECM' && parseInt(run.curves) > 0) {
+      // Contributed curves that came without sigmas were credited by count alone
+      // (acceptSubmission records how many); they go the same way.
+      const left = Math.max((a.sigmas || []).length, (parseInt(a.curves) || 0) - parseInt(run.curves));
+      a.curves = String(left);
+      if (!left && !(a.ms > 0)) list.splice(i, 1);
+    }
     if (!list.length) delete out[String(run.n)];
   }
   return out;
@@ -8834,7 +8917,9 @@ function importEcmJson(text, label) {
                         sig: countSigmas(before), cur: countCurves(before) };
 
   let merged;
-  try { merged = mergeEcmData(remote); }
+  // As the pull does: a file saved before a withdrawal or a deletion here still
+  // holds those runs, and restoring it brought them back — and pushed them.
+  try { merged = applyWithdrawals(applyDeletionsToEcm(mergeEcmData(remote), deletedHere()), loadContributions()); }
   catch (e) { alert('Could not merge that file: ' + e.message); return; }
   const afterStats = { n: Object.keys(merged).length, att: countAttempts(merged),
                        sig: countSigmas(merged), cur: countCurves(merged) };
@@ -8937,7 +9022,7 @@ function parseEcmLogBlocks(text) {
   const reFacB  = /Factor found in step \d+:\s*(\d+)/;
   const reStep  = /Step \d took/; // evidence stage 1 (or later) actually ran, not just startup
   const reStep2 = /Step 2 took/;  // ECM/P±1's stage 2 completed — see pendingSigma below
-  let lastMethod = 'ECM';
+  let lastMethod = 'ECM', lastMethodKnown = false;
   let lastCommentN = null;
   let lastCommentTag = null;
   let totalTimeMs = 0; // real measured CPU time across every Step line in the whole log,
@@ -8948,12 +9033,12 @@ function parseEcmLogBlocks(text) {
     let mm;
     // Run-comment line: authoritative method + E(n) for the NEXT block.
     if ((mm = reRunComment.exec(ln))) {
-      lastMethod = mm[3]; lastCommentN = parseInt(mm[2]);
+      lastMethod = mm[3]; lastCommentN = parseInt(mm[2]); lastMethodKnown = true;
       // Label looks like "m1c1 1/250" (or just "8" on older single-machine
       // exports) — keep the leading token as the worker-slice tag.
       lastCommentTag = (mm[1].trim().split(/\s+/)[0] || '?').slice(0, 12);
     }
-    if ((mm = reMethod.exec(ln))) lastMethod = mm[1]; // GMP-ECM [METHOD] header (if present)
+    if ((mm = reMethod.exec(ln))) { lastMethod = mm[1]; lastMethodKnown = true; } // GMP-ECM [METHOD] header (if present)
     if ((mm = reInput.exec(ln))) {
       const rawNum = mm[1];
       const declaredDigits = parseInt(mm[2]) || rawNum.replace(/[^0-9]/g, '').length;
@@ -8965,14 +9050,14 @@ function parseEcmLogBlocks(text) {
         // truncates this line. When that happens we can't BigInt-match the number, so
         // we fall back to the run-comment's E(n) tag (commentN) to identify the owner.
         declaredDigits,
-        method: lastMethod, commentN: lastCommentN, b1: null, b2: null, curves: 1,
+        method: lastMethod, methodKnown: lastMethodKnown, commentN: lastCommentN, b1: null, b2: null, curves: 0, runNo: 1,
         sigmas: new Set(), pendingSigma: null, factors: new Map(), hadProgress: false,
         timeMs: 0,          // real measured time for THIS run only (calibration input)
         sawStep2: false,    // whether stage 2 completed at all (P±1 completeness check)
         tag: lastCommentTag,
       };
       blocks.push(cur);
-      lastCommentN = null; lastCommentTag = null; // consumed
+      lastCommentN = null; lastCommentTag = null; lastMethodKnown = false; // consumed
       continue;
     }
     if (!cur) continue;
@@ -8982,13 +9067,15 @@ function parseEcmLogBlocks(text) {
       totalTimeMs += ms;
       cur.timeMs  += ms; // same measurement, attributed to this run for calibration
     }
-    if (reStep2.test(ln)) cur.sawStep2 = true;
+    if (reStep2.test(ln)) { cur.sawStep2 = true; cur.curves = Math.max(cur.curves, cur.runNo); }
     if ((mm = reUsing.exec(ln))) {
       if (cur.b1 == null) cur.b1 = mm[1];
       if (mm[2] && cur.b2 == null) cur.b2 = mm[2];
-      // Distinguish method from the run line's markers when the comment/header didn't:
-      //   ECM → "sigma=" ;  P+1 → "x0=" ;  P-1 → "x0=" absent + no sigma (rare here)
-      if (/x0=/.test(ln) && cur.method === 'ECM') cur.method = 'P+1';
+      // P-1 and P+1 both print "x0=" on this line (and "polynomial x^1"): the line
+      // cannot tell them apart — only the "[P-1]"/"[P+1]" header or the run comment
+      // can. With neither (a -q log, or a cut one), the block is left unidentified
+      // and skipped with a note, rather than guessed (it used to become P+1).
+      if (/x0=/.test(ln) && cur.method === 'ECM' && !cur.methodKnown) cur.method = null;
     }
     if ((mm = reSigma.exec(ln))) {
       // A new curve started. Whatever sigma was PENDING before this one never got
@@ -9003,21 +9090,30 @@ function parseEcmLogBlocks(text) {
       cur.pendingSigma = null;
     }
     if ((mm = reRun.exec(ln))) {
-      cur.curves = Math.max(cur.curves, parseInt(mm[1]) || 1); // highest completed run #
-      cur.declared = parseInt(mm[2]) || cur.curves;
+      // The run STARTED. It counts (cur.curves) once its stage 2 is done or it finds
+      // a factor — counted at the start, a block killed in its first curve, or read
+      // mid-curve, recorded a curve that never ran.
+      cur.runNo = parseInt(mm[1]) || 1;
+      cur.declared = parseInt(mm[2]) || cur.runNo;
       cur.hadProgress = true;
     }
     let fm;
     if ((fm = reFacA.exec(ln))) {
       cur.factors.set(fm[2], { value: fm[2], composite: fm[1] === 'composite' });
-      cur.hadProgress = true;
+      cur.hadProgress = true; cur.curves = Math.max(cur.curves, cur.runNo);
       // GMP-ECM stops the moment it finds a factor, sometimes before ever printing
       // "Step 2 took" for that curve — but the curve DID succeed, so confirm it.
       if (cur.pendingSigma) { cur.sigmas.add(cur.pendingSigma); cur.pendingSigma = null; }
     } else if ((fm = reFacB.exec(ln))) {
-      if (!cur.factors.has(fm[1])) cur.factors.set(fm[1], { value: fm[1], composite: false });
-      cur.hadProgress = true;
+      // "Factor found in step k: N" with N the number itself (the gcd landed on
+      // everything: both factors smooth, or a prime cofactor) is no factor — GMP-ECM
+      // follows it with "Found input number". Recorded, it was taken for a prime
+      // (>19 digits are not tested) and could mark the entry fully factored.
+      if (fm[1] !== cur.number && !cur.factors.has(fm[1])) cur.factors.set(fm[1], { value: fm[1], composite: false });
+      cur.hadProgress = true; cur.curves = Math.max(cur.curves, cur.runNo);
       if (cur.pendingSigma) { cur.sigmas.add(cur.pendingSigma); cur.pendingSigma = null; }
+    } else if (/Found input number/.test(ln)) {
+      cur.factors.delete(cur.number);
     }
   }
   return { blocks, totalTimeMs };
@@ -9056,7 +9152,7 @@ async function _processEcmLogText(text, sourceLabel, opts) {
   }
   const ecmData = loadECM();
 
-  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0, killedRuns = 0, calibSamples = 0;
+  let runsRecorded = 0, factorsNew = 0, factorsDup = 0, unmatched = 0, fdbCompositeLookups = 0, killedRuns = 0, calibSamples = 0, inFlight = 0, unknownMethod = 0;
   let ecmRuns = 0, pm1Runs = 0, pp1Runs = 0, totalCurves = 0;
   const summary = [];
   const dirtyN = new Set();
@@ -9064,7 +9160,7 @@ async function _processEcmLogText(text, sourceLabel, opts) {
   // helper to get/make a live entry for an n (may be outside current range)
   const entryForN = (n) => {
     let e = entryByN(n);
-    if (!e) e = { n, val: eulerValues[n] || null, status: factoData[n]?.status || 'unknown', factors: (factoData[n]?.factors || []).slice() };
+    if (!e) e = { n, val: eulerValues[n] || null, status: factoData[n]?.status || 'composite', factors: (factoData[n]?.factors || []).slice() };
     return e;
   };
 
@@ -9108,8 +9204,22 @@ async function _processEcmLogText(text, sourceLabel, opts) {
     // happened — recording it as a completed attempt would be wrong (falsely
     // implying the odds this run represents were actually attempted). Counted in
     // the summary's aggregate stats rather than spelled out per-occurrence.
+    if (!blk.method) { unknownMethod++; continue; }     // see the x0 note in the parser
     if ((blk.method === 'P-1' || blk.method === 'P+1') && !blk.hadProgress && !blk.sigmas.size) {
       killedRuns++;
+      continue;
+    }
+    if (blk.method === 'ECM' && !blk.sigmas.size && !blk.curves && !blk.factors.size) {
+      killedRuns++;                      // not one curve completed: nothing to record
+      continue;
+    }
+    // A P±1 run whose stage 2 has not finished is still RUNNING (the file is being
+    // read while it works) or was killed in stage 2. Recorded now, with its B2, it
+    // counted as the full run — the planner never offered that B1 again, and the
+    // queue let it go — so nothing of its stage 2 was ever credited or redone.
+    if ((blk.method === 'P-1' || blk.method === 'P+1') && !blk.sawStep2 && !blk.factors.size
+        && blk.b2 && parseB1(blk.b2) > parseB1(blk.b1)) {
+      inFlight++;
       continue;
     }
 
@@ -9145,7 +9255,8 @@ async function _processEcmLogText(text, sourceLabel, opts) {
       //           nudges the ratio slightly high — harmless against a median).
       //   P±1   → needs stage 2 to have completed, since the model prices a full
       //           stage1+stage2 run; a stage-1-only run would look artificially fast.
-      if (blk.timeMs > 0 && !contrib) {
+      const calibSampleFor = () => {
+        if (!(blk.timeMs > 0) || contrib) return;
         const isPm1blk = (blk.method === 'P-1' || blk.method === 'P+1');
         const usableCurves = isPm1blk ? 1 : blkSigmas.length;
         const complete = isPm1blk ? blk.sawStep2 : (blkSigmas.length > 0);
@@ -9159,7 +9270,7 @@ async function _processEcmLogText(text, sourceLabel, opts) {
             }
           }
         }
-      }
+      };
       // Match on method + B1 only. This used to also require `a.source === 'log'`,
       // and `source: 'log'` is set by this function and nowhere else — so an
       // attempt that arrived any other way (a results_ecm.json restore, an older
@@ -9172,13 +9283,13 @@ async function _processEcmLogText(text, sourceLabel, opts) {
       // filter. All three now agree, which is the point: whether two records
       // describe the same work cannot depend on which door the work came in by.
       const existing = ecmData[key].find(a => a.method === blk.method && parseB1(a.b1) === b1n);
-      let seenGrew = false;
+      let seenGrew = false, before_ = 0, addedShareOut = 1;
       if (existing) {
         const curvesBefore = parseInt(existing.curves) || 0;
         if (blkSigmas.length) {
           // Accumulate unique sigmas; curve count = size of the accumulated set.
           const seen = new Set(existing.sigmas || []);
-          const before = seen.size;
+          const before = seen.size; before_ = before;
           const fresh = contrib ? blkSigmas.filter(s => !seen.has(s)) : null;
           for (const s of blkSigmas) seen.add(s);
           existing.sigmas = Array.from(seen);
@@ -9206,7 +9317,18 @@ async function _processEcmLogText(text, sourceLabel, opts) {
         // other: re-import an old log and all of its effort is dated today, so
         // "all time" and "since tracking began" show identical numbers and the
         // historical work stops being distinguishable as historical.
-        const addedWork = blkSigmas.length ? seenGrew : ((parseInt(existing.curves) || 0) > curvesBefore);
+        const isPm1x = blk.method === 'P-1' || blk.method === 'P+1';
+        // A P±1 run at a B1 already held is the same run again (its stored curve
+        // count is '' = 0, so the generic "did the count rise?" said yes every time:
+        // the time was added again and the date moved to today on each re-import).
+        const addedWork = isPm1x ? false : blkSigmas.length ? seenGrew : ((parseInt(existing.curves) || 0) > curvesBefore);
+        // The SHARE of the block's time that is new work. A worker file is read
+        // again as it grows: at 100 curves its time covers the 50 already counted,
+        // so only the fresh half of the block's time is added — adding all of it
+        // on every poll overstated CPU per entry, per level and in cost-per-find.
+        const addedShare = !addedWork ? 0
+          : blkSigmas.length ? (seenGrew ? ((existing.sigmas.length - before_) / blkSigmas.length) : 0)
+          : Math.min(1, ((parseInt(existing.curves) || 0) - curvesBefore) / Math.max(1, blk.curves));
         // A contribution leaves YOUR run's own details alone: its B2 and dates feed your
         // time model (lastRun decides whether your measured time still fits the cofactor).
         if (blk.b2 && !existing.b2 && !contrib) existing.b2 = blk.b2;
@@ -9215,8 +9337,9 @@ async function _processEcmLogText(text, sourceLabel, opts) {
         // the same log would inflate the recorded time while curves (correctly,
         // being a set union) stayed flat.
         if (blk.timeMs > 0 && addedWork && !contrib) {
-          existing.ms = (existing.ms || 0) + blk.timeMs;
+          existing.ms = (existing.ms || 0) + Math.round(blk.timeMs * Math.min(1, Math.max(0, addedShare)));
         }
+        addedShareOut = addedWork ? addedShare : 0;
         // Record WHEN this attempt was last extended. `date` is only set when an
         // attempt is first created, so without this a record that gains new curves
         // every week keeps its original date forever — and the yield report, which
@@ -9246,6 +9369,10 @@ async function _processEcmLogText(text, sourceLabel, opts) {
           lastRun: new Date().toISOString().slice(0,10),
         });
       }
+      // One sample per block of NEW work: re-reading the same file (or one that has
+      // grown) appended a sample every time, and the median came to reflect which
+      // worker files were polled most, not the machines.
+      if (addedShareOut > 0) calibSampleFor();
       runsRecorded++;
       if (blk.method === 'ECM') { ecmRuns++; totalCurves += blkSigmas.length || blk.curves; }
       else if (blk.method === 'P-1') pm1Runs++;
@@ -9343,6 +9470,8 @@ async function _processEcmLogText(text, sourceLabel, opts) {
   if (pm1Runs) statsParts.push(pm1Runs + ' P-1');
   if (pp1Runs) statsParts.push(pp1Runs + ' P+1');
   if (killedRuns) statsParts.push(killedRuns + ' interrupted before completing (not counted)');
+  if (inFlight) statsParts.push(inFlight + ' P±1 run' + (inFlight === 1 ? '' : 's') + ' still in stage 2 (import again when done)');
+  if (unknownMethod) statsParts.push(unknownMethod + ' P±1 run' + (unknownMethod === 1 ? '' : 's') + ' skipped: no [P-1]/[P+1] header or run comment says which');
   const statsLine = statsParts.length ? statsParts.join(' · ') : '';
 
   // Time-estimate calibration feedback — shows whether estimates just got more
@@ -9419,7 +9548,9 @@ function recordEcmFactor(entry, factorStr, method, opts) {
   // E(n) — most often it belongs to a different entry because the run was
   // attributed to the wrong number. Silently storing it corrupts the record and
   // inflates the apparent factor count.
-  if (factorDividesValue(entry.val, factorStr) === false) {
+  // null = could not be checked (no value at hand): an unchecked factor is not
+  // recorded either — a wrong one would sit in the records until the next audit.
+  if (factorDividesValue(entry.val, factorStr) !== true) {
     logSwallowed('recordEcmFactor/rejected',
       new Error('factor ' + String(factorStr).slice(0, 24) + '… does not divide E(' + n + ')'));
     return 'invalid';
@@ -9925,8 +10056,8 @@ function applyFdbResult(data, n, numberStr) {
       if (priorCount === 0) {
         // Nothing of our own either: nothing is known — one category, whether or not
         // FactorDB was asked (that fact is the flag above).
-        if (entry.status !== 'unknown') statusChanged = true;
-        entry.status = 'unknown';
+        if (entry.status !== 'composite') statusChanged = true;
+        entry.status = 'composite';
       }
       // With factors of our own, 'partial' stays: it describes OUR knowledge
       // correctly. The _fdbUnknown flag carries the rest of the story.
@@ -10145,7 +10276,7 @@ function ecmRunStats(mode, limit) {
     const n = parseInt(nStr);
     if (!isFinite(n)) continue;
     const entry = byN.get(n);
-    const digits = entry ? workingDigitsFor(entry).digits : 0;
+    const digits = (entry && workingDigitsFor(entry) || {}).digits || 0;
     let entrySec = 0, entryCurves = 0, entryPasses = 0;
     const counted = [];
 
@@ -10368,7 +10499,7 @@ function computeYieldByLevel() {
         // model down by the clamp on every level whose old work predates tracking.
         //
         // Same rule the CPU/FIND column already follows, for the same reason.
-        if (work.digits) {
+        if (work && work.digits) {       // work is null for a run on an n with no entry
           try {
             const pe = pFactorExists(bucket, work.digits);
             const pf = ecmProbability(bucket, cv, b1n);
@@ -11251,7 +11382,7 @@ function renderGrid() {
       partial:        '<span class="card-badge badge-partial">◐ PARTIAL</span>',
       composite:      '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>',
       attempted:      '<span class="card-badge badge-attempted">⟳ ECM</span>',
-    }[e.status] || '<span class="card-badge badge-unknown">○ UNDETERMINED</span>';
+    }[e.status] || '<span class="card-badge badge-composite">◌ NO KNOWN FACTORS</span>';
 
     // No "⟳" marker beside the status badge. It meant "ECM runs are logged", but it
     // is the universal refresh symbol, so it read as a refresh button — one that did
@@ -11475,12 +11606,11 @@ function dismissFullyFactored() {
 function renderStats() {
   // Single pass over allEntries for all status counts (was 6 separate .filter() passes)
   const ecmD = loadECM();
-  let full = 0, partial = 0, unknown = 0, composite = 0, attempted = 0;
+  let full = 0, partial = 0, composite = 0, attempted = 0;
   for (const e of allEntries) {
     switch (e.status) {
       case 'full':        full++; break;
       case 'partial':     partial++; break;
-      case 'unknown':     unknown++; break;
       case 'composite':   composite++; break;
     }
     if (e.status !== 'full' && (ecmD[String(e.n)] || []).length > 0) attempted++;
@@ -11529,7 +11659,6 @@ function renderStats() {
     <span class="stat-item" style="color:var(--yellow)"><strong>${partial}</strong> partial</span>
     <span class="stat-item" style="color:var(--orange)"><strong>${composite}</strong> no factors</span>
     <span class="stat-item" style="color:var(--teal);cursor:pointer;text-decoration:underline dotted" onclick="showYieldReport()" title="Click for yield by ECM level — effort spent vs factors found"><strong>${attempted}</strong> ECM logged</span>
-    <span class="stat-item" style="color:var(--red)"><strong>${unknown}</strong> undetermined</span>
     <span class="stat-item"><strong>${allEntries.length}</strong> total</span>
     <span class="stat-item" style="color:var(--text-muted);border-left:1px solid var(--border2);padding-left:10px;margin-left:4px">⏱ <strong>${totalCpuStr}</strong> total CPU (7900)</span>
     ${calibHtml}
@@ -11615,8 +11744,7 @@ function openModal(n, loaded) {
   const statusInfo = {
     full:      { icon:'●', color:'var(--green)',  label:'Fully Factored',        desc:'All prime factors are known.' },
     partial:   { icon:'◐', color:'var(--yellow)', label:'Partially Factored',    desc:'Some prime factors known. An unfactored cofactor remains.' },
-       unknown:   { icon:'○', color:'var(--red)',     label:'Undetermined',          desc:'No factor of this number is known, and it is not even settled whether it is prime — FactorDB has not determined it, or has not been asked yet. A first factor is the likeliest find here, and the most useful: the sieve and ECM are where it comes from.' },
-    composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'Confirmed composite by FactorDB, but no prime factors found yet. ECM/NFS needed.' },
+    composite: { icon:'◌', color:'var(--orange)',  label:'No Known Factors',      desc:'No prime factor is known yet. The FactorDB line below says whether it has been asked.' },
     attempted: { icon:'⟳', color:'var(--teal)',    label:'ECM Logged',            desc:'No known factors yet, but ECM/P-1/P+1 attempts have been logged.' },
   }[e.status];
 
@@ -13300,7 +13428,7 @@ function getBulkTargets() {
   return allEntries.filter(e => {
     if (e.n < fromN || e.n > toN) return false;
     if (filter === 'all')        return true;
-    if (filter === 'unfactored') return ['unknown','composite','partial','attempted'].includes(e.status);
+    if (filter === 'unfactored') return ['composite','partial','attempted'].includes(e.status);
     if (filter === 'attempted') {
       if ((ecmData[String(e.n)] || []).length === 0) return false; // no ECM logs
       // Check if fully factored — look at both e.status AND fdbCache
@@ -13404,12 +13532,12 @@ function applyBulkECM() {
 
 // 'attempted' is no longer a status. It was set here, only during a session (never on
 // load), and nothing counted or filtered it: an entry whose first run was just logged
-// vanished from UNDETERMINED or NO KNOWN FACTORS, and from the totals, until a reload.
+// vanished from NO KNOWN FACTORS, and from the totals, until a reload.
 // The ECM LOGGED filter and count work from the runs themselves.
 function undoAttempted(e) {
   if (!e || e.status !== 'attempted') return;
   const rec = fdbCache[fdbKeyOf(e.n)];                 // the rule replayFDBCache uses, so a reload agrees
-  e.status = rec && rec.status === 'C' ? 'composite' : 'unknown';
+  e.status = 'composite';
 }
 function syncAttemptedStatus(n) {
   const entry = entryByN(n);
@@ -13530,7 +13658,7 @@ function deleteECMAttempt(n, i) {
   const yesBtn = document.createElement('button');
   yesBtn.textContent = 'Yes, delete';
   yesBtn.style.cssText = 'background:var(--red);border:none;color:#fff;font-family:monospace;font-size:11px;padding:3px 10px;cursor:pointer;margin-left:8px';
-  yesBtn.onclick = () => confirmDeleteECM(n, idx);
+  yesBtn.onclick = () => confirmDeleteECM(n, idx, ecmRunId(n, a));
 
   const noBtn = document.createElement('button');
   noBtn.textContent = 'Cancel';
@@ -13547,10 +13675,13 @@ function deleteECMAttempt(n, i) {
   targetRow.insertAdjacentElement('afterend', confirmRow);
 }
 
-function confirmDeleteECM(n, idx) {
+function confirmDeleteECM(n, idx, runId) {
   const key     = String(n);
   const ecmData = loadECM();
   const attempts = ecmData[key] || ecmData[n] || [];
+  // The run that was SHOWN. A merge between opening the prompt and clicking Yes can
+  // reorder the list, and the index alone then deleted a different run.
+  if (runId) { const j = attempts.findIndex(a => ecmRunId(n, a) === runId); if (j < 0) return; idx = j; }
   if (idx < 0 || idx >= attempts.length) return;
   recordDeletion({ runs: [ecmRunId(n, attempts[idx])] });   // deliberate, not a loss
 
@@ -13580,7 +13711,7 @@ function resetEntry(n) {
   const nRuns = (loadECM()[String(n)] || []).length;
   const nFac  = (e.factors || []).filter(f => f && f !== '1').length;
   const lines = ['  • its FactorDB record, including results imported from euler.py check'];
-  if (nFac)  lines.push(`  • its ${nFac} known factor${nFac === 1 ? '' : 's'} — the entry goes back to "undetermined"`);
+  if (nFac)  lines.push(`  • its ${nFac} known factor${nFac === 1 ? '' : 's'} — the entry goes back to "no known factors"`);
   if (nRuns) lines.push(`  • all ${nRuns} logged ECM / P-1 / P+1 run${nRuns === 1 ? '' : 's'}`);
   if (typeof confirm === 'function'
       && !confirm(`Reset E(${n})?\n\nThis deletes, for this entry:\n${lines.join('\n')}`)) return;
@@ -13657,8 +13788,9 @@ function isVerifiedComplete(n) {
   const ack = loadVerifiedComplete()[n];
   if (!ack) return false;
   const cleared = loadVerifiedCleared()[n];
-  // A retraction only counts if it came AFTER the acknowledgement it retracts.
-  return !(cleared && cleared >= ack);
+  // A retraction only counts if it came AFTER the acknowledgement it retracts. Same
+  // second = re-acknowledged right after clearing: the acknowledgement stands.
+  return !(cleared && cleared > ack);
 }
 function markVerifiedComplete(ns) {
   const v = loadVerifiedComplete();
@@ -13773,7 +13905,10 @@ async function runDataIntegrityCheck(onProgress) {
   };
   let checked = 0, skippedPrimality = 0, timedOut = false;
   let remainderMsSpent = 0, remainderUnverified = 0, acknowledged = 0;
-  const verified = loadVerifiedComplete();
+  // Through isVerifiedComplete, as the fixer: the raw map ignores a retraction, so
+  // an acknowledgement cleared here but still held by a peer hid the entry from the
+  // report while the fixer went on to demote it.
+  const verified = Object.fromEntries(Object.keys(loadVerifiedComplete()).filter(n => isVerifiedComplete(Number(n))).map(n => [n, true]));
   const deadline = Date.now() + INTEGRITY_BUDGET_MS;
   const CHUNK = 200;
 
@@ -13881,7 +14016,8 @@ async function runDataIntegrityCheck(onProgress) {
       // record at all, which is a very different claim.
       if (base === val && e.factors.length === 1) {
         const rec = fdbCache[fdbKeyOf(e.n)];
-        const fdbSaysPrime = rec && ['P', 'PRP'].includes(rec.status);
+        const said = fdbAnswer(rec);
+        const fdbSaysPrime = rec && (['P', 'PRP'].includes(rec.status) || (said && ['P', 'PRP'].includes(said.status)));
         if (!fdbSaysPrime) {
           if (bStr.length > PRIMALITY_SCAN_MAX_DIGITS) {
             // Too large to verify locally and FactorDB has not called it prime.
@@ -14036,9 +14172,12 @@ async function _fixIntegrityIssues(scan) {
   const needsRecheck = [];
   const deadline = Date.now() + 20000;
 
+  // Skips a factor that is not a number (the scan tolerates them): a throw here
+  // used to abort the fixer after steps 1–2 had already rewritten entries, leaving
+  // the grid repaired and the store not.
   const productOf = (factors) => {
     let p = 1n;
-    for (const f of factors) { const [b, x] = String(f).split('^'); p *= BigInt(b) ** BigInt(x || 1); }
+    for (const f of factors) { const [b, x] = String(f).split('^'); if (!/^\d+$/.test(b)) continue; p *= BigInt(b) ** BigInt(x || 1); }
     return p;
   };
   // Local copy: applyFdbResult has its own collapsePowers, but it's scoped inside
@@ -14068,8 +14207,8 @@ async function _fixIntegrityIssues(scan) {
     // sole factor is the correct representation, and removing it would destroy a
     // complete factorisation. Re-checked here rather than trusted from the scan,
     // since the data can change between scanning and fixing.
-    const rec = fdbCache[fdbKeyOf(e.n)];
-    if (rec && ['P', 'PRP'].includes(rec.status)) { continue; }
+    const rec = fdbCache[fdbKeyOf(e.n)], said = fdbAnswer(rec);
+    if (rec && (['P', 'PRP'].includes(rec.status) || (said && ['P', 'PRP'].includes(said.status)))) { continue; }
     e.factors = (e.factors || []).filter(f => String(f).split('^')[0] !== e.val);
     e.status  = e.factors.length ? 'partial' : 'composite';
     e.cofactor = null;
@@ -14112,7 +14251,7 @@ async function _fixIntegrityIssues(scan) {
     if (Array.isArray(e.factors) && e.factors.length) continue; // re-verify: factors appeared since the scan
     const rec = fdbCache[fdbKeyOf(e.n)];
     const st  = rec && rec.status;
-    e.status = ['C', 'CF'].includes(st) ? 'composite' : 'unknown';
+    e.status = 'composite';
     e.cofactor = null;
     fixed.demotedEmpty++;
     needsRecheck.push(it.n);   // FactorDB may well know factors we never recorded
@@ -14269,8 +14408,11 @@ async function _fixIntegrityIssues(scan) {
     const rec = fdbCache[fdbKeyOf(e.n)];
     if (rec && Array.isArray(e.factors)) {
       rec.factors = e.factors;
-      if (e.status === 'full') rec.status = 'FF';
-      else if (e.status === 'composite') rec.status = 'C';
+      // A prime E(n) stays P/PRP: written as FF, the prime guards (which look for
+      // P/PRP) no longer recognised it, and the NEXT scan+fix stripped its one
+      // "factor" — itself — leaving a prime with no factors.
+      if (e.status === 'full' && !['P', 'PRP'].includes(rec.status)) rec.status = 'FF';
+      else if (e.status === 'composite' && rec.status !== 'U') rec.status = 'C';   // never claim FactorDB said C where it said U
       else if (e.status === 'partial' && rec.status === 'FF') rec.status = 'CF';
     }
   }
@@ -14282,7 +14424,9 @@ async function _fixIntegrityIssues(scan) {
 async function runIntegrityFix() {
   let scan;
   setStatus('Re-scanning before fixing…', '');
-  try { scan = await runDataIntegrityCheck(); }
+  // The report loaded the values; a minute after it was shown they are trimmed, and
+  // a re-scan without them found nothing — "Nothing to fix" with the issues listed.
+  try { if (valuesMissing(null)) await needValues(null, 'the fix'); scan = await runDataIntegrityCheck(); }
   catch(err) { setStatus('', ''); alert('Could not re-scan: ' + err.message); return; }
 
   const counts = scan.issues;
@@ -14590,23 +14734,23 @@ async function showSievePrompt() {
     // long the run takes — far bigger than the range for most people.
     const inRange = sieveCandidates(false, nFrom, nTo);
     if (!inRange.length) { alert('No unfinished entries in that range.'); continue; }
-    const nU  = inRange.filter(e => e.status === 'unknown').length;
+    const nU  = inRange.filter(e => e.status === 'composite').length;
     statuses = null;
     if (nU) {
       const sRaw = prompt(
         'Which entries?\n\n'
         + '  "all"      every unfinished entry in range   ' + inRange.length.toLocaleString() + '\n'
-        + '  "nothing"  undetermined — nothing known      ' + nU.toLocaleString() + '\n\n'
+        + '  "nothing"  no known factors                  ' + nU.toLocaleString() + '\n\n'
         + 'The sieve tests the cofactor, so entries that already have factors have\n'
         + 'usually had the easy ones taken. A first small factor is most likely — and\n'
         + 'worth most — on numbers nothing has touched yet.',
         'all');
       if (sRaw === null) return;
       const a = sRaw.trim().toLowerCase();
-      if (/^(nothing|nothingknown|none|n|unknown|never|fdb)$/.test(a)) statuses = ['unknown'];
+      if (/^(nothing|nothingknown|none|n|unknown|never|fdb|composite)$/.test(a)) statuses = ['composite'];
       // anything else, including "all" and an empty answer, leaves it unrestricted
     }
-    const scope = !statuses ? 'unfinished' : 'undetermined';
+    const scope = !statuses ? 'unfinished' : 'no known factors';
 
     const all = sieveCandidates(false, nFrom, nTo, statuses);
     const fresh = sieveCandidates(true, nFrom, nTo, statuses);
@@ -14776,9 +14920,16 @@ function sieveDepthDigits(n) {
   return lim > 1 ? Math.log10(lim) : 0;
 }
 
-function applySieveFindings() {
+// Holds the values while it runs: the sieve's own hold ends when the sieve returns,
+// and a minute later the values are trimmed — with the results window still open.
+// Applied then, every finding was skipped ("no value"), reported as 0 recorded, and
+// the pending list cleared: the factors were lost until the sieve was run again.
+async function applySieveFindings(...args) { return holdingValues(_applySieveFindings, args); }
+async function _applySieveFindings() {
   const findings = _pendingSieve;
   if (!findings || !findings.length) return;
+  const ns = [...new Set(findings.map(f => f.n))];
+  if (valuesMissing(ns)) await needValues(ns, 'recording the sieve findings');
   let applied = 0, rejected = 0;
   for (const f of findings) {
     const e = entryByN(f.n);
@@ -16144,8 +16295,6 @@ setTimeout(async () => {
     fdbCache    = loadFDBCache();
     try { migrateRedundantComposites(); } catch(e) { logSwallowed('migrate/redundantComposites', e); }  // one-time composite-vs-its-own-primes cleanup (needs fdbCache loaded)
     try { migrateSigmaHashes(); } catch(e) { logSwallowed('migrate/sigmaHashes', e); }  // one-time raw-sigma→hash compaction (storage size fix)
-    try { migrateFalseFdbUnknown(); } catch(e) { logSwallowed('migrate/falseUnknown', e); }  // one-time: marks written by network failures, not by FactorDB
-    try { migrateBogusCofactorFactors(); } catch(e) { logSwallowed('migrate/bogusCofactor', e); }  // undo the CF cofactor-as-prime bug
     try { repairCompositeRecords(); } catch(e) { logSwallowed('repair/compositeRecords', e); }  // C holding factors is CF — every start
     // The seed-import feature was one-time-only and has been removed now that both
     // seeds are in. Its tracking key would otherwise linger indefinitely; the flag
@@ -16165,6 +16314,11 @@ setTimeout(async () => {
     invalidateCpuTotal();
     applyFdbUnknownSet();              // restore the 'FactorDB had nothing' flag from its own set
     replayFDBCache();
+    // The two migrations that work on ENTRIES run here, on entries rebuilt from the
+    // pulled records. Run before the rebuild they saw the first render's entries —
+    // from before the pull — and wrote those stale factor lists over the records.
+    try { migrateFalseFdbUnknown(); } catch(e) { logSwallowed('migrate/falseUnknown', e); }  // one-time: marks written by network failures, not by FactorDB
+    try { migrateBogusCofactorFactors(); } catch(e) { logSwallowed('migrate/bogusCofactor', e); }  // undo the CF cofactor-as-prime bug
     // Ensure no fully-factored entry is stuck as 'attempted' (index cache by n once)
     const cacheByN = new Map();
     for (const c of Object.values(fdbCache)) { if (c && c.n != null) cacheByN.set(c.n, c); }
@@ -16187,6 +16341,9 @@ setTimeout(async () => {
       'ecm=' + Object.keys(loadECM()).length);
   } catch(e) {
     console.error('Final render failed:', e);
+    // The tools must not stay held: a throw in a migration or the replay left every
+    // [data-needs-values] control refused for the session with "still loading".
+    try { setValuesLoading(false); _appReady = true; addLog('Startup hit an error (' + (e && e.message) + ') — the tools are open, but check the console', 'warn'); } catch (e2) { logSwallowed('init/release', e2); }
   }
 
   setStatus('');
