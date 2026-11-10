@@ -2501,6 +2501,42 @@ function saveFDBCache(c) {
       + 'protect the factor cache. Reload the page.'); } catch (e) { logSwallowed('saveFDBCache/warn', e); }
     return;
   }
+  // A bulk apply (importing a whole check) holds the save: it is made once, when the
+  // hold is released — see holdFdbSaves.
+  if (_fdbSaveHold > 0) { _fdbHeldSave = _fdbHoldLast = c; return; }
+  // The store as it is NOW — encoded here, so a save is a snapshot of this moment.
+  const slim = _slimFdbCache(c);
+  // Store full factors in memory keyed by number string (for fast replay lookup)
+  for (const [k, v] of Object.entries(c)) {
+    if (v.n == null) continue;
+    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
+    if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
+  }
+  // Serialising is deferred; the fdbFactors bookkeeping above is NOT.
+  //
+  // A poll run calls this once per number, and rebuilding the whole store each
+  // time costs ~270 ms against a 10,000-entry cache — 140 for the base36 encoding
+  // and 130 for stringifying 6.4 MB. Over a 500-number run that is two minutes of
+  // pure re-serialisation, all of it thrown away by the next call.
+  //
+  // kvSet already debounces the IndexedDB write, but the expensive work happens
+  // BEFORE it, so that debounce never helped here. (The encoding still runs on every
+  // call. Importing a full check — 17,500 entries, one call each — spent 290 of its
+  // 420 seconds on it; that path now holds its saves, see holdFdbSaves.)
+  //
+  // What is deliberately NOT deferred: the in-memory fdbCache is authoritative and
+  // already updated, and fdbFactors is populated synchronously above, so every
+  // reader sees the change immediately. Only the on-disk copy lags, by at most
+  // FDB_SAVE_DEBOUNCE_MS, and flushFDBCache() forces it at the points where that
+  // matters — end of a run, before a push, and on unload.
+  _fdbSavePending = slim;
+  if (!_fdbSaveTimer) {
+    _fdbSaveTimer = setTimeout(() => { _fdbSaveTimer = null; flushFDBCache(); }, FDB_SAVE_DEBOUNCE_MS);
+  }
+}
+
+// The store as written: keyed by n, factors encoded.
+function _slimFdbCache(c) {
   // Use n (small integer) as key in localStorage — NOT the number string (up to 2498 digits)
   // This alone reduces storage from MB to KB
   const slim = {};
@@ -2541,40 +2577,39 @@ function saveFDBCache(c) {
                   // FactorDB's own answer and when (see fdbAnswer); 0 = never asked.
                   ...('fdbAt' in v ? { fdbAt: v.fdbAt || 0, ...(v.fdb ? { fdb: v.fdb } : {}) } : {}),
                   factors: slimFactors.length ? slimFactors : undefined };
-    // Store full factors in memory keyed by number string (for fast replay lookup)
-    if (v.factors && v.factors.length) fdbFactors[k] = { factors: v.factors };
-    if (v.cofactor) fdbFactors[k] = { ...(fdbFactors[k]||{}), cofactor: v.cofactor };
   }
-  // Serialising is deferred; the fdbFactors bookkeeping above is NOT.
-  //
-  // A poll run calls this once per number, and rebuilding the whole store each
-  // time costs ~270 ms against a 10,000-entry cache — 140 for the base36 encoding
-  // and 130 for stringifying 6.4 MB. Over a 500-number run that is two minutes of
-  // pure re-serialisation, all of it thrown away by the next call.
-  //
-  // kvSet already debounces the IndexedDB write, but the expensive work happens
-  // BEFORE it, so that debounce never helped here.
-  //
-  // What is deliberately NOT deferred: the in-memory fdbCache is authoritative and
-  // already updated, and fdbFactors is populated synchronously above, so every
-  // reader sees the change immediately. Only the on-disk copy lags, by at most
-  // FDB_SAVE_DEBOUNCE_MS, and flushFDBCache() forces it at the points where that
-  // matters — end of a run, before a push, and on unload.
-  _fdbSavePending = slim;
-  if (!_fdbSaveTimer) {
-    _fdbSaveTimer = setTimeout(() => { _fdbSaveTimer = null; flushFDBCache(); }, FDB_SAVE_DEBOUNCE_MS);
-  }
+  return slim;
 }
 
 const FDB_SAVE_DEBOUNCE_MS = 400;
 let _fdbSaveTimer = null;
 let _fdbSavePending = null;
+// Holding saves through a bulk apply: one save at the end instead of one per entry.
+let _fdbSaveHold = 0, _fdbHeldSave = null, _fdbHoldLast = null;
+// Hold FactorDB-cache saves; returns the release. Everything applied meanwhile is in
+// memory at once, and saved once on release (or by any flush meanwhile — a push, or
+// the page closing — so nothing held is lost).
+function holdFdbSaves() {
+  _fdbSaveHold++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    _fdbSaveHold = Math.max(0, _fdbSaveHold - 1);
+    // _fdbHoldLast, not _fdbHeldSave: a flush meanwhile wrote the held cache but did
+    // not do saveFDBCache's in-memory bookkeeping, which this save does.
+    if (_fdbSaveHold === 0 && _fdbHoldLast) { const c = _fdbHoldLast; _fdbHoldLast = _fdbHeldSave = null; saveFDBCache(c); }
+  };
+}
 
 // Write the pending cache out now. Cheap and safe to call when nothing is pending.
 function flushFDBCache() {
   if (_fdbSaveTimer) { clearTimeout(_fdbSaveTimer); _fdbSaveTimer = null; }
-  const slim = _fdbSavePending;
-  _fdbSavePending = null;
+  // A held save is newer than a pending one (it was made later): it is the one written,
+  // encoded now — a flush during a held import (a push, the page closing) loses nothing.
+  const held = _fdbHeldSave;
+  const slim = held && !(_fdbCacheLoadIncomplete > 0) ? _slimFdbCache(held) : _fdbSavePending;
+  _fdbSavePending = null; _fdbHeldSave = null;
   if (!slim) return false;
   try {
     kvSet(STORAGE_KEY, JSON.stringify(slim));
@@ -6283,7 +6318,7 @@ function doClearAllLocalData() {
   // moment later — the FactorDB records within 400 ms, in time to reach IndexedDB
   // before the reload — and a pending push would send from a store being emptied.
   if (_fdbSaveTimer) { clearTimeout(_fdbSaveTimer); _fdbSaveTimer = null; }
-  _fdbSavePending = null;
+  _fdbSavePending = null; _fdbHeldSave = null; _fdbHoldLast = null;
   if (_cofDigSaveTimer) { clearTimeout(_cofDigSaveTimer); _cofDigSaveTimer = null; }
   if (_valueMetaTimer) { clearTimeout(_valueMetaTimer); _valueMetaTimer = null; }
   if (_autoPushTimer) { clearTimeout(_autoPushTimer); _autoPushTimer = null; }
@@ -8162,6 +8197,9 @@ async function _importFDBResults(file) {
   const named = all.map(([label]) => { const m = String(label).match(/^E?(\d+)$/); return m ? parseInt(m[1]) : null; }).filter(n => n != null);
   if (valuesMissing(named)) await needValues(named, 'the FactorDB import');
   let done = 0;
+  // One save of the FactorDB records at the end, not one per entry — see holdFdbSaves.
+  const releaseSaves = holdFdbSaves();
+  try {
   for (const [label, rec] of all) {
     // Every 250 entries: say how far it has got, and let the page breathe — it used to
     // freeze, with no sign of life, for the whole import.
@@ -8181,6 +8219,7 @@ async function _importFDBResults(file) {
       if (entry.val.length > biggest) biggest = entry.val.length;
     } catch(e) { logSwallowed('importFDBResults/apply:' + n, e); skipped++; }
   }
+  } finally { releaseSaves(); }
   // Clear anything FactorDB has now confirmed.
   //
   // reconcileSubmitted only ever ran from "Check submitted", which needs a working
