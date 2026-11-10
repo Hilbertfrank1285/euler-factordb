@@ -8131,10 +8131,29 @@ function exportFDBCheckList() {
 // FactorDB id all behave exactly as an in-browser check would.
 // Holds the values while it runs (see holdingValues).
 async function importFDBResults(...args) { return holdingValues(_importFDBResults, args); }
+// What to say about a results file the browser cannot take in. A check of every entry
+// once wrote a 1 GB file — the unfactored cofactors in full — past what a browser
+// can hold as one string; and a run stopped mid-save left a file cut off.
+const FDB_RESULTS_MAX_BYTES = 300 * 1024 * 1024;
+function fdbResultsTooBigAdvice(name, bytes) {
+  return name + ' is ' + Math.round(bytes / 1048576).toLocaleString() + ' MB — too large for a browser to read.\n\n'
+    + 'Shrink it first (it keeps every factor; it drops the unfactored cofactors this import discards anyway):\n\n'
+    + '    python euler.py slim ' + name + '\n\nthen import it again.';
+}
+// PURE: does this text look like `euler.py check` results ({"E123": {"status": ...}})?
+function looksLikeFdbResults(text) {
+  return /^\s*\x7b\s*"E?\d+"\s*:\s*\x7b[^\x7b\x7d]*"status"/.test(String(text).slice(0, 4000));   // \x7b \x7d: braces
+}
 async function _importFDBResults(file) {
+  if (file && file.size > FDB_RESULTS_MAX_BYTES) { alert(fdbResultsTooBigAdvice(file.name || 'the file', file.size)); return; }
   let data;
   try { data = JSON.parse(await file.text()); }
-  catch(e) { alert('Could not read that file as JSON: ' + e.message); return; }
+  catch(e) {
+    alert('Could not read that file as JSON: ' + e.message
+      + (/end of|unexpected end|Unterminated/i.test(e.message) ? '\n\nThe file looks cut off — a run stopped while saving it. '
+        + 'Repair it with  python repair_json.py ' + (file.name || 'the-file.json') + '  then re-run the check with --resume.' : ''));
+    return;
+  }
 
   let applied = 0, skipped = 0, notFound = 0, biggest = 0;
   const all = Object.entries(data);
@@ -8949,6 +8968,8 @@ function importEcmJson(text, label) {
 function importEcmFromFiles(files) {
   if (!files || !files.length) return;
   if (!valuesIndexed()) { alert('Euler values still loading — please wait and try again.'); return; }
+  const huge = files.find(f => f.size > FDB_RESULTS_MAX_BYTES);
+  if (huge) { alert(fdbResultsTooBigAdvice(huge.name, huge.size)); return; }
   const readers = files.map(f => new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload  = () => resolve({ name: f.name, text: String(reader.result || ''), success: true });
@@ -8970,8 +8991,11 @@ function importEcmFromFiles(files) {
     // "Input number is" lines means no run blocks, so it imports nothing and says
     // so in a way that reads like the file was empty.
     const looksJson = (t) => { const h = t.trim()[0]; return h === '{' || h === '['; };
-    const jsonFiles = nonEmpty.filter(r => looksJson(r.text));
+    // `euler.py check` results dropped here by mistake go to their own import.
+    const fdbFiles  = nonEmpty.filter(r => looksJson(r.text) && looksLikeFdbResults(r.text));
+    const jsonFiles = nonEmpty.filter(r => looksJson(r.text) && !looksLikeFdbResults(r.text));
     const logFiles  = nonEmpty.filter(r => !looksJson(r.text));
+    for (const r of fdbFiles) await importFDBResults({ name: r.name, size: r.text.length, text: async () => r.text });
     for (const r of jsonFiles) importEcmJson(r.text, r.name);
     if (!logFiles.length) return;
 
