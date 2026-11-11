@@ -599,7 +599,7 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
 <header style="position:relative">
   <div class="header-left">
     <h1>Euler Numbers <span>E(n)</span> — Factorization Database</h1>
-    <p>Click any entry to inspect factorization status · FactorDB polling enabled · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
+    <p>Click any entry to inspect factorization status · FactorDB checks via euler.py check (↓ Export FDB check list) · Last update: <span id="ghLastUpdate" style="color:var(--accent)">loading…</span></p>
   </div>
   <div style="position:absolute;top:12px;right:20px">
     <button onclick="toggleTheme()" id="themeBtn" title="Toggle light/dark theme"
@@ -813,6 +813,7 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
   <div class="github-label">⬡ GitHub sync</div>
 
   <div id="ghPushWarning" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)">⚠ Last push failed — data not synced</div>
+  <div id="ghTokenWarning" role="alert" style="display:none;font-size:10px;color:var(--red);padding:3px 8px;background:var(--red-dim);border:1px solid var(--red)"></div>
   <button data-needs-values class="github-btn" onclick="githubPull()" id="ghPullBtn" title="Pull latest from GitHub">↓ Pull</button>
   <button data-needs-values class="github-btn primary" onclick="githubPush()" id="ghPushBtn" title="Push local data to GitHub">↑ Push<span id="dirtyDot" title="You have unsaved changes not yet pushed" style="display:none;width:7px;height:7px;border-radius:50%;background:var(--yellow);margin-left:6px;vertical-align:middle"></span></button>
   <span class="github-local" id="ghLocalLabel" style="display:none"
@@ -822,24 +823,24 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
 <div class="github-settings-panel" id="githubSettingsPanel">
   <div class="gh-field">
     <label>GitHub username</label>
-    <input type="text" id="ghUser" placeholder="hilbertfrank1285" oninput="saveGHSettings()">
+    <input type="text" id="ghUser" placeholder="hilbertfrank1285" oninput="saveGHSettings()" autocomplete="off" spellcheck="false">
   </div>
   <div class="gh-field">
     <label>Repository name</label>
-    <input type="text" id="ghRepo" placeholder="euler-factordb" oninput="saveGHSettings()">
+    <input type="text" id="ghRepo" placeholder="euler-factordb" oninput="saveGHSettings()" autocomplete="off" spellcheck="false">
   </div>
   <div class="gh-field">
     <label>Branch</label>
-    <input type="text" id="ghBranch" placeholder="main" oninput="saveGHSettings()">
+    <input type="text" id="ghBranch" placeholder="main" oninput="saveGHSettings()" autocomplete="off" spellcheck="false">
   </div>
   <div class="gh-field">
     <label>Personal Access Token</label>
-    <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx" oninput="saveGHSettings()">
+    <input type="password" id="ghToken" placeholder="github_pat_… or ghp_…" oninput="saveGHSettings()" autocomplete="new-password" data-1p-ignore data-lpignore="true" spellcheck="false">
   </div>
   <div class="gh-hint">
     Token needs <strong>Contents: Read &amp; Write</strong>; to reply on submission issues from the app, also <strong>Issues: Read &amp; Write</strong>.
-    Create one at <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>
-    (Fine-grained token → your repo → Contents read/write).
+    Create one at <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a>
+    (Fine-grained token → only your repo → Contents read/write). Fine-grained tokens expire — the app says so when GitHub stops accepting yours.
     Data is saved in a <code>data/</code> folder in your repo: <code>meta.json</code>, plus one file per 1,000 entries
     for results and for ECM runs — a push sends only the files that changed, in one commit. The old
     <code>results.json</code> / <code>results_ecm.json</code> are read only until <code>data/</code> exists.
@@ -856,9 +857,9 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
   </div>
   <div class="danger-zone">
     <div class="danger-label">Danger zone — this browser only</div>
-    <button class="poll-btn" onclick="clearEulerValueCache().then(()=>setStatus('Value cache cleared — reload to re-download','ok'))"
+    <button class="poll-btn" onclick="clearValueCacheAsked()"
       style="background:var(--surface2)"
-      title="Clears the cached Euler values (IndexedDB). Use if the chunk files on GitHub were updated. They re-download on next load.">
+      title="Clears the Euler values this browser has downloaded. Use if the value files on GitHub were corrected. They download again when next needed — several hundred MB in all. Asks first.">
       ⊗ Clear value cache
     </button>
     <button class="poll-btn" onclick="clearAllLocalData()"
@@ -1474,6 +1475,11 @@ const IDB_KEYS = new Set([
   'eulerFDB_syncBase_v1',
 ]);
 let _kv = Object.create(null);      // in-memory mirror (session-authoritative)
+// Set by "Clear all local data" once the stores are being wiped: nothing is written
+// after that. The page is still running for a moment — a pull or an import finishing
+// in those few hundred milliseconds would save the whole in-memory store back, and
+// the reload would find everything that was just "cleared".
+let _storeClosing = false;
 let _kvDirty = new Set();
 let _kvFlushTimer = null;
 let _kvReady = false;               // true once hydrated from IDB
@@ -1516,6 +1522,7 @@ function kvGet(key) {
 }
 
 function kvSet(key, val) {
+  if (_storeClosing) return false;
   if (!IDB_KEYS.has(key)) {
     try { localStorage.setItem(key, val); return true; }
     catch(e) {
@@ -2813,7 +2820,7 @@ function scheduleAutoPush() {
     _autoPushAt = 0;
     if (!_dirty) { updateDirtyIndicator(); return; }
     const s = loadGHSettings();
-    if (s && s.token && s.user && s.repo && navigator.onLine && !polling) {
+    if (s && s.token && navigator.onLine && !polling) {
       addLog('Auto-pushing unsaved changes…', '');
       githubPush();
     }
@@ -3148,17 +3155,54 @@ function tilingParts(name, keys) {
   }
   return null;
 }
+// Resolves true only when the cache was actually cleared.
+// PURE: cached ranges that another cached range contains whole — the pieces of a file
+// since merged. The merged copy holds every value in them.
+function supersededChunkKeys(keys) {
+  const list = (keys || []).map(k => ({ k, m: VALUE_CHUNK_RE.exec(String(k)) })).filter(x => x.m)
+    .map(x => ({ k: x.k, a: +x.m[1], b: +x.m[2] }));
+  return list.filter(x => list.some(y => y !== x && y.a <= x.a && x.b <= y.b && (y.a < x.a || x.b < y.b))).map(x => x.k);
+}
+// Merging value files wrote each merged file into this browser's cache and left its
+// pieces there: the range was then held twice — up to the whole 1.1 GB of values
+// again — and nothing ever removed them (the loader only tidies when the merged file
+// is NOT cached yet). Removes the pieces — never one the repository still lists
+// (`inUse`: its value-file names), which the loader would only download again.
+// Returns how many went.
+async function pruneValueCache(inUse) {
+  let n = 0;
+  try {
+    const keep = new Set((inUse || []).map(valueCacheKey));
+    for (const k of supersededChunkKeys(await idbChunkKeys())) {
+      if (keep.has(k)) continue;
+      await idbDeleteChunk(k); n++;
+    }
+  } catch (e) { logSwallowed('values/prune', e); }
+  return n;
+}
 async function clearEulerValueCache() {
   const db = await openEulerDB();
-  if (!db) return;
+  if (!db) return false;
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(EULER_DB_STORE, 'readwrite');
       tx.objectStore(EULER_DB_STORE).clear();
-      tx.oncomplete = () => { addLog('Euler value cache cleared — will re-download on next load', 'ok'); resolve(); };
-      tx.onerror    = () => resolve();
-    } catch { resolve(); }
+      tx.oncomplete = () => { addLog('Euler value cache cleared — will re-download on next load', 'ok'); resolve(true); };
+      tx.onerror    = () => resolve(false);
+      tx.onabort    = () => resolve(false);
+    } catch { resolve(false); }
   });
+}
+// The settings panel's button. One click used to throw away several hundred MB of
+// downloads with no question asked, and reported "cleared" even when nothing was.
+async function clearValueCacheAsked() {
+  if (_compressing) { alert('Value files are being uploaded or compressed — wait until that is done.'); return; }
+  if (!confirm('Clear the Euler values this browser has downloaded?\n\n'
+    + 'Your factors, runs and settings are not touched. The values download again when next needed — '
+    + 'several hundred MB in all, so only do this if the value files on GitHub were corrected.')) return;
+  const ok = await clearEulerValueCache();
+  if (ok) setStatus('Value cache cleared — reload to download the values again', 'ok');
+  else { setStatus('The value cache could not be cleared', 'err'); alert('The value cache could not be cleared — close other tabs of this page and try again.'); }
 }
 
 // Timeout scales with number size: bigger numbers take longer for FDB to process
@@ -4361,18 +4405,77 @@ function updateVisitorMode() {
   updateDirtyIndicator();
 }
 
+// PURE: the settings as typed, made usable. People paste what GitHub shows them: a
+// repository's address ("https://github.com/user/repo.git") into either box, "@user",
+// "user/repo" as the repository. Stored as typed, every request went to an address
+// that does not exist, and the only sign was "Pull failed: HTTP 404".
+function cleanGHSettings(raw) {
+  const t = (v) => String(v == null ? '' : v).trim();
+  const path = (v) => t(v).replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/^git@github\.com:/i, '')
+    .replace(/\.git$/i, '').replace(/^[@\/]+|\/+$/g, '');
+  const u = path(raw && raw.user).split('/').filter(Boolean), r = path(raw && raw.repo).split('/').filter(Boolean);
+  // "user/repo" (or a whole address) in either box: a name typed in its own box wins.
+  const user = u[0] || (r.length >= 2 ? r[0] : '');
+  const repo = (r.length >= 2 ? r[1] : r[0]) || (u.length >= 2 ? u[1] : '');
+  return { user, repo, branch: t(raw && raw.branch).replace(/^refs\/heads\//, '') || 'main', token: t(raw && raw.token).replace(/\s+/g, '') };
+}
 function saveGHSettings() {
-  const s = {
-    user:   document.getElementById('ghUser')?.value?.trim()   || '',
-    repo:   document.getElementById('ghRepo')?.value?.trim()   || '',
-    branch: document.getElementById('ghBranch')?.value?.trim() || 'main',
-    token:  document.getElementById('ghToken')?.value?.trim()  || '',
-  };
+  const before = repoKeyNow(), hadToken = loadGHSettings().token || '';
+  const s = cleanGHSettings({
+    user:   document.getElementById('ghUser')?.value,
+    repo:   document.getElementById('ghRepo')?.value,
+    branch: document.getElementById('ghBranch')?.value,
+    token:  document.getElementById('ghToken')?.value,
+  });
   localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify(s));
-  // Repo/branch may have changed — a SHA cached from a different file is
-  // meaningless, so drop it and let the next push fetch a fresh one.
-  _lastPushedSha = null;
+  if (repoKeyNow() !== before) {
+    // Another repository or branch: a SHA cached from a different file is meaningless,
+    // and so is everything remembered about what "GitHub" held. The base in memory was
+    // only ever replaced when it was EMPTY, so the old repository's file IDs and
+    // factors stayed and were merged into the new one's base — the push guard then
+    // compared against data the new repository never had.
+    _lastPushedSha = null;
+    _syncBase = null;
+  }
+  if (s.token !== hadToken) clearTokenRejected();   // a new token gets a fresh hearing
+  // Saved on every keystroke: a push 20 s after an earlier change must not go out to a
+  // half-typed name or with a half-pasted token. Start its wait again.
+  if (_autoPushTimer) scheduleAutoPush();
   updateVisitorMode();     // a token typed in or removed switches modes at once
+}
+// ── A token GitHub rejects ───────────────────────────────────────────────────
+// GitHub answers 401 to ANY request carrying a bad token — even for a public
+// repository it would serve to anyone. So an expired or revoked token (fine-grained
+// ones expire by default) did not just stop pushes: every pull failed too
+// ("Pull failed: HTTP 401 listing the data folder") and the owner saw less than a
+// visitor. Reads now fall back to no token; this says, once and plainly, why pushes
+// will not work until a new one is entered.
+let _tokenRejected = false;
+function noteTokenRejected() {
+  if (_tokenRejected) return;
+  _tokenRejected = true;
+  const msg = 'GitHub rejected the token (expired or revoked?) — reading works without it, pushing needs a new one under ⚙';
+  try { addLog(msg, 'err'); } catch (e) { logSwallowed('token/log', e); }
+  const w = (typeof document !== 'undefined') && document.getElementById('ghTokenWarning');
+  if (w) { w.textContent = '⚠ ' + msg; w.style.display = ''; }
+}
+function clearTokenRejected() {
+  if (!_tokenRejected) return;
+  _tokenRejected = false;
+  const w = (typeof document !== 'undefined') && document.getElementById('ghTokenWarning');
+  if (w) w.style.display = 'none';
+}
+// A read of public data: with the token (fresh, and a far higher rate limit), and
+// again WITHOUT it if GitHub rejects the token. `make(token)` returns the fetch.
+async function fetchPublic(ctx, make) {
+  const used = ctx.token || '';         // several files load at once and share ctx
+  let r = await make(used);
+  if (r && r.status === 401 && used) {
+    noteTokenRejected();
+    ctx.token = '';                       // the rest of this pull reads as a visitor
+    r = await make('');
+  }
+  return r;
 }
 
 function loadGHSettingsToUI() {
@@ -4584,7 +4687,7 @@ function mergePulledEcm(remoteEcm, ranges) {
 async function pullECMFile() {
   const s = loadGHSettings();
   const user = s.user || 'hilbertfrank1285', repo = s.repo || 'euler-factordb', branch = s.branch || 'main';
-  if (!_syncBase) _syncBase = loadSyncBase();
+  ensureSyncBase();
   const knownEcm = (_syncBase && _syncBase.repoKey === repoKeyNow()) ? _syncBase.ecmSha : null;
   if (knownEcm && localHasEcmData()) {
     const cur = await remoteShaOf(user, repo, branch, GH_ECM_FILE, s.token);
@@ -5212,6 +5315,13 @@ function setSyncBase(part) {
   _syncBase = next;
   try { kvSet(SYNC_BASE_KEY, JSON.stringify(next)); } catch (e) { logSwallowed('syncBase/save', e); }
 }
+// The base for the repository the settings name NOW — one from another repository or
+// branch (settings changed, here or in another tab) is dropped, never used or merged.
+function ensureSyncBase() {
+  if (_syncBase && _syncBase.repoKey !== repoKeyNow()) _syncBase = null;
+  if (!_syncBase) _syncBase = loadSyncBase();
+  return _syncBase;
+}
 function loadSyncBase() {
   try { const b = JSON.parse(kvGet(SYNC_BASE_KEY) || 'null'); return b && b.repoKey === repoKeyNow() ? b : null; }
   catch (e) { return null; }
@@ -5315,10 +5425,12 @@ function replaceRanges(base, fresh, ranges) {
 // folder does not exist yet. Any other failure THROWS: taking it for "no chunks" would
 // fall back to the old files, which are frozen once data/ exists, and merge stale data.
 async function dataListing(ctx, ref) {
-  const headers = { 'Accept': 'application/vnd.github+json' };
-  if (ctx.token) headers['Authorization'] = 'Bearer ' + ctx.token;
-  const r = await fetch('https://api.github.com/repos/' + ctx.user + '/' + ctx.repo + '/contents/' + DATA_DIR
-                        + '?ref=' + (ref || ctx.branch) + '&_=' + Date.now(), { headers, cache: 'no-store' });
+  const r = await fetchPublic(ctx, (token) => {
+    const headers = { 'Accept': 'application/vnd.github+json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    return fetch('https://api.github.com/repos/' + ctx.user + '/' + ctx.repo + '/contents/' + DATA_DIR
+                 + '?ref=' + (ref || ctx.branch) + '&_=' + Date.now(), { headers, cache: 'no-store' });
+  });
   if (r.status === 404) return null;
   if (!r.ok) throw new Error('HTTP ' + r.status + ' listing the data folder');
   const files = {}, list = await r.json();
@@ -5332,11 +5444,13 @@ async function dataListing(ctx, ref) {
 // computed from the bytes actually received, so a lagging copy is recorded as what it
 // is and simply fetched again next time — never mistaken for the newer version.
 async function fetchDataFile(ctx, path) {
-  const url = ctx.token
-    ? 'https://api.github.com/repos/' + ctx.user + '/' + ctx.repo + '/contents/' + path + '?ref=' + ctx.branch + '&_=' + Date.now()
-    : 'https://raw.githubusercontent.com/' + ctx.user + '/' + ctx.repo + '/' + ctx.branch + '/' + path;
-  const headers = ctx.token ? { 'Accept': 'application/vnd.github.raw+json', 'Authorization': 'Bearer ' + ctx.token } : {};
-  const r = await fetch(url, { headers, cache: 'no-store' });
+  const r = await fetchPublic(ctx, (token) => {
+    const url = token
+      ? 'https://api.github.com/repos/' + ctx.user + '/' + ctx.repo + '/contents/' + path + '?ref=' + ctx.branch + '&_=' + Date.now()
+      : 'https://raw.githubusercontent.com/' + ctx.user + '/' + ctx.repo + '/' + ctx.branch + '/' + path;
+    const headers = token ? { 'Accept': 'application/vnd.github.raw+json', 'Authorization': 'Bearer ' + token } : {};
+    return fetch(url, { headers, cache: 'no-store' });
+  });
   if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching ' + path);
   const bytes = new Uint8Array(await r.arrayBuffer());
   return { obj: JSON.parse(new TextDecoder().decode(bytes)), sha: await gitBlobSha(bytes), bytes: bytes.length };
@@ -5362,6 +5476,10 @@ async function ghApi(ctx, method, path, body) {
   const r = await fetch('https://api.github.com/repos/' + ctx.user + '/' + ctx.repo + '/' + path,
                         { method, headers: ghHeaders(), body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
   const data = await r.json().catch(() => ({}));          // an outage serves an HTML page: tolerate it
+  if (r.status === 401) {
+    noteTokenRejected();
+    return { ok: false, status: 401, data, message: 'GitHub rejected the token (expired or revoked?) — enter a new one under ⚙' };
+  }
   return { ok: r.ok, status: r.status, data, message: (data && data.message) || ('HTTP ' + r.status) };
 }
 // The commit a push builds on, and its tree. Null only for a repository with no commits
@@ -5682,7 +5800,7 @@ async function pushGuard() {
     return { ok: false };
   }
   if (!_loadedPageTag) _loadedPageTag = nowTag;   // not known at load: the first one seen will do
-  if (!_syncBase) _syncBase = loadSyncBase();
+  ensureSyncBase();
   const b = _syncBase || {};
   // Has GitHub changed since this browser last synced? In the chunked layout: any file
   // whose ID differs, or that this browser has never seen. Before migration: the two
@@ -5769,7 +5887,7 @@ function mergePulledMain(payload, skipRender, recordBase) {
 // sync — all of them if it holds no data. Results first, which startup waits for; the
 // ECM chunks follow in the background, as the ECM file always did.
 async function pullChunked(listing, skipRender, ctx) {
-  if (!_syncBase) _syncBase = loadSyncBase();
+  ensureSyncBase();
   const known = (_syncBase && _syncBase.repoKey === repoKeyNow() && _syncBase.files) || {};
   const want = (isKind, have) => Object.keys(listing).filter(p => isKind(p) && (!have || listing[p] !== known[p]));
   const mainPaths = want(p => p === META_PATH || isMainChunk(p), localHasMainData());
@@ -5830,7 +5948,7 @@ async function githubPull(skipRender) {
     if (listing) return await pullChunked(listing, skipRender, ctx);
     // Is GitHub's copy the one this browser already merged? Then there is nothing to
     // download: ask for its ID — a small request — before fetching 8 MB.
-    if (!_syncBase) _syncBase = loadSyncBase();
+    ensureSyncBase();
     const knownSha = (_syncBase && _syncBase.repoKey === repoKeyNow()) ? _syncBase.mainSha : null;
     if (knownSha && localHasMainData()) {
       const cur = await remoteShaOf(user, repo, branch, GH_DATA_FILE, s.token);
@@ -5937,7 +6055,10 @@ async function githubPush() {
   // flight would be pushed as its previous version — silently shipping stale data
   // to the other machines.
   try { flushFDBCache(); } catch(e) { logSwallowed('githubPush/flush', e); }
-  const s = loadGHSettings();
+  // The names a pull uses when the boxes are empty (syncCtx): with a token and blank
+  // names the page was in owner mode — Push button, pending dot, leave-page warning —
+  // while every push, automatic ones silently, refused to run.
+  const s = Object.assign({}, loadGHSettings(), syncCtx());
   if (!s.user || !s.repo || !s.token) {
     setGHStatus('Please configure GitHub settings ⚙ first (token required to push)', 'err');
     addLog('GitHub push skipped — no token configured', 'warn');
@@ -6224,8 +6345,8 @@ function csvEsc(v) {
 function unpushedWork() {
   const bits = [];
   const s = loadGHSettings();
-  if (!s || !s.token || !s.user || !s.repo) {
-    bits.push('no GitHub repo is configured, so nothing has ever been pushed');
+  if (!s || !s.token) {
+    bits.push('no GitHub token is set, so nothing has ever been pushed');
     return bits;
   }
   if (_dirty) bits.push('factor and cache changes that have not been pushed');
@@ -6262,13 +6383,14 @@ function clearAllLocalData() {
   overlay.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--red);padding:24px;max-width:420px;font-size:13px;color:var(--text)">
       <div style="font-size:15px;font-weight:600;color:var(--red);margin-bottom:12px">⚠ Clear all local data?</div>
-      <div style="margin-bottom:8px">This permanently deletes:</div>
+      <div style="margin-bottom:8px">This deletes this browser's copy of:</div>
       <div style="color:var(--text-muted);margin-bottom:12px;line-height:1.6">
-        • FDB cache (all query results)<br>
-        • ECM logs<br>
-        • Changelog &amp; activity log<br>
-        • FactorDB-undetermined markers
+        • factors and FactorDB records<br>
+        • every logged run, the export queue and the sieve log<br>
+        • history, contributions and the activity log<br>
+        • the list of entries submitted to FactorDB and awaiting a re-check, and your export preferences — <em>these are kept only here and do not come back</em>
       </div>
+      <div style="margin-bottom:8px;color:var(--text-muted)">Kept: GitHub settings, the theme, and the downloaded Euler values.</div>
       <div style="margin-bottom:16px;color:var(--text-muted)">${visitor
         ? 'This browser is not signed in to GitHub, so it cannot check that everything here is there. The shared data comes back on the next load; anything you logged or imported here and have not sent as a submission is lost.'
         : 'GitHub token is kept. Pull from GitHub afterwards to restore your data.'}</div>
@@ -6324,6 +6446,7 @@ function doClearAllLocalData() {
   if (_autoPushTimer) { clearTimeout(_autoPushTimer); _autoPushTimer = null; }
   if (_ecmPushTimer) { clearTimeout(_ecmPushTimer); _ecmPushTimer = null; }
   _kv = Object.create(null); _kvDirty.clear();
+  _storeClosing = true;                  // from here on nothing is saved — see kvSet
   _ecmCache = null; _cofDigCache = null;
   _syncBase = null;   // forget what GitHub held too: the next pull must download everything again
   const wipeIdb = (async () => {
@@ -6343,6 +6466,9 @@ function doClearAllLocalData() {
   // describing a store that no longer exists.
   _sieveDepthMemo = null;   // the store was just swept; match the other memos rather than rely on the reload
   try { invalidateProbeFree(); } catch(e) { logSwallowed('clearLocal/probe', e); }
+  // The log in memory too: addLog saves the WHOLE list, so this line used to write
+  // the 50 entries just "cleared" straight back.
+  activityLog.length = 0;
   addLog('All local data cleared — reloading…', 'warn');
   // Wait for the IDB wipe to actually land before reloading, otherwise the reload
   // can re-hydrate from a store that wasn't finished clearing.
@@ -15702,9 +15828,13 @@ async function compressValueFiles() {
   if (isVisitor()) { alert('Only the owner can change the repository.'); return; }
   if (typeof CompressionStream === 'undefined') { alert('This browser cannot compress files — use a current Chrome, Edge, Firefox or Safari.'); return; }
   const ctx = syncCtx();
+  // Before the first await: a second click during the listing started a second run.
+  _compressing = true;
+  const cached = [];             // merged files written to this browser's cache
+  try {
   setStatus('Listing the value files on GitHub…');
   const list = await ghApi(ctx, 'GET', 'contents/?ref=' + encodeURIComponent(ctx.branch));
-  if (!list.ok) { alert('GitHub refused the listing: ' + list.message); return; }
+  if (!list.ok) { setStatus('', ''); alert('GitHub refused the listing: ' + list.message); return; }
   let plan = planValueFiles(list.data, TIDY_TARGET);
   const hasIndex = (list.data || []).some(x => x && x.name === VALUE_INDEX_FILE);
   // Small compressed files (an upload of PARI's 200-wide files) can be merged into
@@ -15735,8 +15865,7 @@ async function compressValueFiles() {
                       : 'Write the list of value files')
     + ', in one commit?' + (merging ? '' : ' Compressed files stay exactly as they are.')
     + '\n\nEvery value is checked, and every new file unpacked and compared before '
-    + 'anything changes on GitHub. Keep this tab open until it says it is done' + (merging ? ' — some minutes for this many.' : '.'))) return;
-  _compressing = true;
+    + 'anything changes on GitHub. Keep this tab open until it says it is done' + (merging ? ' — some minutes for this many.' : '.'))) { setStatus('', ''); return; }
   const entries = [];
   let raw = 0, packed = 0;
   try {
@@ -15755,7 +15884,12 @@ async function compressValueFiles() {
       entries.push({ path: g.name, mode: '100644', type: 'blob', sha: blob.data.sha });
       for (const old of g.remove) entries.push({ path: old, mode: '100644', type: 'blob', sha: null });
       raw += size; packed += gz.length;
-      try { await idbPutChunk(valueCacheKey(g.name), obj); } catch (e) { logSwallowed('tidy/cache', e); }
+      try {
+        const key = valueCacheKey(g.name);
+        await idbPutChunk(key, obj);
+        // A file compressed on its own keeps its range, so its key IS its piece's.
+        if (!g.sources.some(src => valueCacheKey(src) === key)) cached.push(key);
+      } catch (e) { logSwallowed('tidy/cache', e); }
     }
     const index = await ghApi(ctx, 'POST', 'git/blobs', { content: JSON.stringify(plan.manifest), encoding: 'utf-8' });
     if (!index.ok) throw new Error(index.message + ' (uploading ' + VALUE_INDEX_FILE + ')');
@@ -15764,6 +15898,8 @@ async function compressValueFiles() {
     const res = await commitTreeChanges(ctx, entries, 'Value files: ' + before + ' -> ' + plan.groups.length + (merging ? ', small ones merged' : ', compressed'));
     if (!res.ok) throw new Error(res.message);
     try { kvSet(VALUE_CHUNKS_KEY, JSON.stringify(plan.manifest)); } catch (e) { logSwallowed('tidy/list', e); }
+    cached.length = 0;                       // committed: the merged copies are the ones to keep
+    await pruneValueCache(plan.manifest);    // ...and their pieces go
     const msg = 'Value files compressed: ' + before + ' files are now ' + plan.groups.length + ', in one commit'
       + (raw ? ' (' + (raw / 1e6).toFixed(0) + ' MB of values written as ' + (packed / 1e6).toFixed(0) + ' MB)' : '')
       + '. GitHub Pages rebuilds the site in a few minutes; browsers keep the values they hold.';
@@ -15771,7 +15907,13 @@ async function compressValueFiles() {
   } catch (e) {
     const msg = 'Compressing value files stopped: ' + e.message + '. Nothing changed on GitHub.';
     addLog(msg, 'error'); setStatus(msg, 'error'); alert(msg);
-  } finally { _compressing = false; }
+  }
+  } finally {
+    // Not committed: GitHub still has the pieces, so the cache keeps THEM — a merged
+    // copy left behind would get the pieces pruned and downloaded again.
+    for (const k of cached) { try { await idbDeleteChunk(k); } catch (e) { logSwallowed('tidy/uncache', e); } }
+    _compressing = false;
+  }
 }
 
 // PURE: how PARI's files go up — each a value file, none overlapping another or a
@@ -15823,20 +15965,23 @@ function uploadValueFiles() {
   inp.click();
 }
 async function uploadValueFilesFrom(files) {
+  if (_compressing) return;
   const ctx = syncCtx();
+  _compressing = true;                 // before the first await — see compressValueFiles
+  try {
   setStatus('Checking the value files on GitHub…');
   const list = await ghApi(ctx, 'GET', 'contents/?ref=' + encodeURIComponent(ctx.branch));
-  if (!list.ok) { alert('GitHub refused the listing: ' + list.message); return; }
+  if (!list.ok) { setStatus('', ''); alert('GitHub refused the listing: ' + list.message); return; }
   const plan = planUpload(files, list.data, TIDY_TARGET);
   if (plan.errors.length) {
+    setStatus('', '');
     alert('Nothing was uploaded:\n\n' + plan.errors.slice(0, 12).join('\n') + (plan.errors.length > 12 ? '\n…and ' + (plan.errors.length - 12) + ' more' : ''));
     return;
   }
   const mb = files.reduce((t, f) => t + (f.size || 0), 0) / 1e6;
   if (!confirm('Upload ' + files.length + ' value file' + (files.length === 1 ? '' : 's') + ' (' + mb.toFixed(0) + ' MB) as ' + plan.groups.length
     + ' compressed file' + (plan.groups.length === 1 ? '' : 's') + ' — about ' + (mb * 0.47).toFixed(0) + ' MB — in one commit?\n\n'
-    + 'Every value is checked, and every file unpacked and compared before anything changes on GitHub. Keep this tab open until it says it is done.')) return;
-  _compressing = true;
+    + 'Every value is checked, and every file unpacked and compared before anything changes on GitHub. Keep this tab open until it says it is done.')) { setStatus('', ''); return; }
   const byName = new Map(files.map(f => [f.name, f]));
   const entries = [];
   let raw = 0, packed = 0;
@@ -15865,6 +16010,7 @@ async function uploadValueFilesFrom(files) {
   } catch (e) {
     const msg = 'Uploading value files stopped: ' + e.message + '. Nothing changed on GitHub.';
     addLog(msg, 'error'); setStatus(msg, 'error'); alert(msg);
+  }
   } finally { _compressing = false; }
 }
 
@@ -16195,6 +16341,8 @@ async function fetchEulerValues(phase, onChunk) {
   }
 
   _valuePlan = { chunks, fetchChunk, results: new Array(chunks.length).fill(undefined) };
+  // Pieces of files merged earlier, still held beside the merged copy (see pruneValueCache).
+  pruneValueCache(chunks).then(n => { if (n) addLog('Value cache tidied: ' + n + ' superseded piece' + (n === 1 ? '' : 's') + ' removed', ''); });
   }
   const { chunks, fetchChunk, results } = _valuePlan;
   if (phase === 'plan') return;                // the file list only: values load when needed
