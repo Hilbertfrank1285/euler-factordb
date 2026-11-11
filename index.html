@@ -1188,7 +1188,13 @@ function sieveSmallFactors(n, from) {
 function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
   const out = [];
   for (const e of allEntries) {
-    if (!e || !e.val || e.val === '1') continue;
+    // From the index — digit count and leading digits — not from the value: values
+    // are loaded only when needed, so straight after startup no entry HAS one, and
+    // the sieve's questions ended in "No unfinished entries in that range" until some
+    // other tool had happened to load them.
+    if (!e) continue;
+    const dg = entryDigits(e);
+    if (!dg || (dg === 1 && entryLead(e) === '1')) continue;   // no such entry, or a unit (E(0), E(2))
     if (e.status === 'full') continue;          // nothing left to find
     if (nFrom != null && e.n < nFrom) continue;
     if (nTo   != null && e.n > nTo)   continue;
@@ -1208,7 +1214,6 @@ function sieveCandidates(onlyUnsearched, nFrom, nTo, statuses) {
 // Holds the values while it runs (see holdingValues).
 async function runSmallPrimeSieve(...args) { return holdingValues(_runSmallPrimeSieve, args); }
 async function _runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statuses, topUp) {
-  if (valuesMissing(null)) await needValues(null, 'the sieve');
   // A top-up sieves each entry only from its own recorded depth, and skips those
   // already that deep. Sorted by that depth, so each prime table is built once.
   const depth = loadSieveDepth() || {};
@@ -1216,6 +1221,10 @@ async function _runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statu
   const cands = sieveCandidates(onlyUnsearched, nFrom, nTo, statuses)
     .filter(e => fromOf(e) < SIEVE_LIMIT)
     .sort((a, b) => fromOf(a) - fromOf(b));
+  // Only the values of the entries to be sieved — a range of 500 used to load all
+  // 17,500 (1.1 GB) first.
+  const need = cands.map(e => e.n);
+  if (valuesMissing(need)) await needValues(need, 'the sieve');
   const findings = [];
   // Which entries were actually trial-divided, so the depth can be recorded. A
   // scan that is cancelled part-way must only credit what it reached — claiming
@@ -1494,7 +1503,7 @@ let _appDBPromise = null;
 const _kvUnread = new Set();
 // Several tabs, one store — see "One store, several tabs" below.
 const KV_REV_KEY = 'eulerFDB_kvRev';
-let _kvRevSeen = {};                 // key -> the revision this tab read or wrote
+let _kvRevSeen = null;               // key -> the revision this tab read or wrote; null until first read
 const _kvBehind = new Set();         // keys another tab has written since
 let _kvFlushFailures = 0;           // consecutive IDB write failures, for the retry and the warning
 
@@ -1538,6 +1547,10 @@ function readKvRevs() {
   try { const o = JSON.parse(localStorage.getItem(KV_REV_KEY) || '{}'); return (o && typeof o === 'object') ? o : {}; }
   catch (e) { return {}; }
 }
+// What this tab has seen — read on first use. Compared before it was read (a save in
+// the first moments of the page, before the store opened) it was empty, and every
+// stamp from earlier visits looked like another tab's: the tab blocked itself.
+function kvRevsSeen() { if (_kvRevSeen == null) _kvRevSeen = readKvRevs(); return _kvRevSeen; }
 // PURE: the keys whose stored revision is not the one this tab last saw.
 function kvKeysBehind(seen, now, keys) {
   return (keys || []).filter(k => ((now || {})[k] || '') !== ((seen || {})[k] || ''));
@@ -1553,7 +1566,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   // Told at once, not only when this tab next tries to save.
   window.addEventListener('storage', (e) => {
     if (e.key !== KV_REV_KEY || !_kvReady) return;
-    noteKeysBehind(kvKeysBehind(_kvRevSeen, readKvRevs(), Array.from(IDB_KEYS)));
+    noteKeysBehind(kvKeysBehind(kvRevsSeen(), readKvRevs(), Array.from(IDB_KEYS)));
   });
 }
 
@@ -1629,8 +1642,9 @@ async function flushKv() {
   let keys = Array.from(_kvDirty);
   _kvDirty.clear();
   // Written by another tab since this one read it? Then not by this one — see above.
+  const seen = kvRevsSeen();                       // before the stored ones are read
   const revs = readKvRevs();
-  const behind = kvKeysBehind(_kvRevSeen, revs, keys);
+  const behind = kvKeysBehind(seen, revs, keys);
   if (behind.length) { noteKeysBehind(behind); keys = keys.filter(k => !behind.includes(k)); if (!keys.length) return false; }
   // Stamped BEFORE the write, so another tab learns of it as early as possible.
   const stamp = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
@@ -1639,7 +1653,7 @@ async function flushKv() {
     localStorage.setItem(KV_REV_KEY, JSON.stringify(revs));
     // Only once the stamp is really there: with localStorage full it is not, and a
     // stamp remembered but not stored would read as another tab's on the next save.
-    for (const k of keys) _kvRevSeen[k] = stamp;
+    for (const k of keys) seen[k] = stamp;
   } catch (e) { logSwallowed('flushKv/rev', e); }
   const db = await openAppDB();
   if (!db) {
@@ -2828,6 +2842,7 @@ let _pushInFlight = false;
 // What is pending is also kept across a reload — see loadPending.
 const PENDING_KEY = 'eulerFDB_pending_v1';
 let _pendingLive = false;            // startup's own bookkeeping must not rewrite it
+let _pendingWritten;                 // what was last written (undefined: nothing yet this visit)
 // 20 s after the last change. It was 45 s when every push sent 12 MB; a push is now one
 // small commit, so a shorter wait gets changes to GitHub — and to your other machines —
 // sooner. Each new change still restarts the wait, so a long import is still one push.
@@ -2844,9 +2859,12 @@ function loadPending() {
 }
 function persistPending() {
   if (!_pendingLive) return;
+  const now = _dirty ? JSON.stringify([..._dirtyWhat]) : null;
+  if (now === _pendingWritten) return;             // the countdown redraws every second
   try {
-    if (_dirty) localStorage.setItem(PENDING_KEY, JSON.stringify([..._dirtyWhat]));
+    if (now != null) localStorage.setItem(PENDING_KEY, now);
     else localStorage.removeItem(PENDING_KEY);
+    _pendingWritten = now;
   } catch (e) { logSwallowed('pending/save', e); }
 }
 // End of startup: from here the flag is kept, and whatever was pending before is again.
@@ -2960,6 +2978,11 @@ function schedulePushRetry() {
 function requestPersistentStorage() {
   try {
     if (isVisitor() || typeof navigator === 'undefined' || !navigator.storage || !navigator.storage.persist) return;
+    // Once per browser: Firefox answers with a prompt, and a "not now" must not bring
+    // it back on every visit.
+    const ASKED = 'eulerFDB_persistAsked_v1';
+    if (localStorage.getItem(ASKED)) return;
+    localStorage.setItem(ASKED, String(Date.now()));
     navigator.storage.persisted().then(already => already || navigator.storage.persist())
       .then(ok => { if (ok === false) logSwallowed('storage/persist', new Error('not granted')); })
       .catch(e => logSwallowed('storage/persist', e));
@@ -6321,12 +6344,17 @@ function _maxLoadedN() {
   return mx >= 0 ? mx : MAX_N;
 }
 
-// After euler values load, update the maxN input to reflect actual max
+// After euler values load, update the maxN input to reflect actual max — unless you
+// have narrowed the range yourself. This runs whenever a value file is read, which now
+// happens on demand: with the range set to 0–5000, opening any entry put the box back
+// to the last entry, and the next redraw showed everything again.
+let _rangeMaxChosen = false;         // true while the upper limit is one you set
 function updateMaxNInput() {
   const el = document.getElementById('maxNInput');
   if (el) {
     const mx = _maxLoadedN();
     el.max   = mx;
+    if (_rangeMaxChosen && MAX_N <= mx) return;
     el.value = mx;
     MAX_N    = mx;
   }
@@ -6359,6 +6387,10 @@ function jumpToN(n) {
   if (n % 2 !== 0) n = n % 2 === 1 ? n - 1 : n;
   const entry = entryByN(n);
   if (!entry) {
+    if (!allEntries.length) return;
+    // It exists, but the range hides it: say so. It used to open the nearest entry
+    // INSIDE the range — E(5000) for a jump to E(12000) — as if that were the answer.
+    if (valueDigits(n) > 0) { setStatus('E(' + n + ') is outside the range shown (E(' + MIN_N + ')–E(' + MAX_N + ')) — widen the range to open it', 'warn'); return; }
     // Find closest entry
     const closest = allEntries.reduce((best, e) => Math.abs(e.n - n) < Math.abs(best.n - n) ? e : best, allEntries[0]);
     if (closest) openModal(closest.n);
@@ -6436,6 +6468,21 @@ function toggleSortNextRun() {
   applyFilters();
 }
 
+// PURE: the range as typed, made valid — even numbers (E(n) exists for even n only),
+// inside what is loaded, at least one entry wide. `chosen` says the upper limit is
+// below the last entry, i.e. yours rather than "everything". A start beyond the last
+// entry used to give a window past the end, shown as one entry that does not exist.
+function cleanRange(loRaw, hiRaw, loadedMax) {
+  const even = (v) => v - (v % 2);
+  const top = even(Math.max(2, Number(loadedMax) || 2));
+  // An empty box means "everything loaded" — not a fixed 20,000, which hid every
+  // entry beyond it once more values were added.
+  let hi = even(Math.min(parseInt(hiRaw) > 0 ? parseInt(hiRaw) : top, top));
+  let lo = even(Math.max(0, parseInt(loRaw) || 0));
+  if (lo > top - 2) lo = top - 2;
+  if (hi < lo + 2) hi = lo + 2;   // keep a valid window
+  return { lo, hi, chosen: hi < top };
+}
 // Read both range inputs, clamp them sanely, and rebuild the grid.
 // (Previously the max input only ran applyFilters — which ignores the range —
 // so changing the max didn't actually narrow the displayed range.)
@@ -6444,11 +6491,8 @@ function applyRangeInputs() {
   const maxEl = document.getElementById('maxNInput');
   const loadedMax = _maxLoadedN();
 
-  let lo = Math.max(0, parseInt(minEl?.value) || 0);
-  // An empty box means "everything loaded" — not a fixed 20,000, which hid every
-  // entry beyond it once more values were added.
-  let hi = Math.min(parseInt(maxEl?.value) || loadedMax, loadedMax);
-  if (hi < lo + 2) hi = lo + 2;   // keep a valid window
+  const { lo, hi, chosen } = cleanRange(minEl?.value, maxEl?.value, loadedMax);
+  _rangeMaxChosen = chosen;
 
   MIN_N = lo;
   MAX_N = hi;
@@ -6459,6 +6503,28 @@ function applyRangeInputs() {
   rebuildAndRender();
 }
 
+// An import concerns every entry, not only those the table shows. With the range
+// narrowed (and it now stays narrowed), results for entries outside it were dropped
+// as "not present here" — a full FactorDB check imported with the range at 0–5000
+// kept 2,500 results of 17,000. Imports show everything first, and say so.
+// The same goes for every tool that means "everything": Check data, the exports, the
+// sieve, the bulk log. They read the table's entries, so with a narrowed range "every
+// entry" quietly meant "every entry in the range".
+function showAllEntriesFor(what) {
+  const top = _maxLoadedN();
+  if (MIN_N <= 0 && MAX_N >= top) return false;
+  MIN_N = 0; MAX_N = top; _rangeMaxChosen = false;
+  if (typeof document !== 'undefined') {
+    const lo = document.getElementById('minNInput'), hi = document.getElementById('maxNInput');
+    if (lo) lo.value = MIN_N;
+    if (hi) hi.value = MAX_N;
+  }
+  allEntries = buildEntries();
+  replayFDBCache();
+  try { applyFdbUnknownSet(); } catch (e) { logSwallowed('showAll/applyFdbUnknownSet', e); }
+  try { addLog('The range was widened to every entry for ' + what, ''); } catch (e) { logSwallowed('showAll/log', e); }
+  return true;
+}
 function rebuildAndRender() {
   allEntries = buildEntries();
   // Re-apply FDB cache
@@ -6596,6 +6662,7 @@ function doClearAllLocalData() {
   if (_ecmPushTimer) { clearTimeout(_ecmPushTimer); _ecmPushTimer = null; }
   _kv = Object.create(null); _kvDirty.clear();
   _storeClosing = true;                  // from here on nothing is saved — see kvSet
+  _pendingLive = false;                  // ...including what was "still to push"
   _ecmCache = null; _cofDigCache = null;
   _syncBase = null;   // forget what GitHub held too: the next pull must download everything again
   const wipeIdb = (async () => {
@@ -6659,8 +6726,10 @@ function reconcileSubmitted() {
   for (const nStr of Object.keys(s)) {
     const e = entryByN(parseInt(nStr));
     if (!e) { delete s[nStr]; cleared++; continue; }
-    const rec = fdbCache[fdbKeyOf(e.n)];
-    if (rec && rec.source === 'fdb') { delete s[nStr]; cleared++; }
+    // By the rule the export and the "submitted" check list use: nothing left that
+    // FactorDB lacks. It read the record's source tag instead, so an entry that was
+    // reset, or whose factors FactorDB took in some other way, stayed pending for ever.
+    if (!factorsFdbLacks(e).length) { delete s[nStr]; cleared++; }
   }
   if (cleared) saveSubmitted(s);
   return { cleared, remaining: Object.keys(s).length };
@@ -6668,6 +6737,7 @@ function reconcileSubmitted() {
 // Holds the values while it runs (see holdingValues).
 async function exportFDBSubmission(...args) { return holdingValues(_exportFDBSubmission, args); }
 async function _exportFDBSubmission(loaded) {
+  showAllEntriesFor('the FactorDB submission');
   // Every factor is still checked against E(n) before it goes out, so the values are
   // needed — but only for the entries holding factors FactorDB lacks, not all 17,500.
   // (A failed load runs it once more without them; those entries are then skipped.)
@@ -7533,6 +7603,7 @@ async function exportNextRuns() {
     alert('Euler values still loading — please wait and try again.');
     return;
   }
+  showAllEntriesFor('the ECM export');     // it asks for its own range
   const lastCap = localStorage.getItem('eulerFDB_exportCap_v1') || '1000';
   const capInput = prompt(
     'How much work to export?\n\n'
@@ -8377,6 +8448,7 @@ const FDB_CHECK_SET_MATCH = {
 // picked number written out in full: hundreds of MB for a few thousand entries, more
 // than a browser tab could build. Now it is a few KB, and needs no value loaded.
 function exportFDBCheckList() {
+  showAllEntriesFor('the FactorDB check list');
   const sets = fdbCheckSets(STALE_SCOPE_DAYS);
   const mb = (d) => (d / 1e6).toFixed(1) + 'M digits';
   const bytesOf = (list) => list.reduce((n, e) => n + entryDigits(e), 0);
@@ -8425,14 +8497,16 @@ function exportFDBCheckList() {
   // Says what was exported, and nothing about size limits: euler.py has none. The old
   // message appended "above 19,441 digits" and a sentence about FactorDB rejecting
   // 19,442 to EVERY export — including "everything", which had no size limit at all.
-  const check = 'python3 euler.py check fdb_numbers.txt --labels fdb_labels.txt -o fdb_results.json';
+  // "py", as the submit and sieve dialogs write it: on Windows "python3" opens the
+  // Microsoft Store instead of running anything.
+  const check = 'py euler.py check fdb_numbers.txt --labels fdb_labels.txt -o fdb_results.json';
   showRunDialog('FactorDB check list exported',
     'Exported ' + entries(picked.length) + ' — ' + chosen.label + ' (' + mb(chosen.bytes) + ').'
       + (chosen.key === 'submitted' ? ' Importing the results clears the confirmed ones from your pending list.' : ''),
     // One command. No trial run; and no --resume, which would skip every number already
     // in fdb_results.json — the answers of an OLD check, if one is left in the folder.
-    [{ label: 'Run it — on any machine with Python 3:', cmd: check }],
-    'No server, no size limit — a large number is asked for by name, as E(n), and the answer checked against the number itself — and progress is saved after every number: '
+    [{ label: 'Run it — in PowerShell, in the folder with euler.py (on Linux or a Mac: python3 instead of py):', cmd: check }],
+    'No server, no size limit — a large number is asked for by name, as E(n), and the answer checked against the number itself — and progress is saved as it goes: '
       + 'if it is interrupted, run the same line with --resume added to carry on. Bring fdb_results.json back with Import FDB results.');
 }
 
@@ -8461,24 +8535,26 @@ async function _importFDBResults(file) {
   catch(e) {
     alert('Could not read that file as JSON: ' + e.message
       + (/end of|unexpected end|Unterminated/i.test(e.message) ? '\n\nThe file looks cut off — a run stopped while saving it. '
-        + 'Repair it with  python repair_json.py ' + (file.name || 'the-file.json') + '  then re-run the check with --resume.' : ''));
+        + 'Repair it with  py repair_json.py ' + (file.name || 'the-file.json') + '  then re-run the check with --resume.' : ''));
     return;
   }
 
+  showAllEntriesFor('the FactorDB import');
   let applied = 0, skipped = 0, notFound = 0, biggest = 0;
   const all = Object.entries(data);
   // Each result's factors are checked against E(n) as it is applied: the values of
   // the entries this file names are loaded for that — those, not all of them.
   const named = all.map(([label]) => { const m = String(label).match(/^E?(\d+)$/); return m ? parseInt(m[1]) : null; }).filter(n => n != null);
   if (valuesMissing(named)) await needValues(named, 'the FactorDB import');
-  let done = 0;
+  let done = 0, lastBreath = Date.now();
   // One save of the FactorDB records at the end, not one per entry — see holdFdbSaves.
   const releaseSaves = holdFdbSaves();
   try {
   for (const [label, rec] of all) {
-    // Every 250 entries: say how far it has got, and let the page breathe — it used to
-    // freeze, with no sign of life, for the whole import.
-    if (++done % 250 === 0) {
+    // Say how far it has got, and let the page breathe — by the clock: 250 of the
+    // largest entries take most of a second.
+    if (++done % 250 === 0 || Date.now() - lastBreath >= 150) {
+      lastBreath = Date.now();
       setStatus('Importing FactorDB results — ' + done.toLocaleString() + ' / ' + all.length.toLocaleString() + '…', '');
       await new Promise(r => setTimeout(r, 0));
     }
@@ -8681,6 +8757,7 @@ function submissionNeeds(sub) {
   return Array.from(ns);
 }
 async function loadForReview(sub, label) {
+  showAllEntriesFor(label);
   const ns = submissionNeeds(sub);
   if (valuesMissing(ns)) await needValues(ns, label);
 }
@@ -9530,6 +9607,7 @@ async function _processEcmLogText(text, sourceLabel, opts) {
   // time never feeds YOUR time model (another machine) — and their sigmas are listed
   // in the run's xs, so your own per-curve time stays computable.
   const contrib = opts.contribution || null;
+  showAllEntriesFor('the ECM import');
 
   // Numbers whose attempt list has already been de-duplicated during this import.
   const normalizedKeys = new Set();
@@ -10028,6 +10106,7 @@ function exportCSV() {
     alert('Euler values still loading — please wait a moment and try again.');
     return;
   }
+  showAllEntriesFor('the CSV export');     // "every entry — all of them"
   const ecmData = loadECM();
 
   // Find max factor count across all entries for dynamic columns
@@ -10036,7 +10115,7 @@ function exportCSV() {
 
   const rows = [
     ['n', 'sign', ...factorCols, 'cofactor', 'cofactor_digits', 'val_digits',
-     'fdb_status', 'fdb_checked', 'ecm_attempts', 'note']
+     'fdb_status', 'fdb_checked', 'ecm_attempts', 'status', 'note']
   ];
   for (const e of allEntries) {
     const digits  = getCofactorDigits(e);
@@ -10056,16 +10135,21 @@ function exportCSV() {
       fdbStatus = 'CF';
     }
 
+    // When FACTORDB answered — not when the record last changed (a local find, a merge).
+    const asked = getFdbCheckInfo(e);
     rows.push([
       e.n,
       e.sign === -1 ? '-' : '+',
       ...factorVals,
       e.cofactor || '',
-      e.cofactor ? e.cofactor.length : '',
+      // The size worked out above. It was read off the cofactor's own digits, which
+      // are in memory for almost no entry: the column was empty nearly everywhere.
+      e.status === 'full' ? 0 : (digits || ''),
       entryDigits(e) || '',
       fdbStatus,
-      fdbRes ? new Date(fdbRes.timestamp).toISOString().slice(0,10) : '',
+      asked && asked.timestamp ? new Date(asked.timestamp).toISOString().slice(0,10) : '',
       ecmAtt,
+      e.status === 'full' ? 'fully factored' : e.status === 'partial' ? 'partially factored' : 'no known factors',
       '',
     ]);
   }
@@ -11386,6 +11470,38 @@ function canonicalFactor(parsed) {
   return parsed.value.toString();
 }
 
+// A factor typed by hand is tested for primality up to this size (about 2 s at the top).
+const MANUAL_PRIMALITY_MAX_DIGITS = 1000;
+// What adding a typed factor does: { pieces } to store — the factor itself when it is
+// prime, its prime factors when it is composite and could be split — with { note } to
+// show, { ask } a question to confirm first, or { refuse } why not. `say(text)` shows
+// progress and returns a promise, so the screen updates before slow work.
+async function manualFactorPlan(factorStr, factorBig, remaining, say) {
+  say = say || (async () => {});
+  const { base, exp } = parseFactorPower(factorStr);
+  const baseBig = BigInt(base);
+  const whole = remaining === factorBig;          // it would complete the entry
+  if (base.length > MANUAL_PRIMALITY_MAX_DIGITS) {
+    return { pieces: [factorStr], ask: 'This ' + base.length.toLocaleString() + '-digit number divides, but it is too large to test for primality here.\n\n'
+      + 'If it is not prime, the entry will ' + (whole ? 'wrongly read as FULLY FACTORED' : 'list a composite as a prime factor')
+      + '. Add it only if you know it is prime (FactorDB says P or PRP).\n\nAdd it?' };
+  }
+  await say(base.length > 150 ? 'Testing ' + base.length + ' digits for primality…' : 'Verifying…');
+  if (isProbablePrime(baseBig)) return { pieces: [factorStr] };
+  await say('It is composite — splitting it into primes…');
+  let parts = null;
+  try { parts = factorizeSmall(baseBig, COMPOSITE_SPLIT_MS); } catch (e) { parts = null; }
+  if (parts && parts.length >= 2 && parts.every(q => isProbablePrime(q))) {
+    const count = new Map();
+    for (const q of parts) count.set(q, (count.get(q) || 0) + exp);
+    const pieces = [...count.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([q, k]) => q.toString() + (k > 1 ? '^' + k : ''));
+    return { pieces, note: 'It was composite: saved as its prime factors ' + pieces.join(' · ') };
+  }
+  if (whole) return { refuse: 'That is the remaining cofactor itself, and it is composite: nothing new to add.' };
+  return { pieces: [factorStr], ask: factorStr + ' divides, but it is COMPOSITE and could not be split here.\n\n'
+    + 'Stored, it is listed as a composite factor (marked COMPOSITE?) until its primes are found. Add it anyway?' };
+}
+
 async function verifyAndAddFactor(n) {
   if (valuesMissing([n])) await needValues([n]);
   const input = document.getElementById('manualFactorInput_' + n);
@@ -11410,13 +11526,9 @@ async function verifyAndAddFactor(n) {
 
     if (factorBig < 2n) { msg.innerHTML = '<span style="color:var(--red)">⚠ Must be ≥ 2</span>'; return; }
 
-    // Check if already known (compare by value, not display string)
     const existingBigs = (e.factors || []).map(f => {
       try { return parseFactorExpr(f).value; } catch { return BigInt(f); }
     });
-    if (existingBigs.some(b => b === factorBig)) {
-      msg.innerHTML = '<span style="color:var(--yellow)">Factor already listed</span>'; return;
-    }
 
     const eulerBig = BigInt(e.val);
 
@@ -11436,6 +11548,12 @@ async function verifyAndAddFactor(n) {
 
     // Verify new factor divides the remaining cofactor (not full E(n))
     if (remaining % factorBig !== 0n) {
+      // "Already listed" only when the cofactor holds no more of it. Checked first, it
+      // refused a prime that divides TWICE: with 5 listed and 25 dividing, typing 5
+      // again was the natural way to say so.
+      if (existingBigs.some(b => b === factorBig)) {
+        msg.innerHTML = '<span style="color:var(--yellow)">Factor already listed</span>'; return;
+      }
       // Check if it divides E(n) at all (might already be accounted for)
       if (eulerBig % factorBig !== 0n) {
         msg.innerHTML = '<span style="color:var(--red)">✗ ' + factorStr.length + 'd does not divide E(' + n + ')</span>'; return;
@@ -11444,15 +11562,31 @@ async function verifyAndAddFactor(n) {
       }
     }
 
-    // Valid — expand by multiplicity (e.g. 5^3 → divide 3 times)
-    // For expressions like 5^3, we already computed the value. Store canonical string.
-    commitKnownFactor(n, e, factorStr, remaining, factorBig, 'm', 'manual', 'Manual factor');
+    // It divides. Is it PRIME? Nothing asked. Whatever divided was stored as a prime
+    // factor — so typing the remaining cofactor itself (composite, by definition of
+    // "remaining") marked the entry FULLY FACTORED and wrote FF into its record: the
+    // cofactor-as-prime fault, by hand. "3*5" is even an accepted way to type one.
+    const plan = await manualFactorPlan(factorStr, factorBig, remaining, (text) => {
+      msg.innerHTML = '<span style="color:var(--text-muted)">' + escHtml(text) + '</span>';
+      return new Promise(r => setTimeout(r, 10));
+    });
+    if (plan.refuse) { msg.innerHTML = '<span style="color:var(--red)">✗ ' + escHtml(plan.refuse) + '</span>'; return; }
+    if (plan.ask && !confirm(plan.ask)) { msg.innerHTML = '<span style="color:var(--text-muted)">Not added.</span>'; return; }
+
+    let rem = remaining;
+    for (const piece of plan.pieces) {
+      const big = parseFactorExpr(piece).value;
+      commitKnownFactor(n, e, piece, rem, big, 'm', 'manual', 'Manual factor');
+      rem /= big;
+    }
     input.value = '';
 
-    msg.innerHTML = '<span style="color:var(--green)">✓ Factor verified & saved' + (e.status === 'full' ? ' — now FULLY FACTORED' : '') + '</span>';
+    msg.innerHTML = '<span style="color:var(--green)">✓ ' + escHtml(plan.note || 'Factor verified & saved') + (e.status === 'full' ? ' — now FULLY FACTORED' : '') + '</span>';
 
+    // Refresh the window — unless you have stepped to another entry meanwhile: this
+    // used to pull you back to n.
     const bd = document.getElementById('modalBackdrop');
-    if (bd && bd.classList.contains('open')) setTimeout(() => openModal(n), 800);
+    if (bd && bd.classList.contains('open')) setTimeout(() => { if (_modalEntryN === n && bd.classList.contains('open')) openModal(n); }, 800);
 
   } catch(err) {
     msg.innerHTML = '<span style="color:var(--red)">⚠ ' + escHtml(err.message) + '</span>';
@@ -11556,10 +11690,18 @@ function factorsFdbLacks(e) {
   });
 }
 
+// PURE: the entry a search names outright — "E(174)", "e174", "E 174" — or null.
+// The box says "Search E(n)…", and typed that way it matched nothing: the text was
+// looked for inside numbers.
+function searchExactN(q) {
+  const m = /^e\s*\(?\s*(\d{1,7})\s*\)?$/i.exec(String(q || '').trim());
+  return m ? parseInt(m[1], 10) : null;
+}
 function applyFilters(opts) {
   // (An n→record map was rebuilt here on every call — every keystroke in the search
   // box walked all ~17,000 records — and nothing read it.)
   const ecmData = loadECM();
+  const q = searchQuery.trim().toLowerCase().replace(/[\s,]/g, ''), exactN = searchExactN(searchQuery);   // once, not per entry
   filtered = allEntries.filter(e => {
     let matchFilter;
     if (activeFilter === 'all') {
@@ -11576,8 +11718,7 @@ function applyFilters(opts) {
     } else {
       matchFilter = e.status === activeFilter;
     }
-    const q = searchQuery.trim().toLowerCase();
-    const matchSearch = !q || String(e.n).includes(q) ||
+    const matchSearch = exactN != null ? e.n === exactN : !q || String(e.n).includes(q) ||
       (e.factors && e.factors.some(f => f.includes(q))) ||
       (e.cofactor && e.cofactor.includes(q)) ||
       (e.val ? e.val.startsWith(q) : (q.length <= 17 && entryLead(e).startsWith(q)));
@@ -11616,7 +11757,8 @@ function applyFilters(opts) {
     const cof = new Map(filtered.map(e => [e, getCofactorDigits(e)]));
     filtered.sort((a, b) => compareByValue(a, b, cof.get(a), cof.get(b), sortMode === 'cof-desc'));
   } else if (sortMode === 'nfac-asc' || sortMode === 'nfac-desc') {
-    filtered.sort((a, b) => compareByValue(a, b, knownFactorCount(a), knownFactorCount(b), sortMode === 'nfac-desc'));
+    const nf = keyOf(knownFactorCount);            // once per entry, like the other keys
+    filtered.sort((a, b) => compareByValue(a, b, nf.get(a), nf.get(b), sortMode === 'nfac-desc'));
   } else if (sortMode === 'fdb-asc' || sortMode === 'fdb-desc') {
     const at = keyOf(e => { const i = getFdbCheckInfo(e); return i ? i.timestamp : 0; });
     filtered.sort((a, b) => {
@@ -11749,8 +11891,8 @@ function getFdbCheckInfo(e) {
 function fmtFdbDate(timestamp) {
   if (!timestamp) return null;
   const d     = new Date(timestamp);
-  const age   = Date.now() - timestamp;
-  const fresh = age < AUTO_INTERVAL;
+  // The same calendar day — "within the last 24 hours" called yesterday evening Today.
+  const fresh = d.toDateString() === new Date().toDateString();
   const date  = fresh ? 'Today' : d.toLocaleDateString();
   const time  = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   return `${date} ${time}`;
@@ -11817,7 +11959,7 @@ function renderGrid() {
         return;
       }
       const n     = parseInt(card.getAttribute('data-n'));
-      const e     = filtered.find(x => x.n === n);
+      const e     = entryByN(n);                 // the index — not a scan of the list per tile
       const lazy  = card.querySelector('.card-lazy');
       if (!e || !lazy || lazy.dataset.filled) continue;
       lazy.dataset.filled = '1';
@@ -12084,6 +12226,7 @@ function goPage(p) {
 // (the sieve results, for one), so the key handler checks that this entry's own
 // section is actually on screen before it steps anywhere.
 let _modalEntryN = null;
+let _modalWanted = null;             // the entry most recently asked for (its value may still be loading)
 
 // The entry `dir` steps away from n in `list` — the table's current list, sorted and
 // filtered exactly as on screen (applyFilters sorts `filtered` in place before it
@@ -12123,7 +12266,17 @@ if (typeof document !== 'undefined' && document.addEventListener) {
 
 function openModal(n, loaded) {
   // Its one value, loaded first (once: a failed load opens it without the value).
-  if (!loaded && valuesMissing([n])) { setStatus('Loading E(' + n + ')…', ''); needValues([n]).then(() => { setStatus(''); openModal(n, true); }); return; }
+  // The LATEST request wins: holding → asked for several entries whose values arrived
+  // in any order, and the window ended on whichever loaded last. And a load that
+  // fails still opens the entry (without its value) — it used to leave "Loading…"
+  // in the status bar and nothing on screen.
+  _modalWanted = n;
+  if (!loaded && valuesMissing([n])) {
+    setStatus('Loading E(' + n + ')…', '');
+    const open = () => { setStatus(''); if (_modalWanted === n) openModal(n, true); };
+    needValues([n]).then(open, (err) => { logSwallowed('modal/load', err); open(); });
+    return;
+  }
   const e = entryByN(n);
   if (!e) return;
   _modalEntryN = n;
@@ -12289,8 +12442,9 @@ function openModal(n, loaded) {
   // Value — store in a global map to avoid attribute escaping issues with large numbers.
   // trimValues empties the map a minute after values were last used, with the window
   // still open: the button then copies the number as shown, which is the whole value.
-  window._eulerValMap = window._eulerValMap || {};
-  window._eulerValMap[n] = e.val || '';
+  // Only the entry on screen: kept for every entry ever opened, it held their values
+  // (60,000 digits each) in memory after the rest had been let go.
+  window._eulerValMap = { [n]: e.val || '' };
   // `let`, because this was an undeclared assignment writing to a global that
   // outlived the modal. Declaring it is also what made the bug below visible.
   let valueHtml = '';
@@ -13751,34 +13905,55 @@ function toggleBulkDelete() {
 }
 
 function previewBulkDelete() {
-  const from   = parseInt(document.getElementById('bulkDel_from').value) || 0;
-  const to     = parseInt(document.getElementById('bulkDel_to').value) || 99999;
   const method = document.getElementById('bulkDel_method').value;
-  const ecmData = loadECM();
-  let totalEntries = 0, totalAttempts = 0;
-  for (const [nStr, attempts] of Object.entries(ecmData)) {
-    const n = parseInt(nStr);
-    if (n < from || n > to) continue;
-    const matching = method === 'all' ? attempts : attempts.filter(a => a.method === method);
-    if (matching.length) { totalEntries++; totalAttempts += matching.length; }
-  }
+  const plan = bulkDeletePlan(document.getElementById('bulkDel_from').value, document.getElementById('bulkDel_to').value, method, loadECM());
   const el = document.getElementById('bulkDelPreview');
+  if (plan.error) { if (el) el.textContent = plan.error; return; }
+  const totalEntries = plan.entries, totalAttempts = plan.attempts;
   if (el) el.textContent = totalAttempts
     ? `Will delete ${totalAttempts} attempt${totalAttempts===1?'':'s'} across ${totalEntries} entr${totalEntries===1?'y':'ies'}`
     : 'No matching attempts found.';
 }
 
+// PURE: what a bulk delete would remove — or why it may not run. Both ends of the range
+// must be typed: empty boxes used to mean E(0)–E(99999), so one click on "Delete
+// matching attempts" with nothing filled in removed EVERY logged run, without a
+// question — and recorded them as deliberate deletions, so the next push took them
+// off GitHub as well.
+function bulkDeletePlan(fromRaw, toRaw, method, ecmData) {
+  const has = (v) => String(v == null ? '' : v).trim() !== '';
+  if (!has(fromRaw) || !has(toRaw)) return { error: 'Enter both ends of the E(n) range to delete from — for every entry, type 0 and the last n yourself.' };
+  const from = parseInt(fromRaw), to = parseInt(toRaw);
+  if (!(from >= 0) || !(to >= from)) return { error: 'That is not a range: "from" must be 0 or more, and "to" at least "from".' };
+  let entries = 0, attempts = 0;
+  for (const [nStr, list] of Object.entries(ecmData || {})) {
+    const n = parseInt(nStr);
+    if (n < from || n > to) continue;
+    const k = (list || []).filter(a => method === 'all' || a.method === method).length;
+    if (k) { entries++; attempts += k; }
+  }
+  return { from, to, entries, attempts };
+}
 function executeBulkDelete() {
-  const from   = parseInt(document.getElementById('bulkDel_from').value) || 0;
-  const to     = parseInt(document.getElementById('bulkDel_to').value) || 99999;
   const method = document.getElementById('bulkDel_method').value;
+  const plan = bulkDeletePlan(document.getElementById('bulkDel_from').value, document.getElementById('bulkDel_to').value, method, loadECM());
+  if (plan.error) { alert(plan.error); return; }
+  if (!plan.attempts) { document.getElementById('bulkDelPreview').textContent = 'Nothing deleted — no matching attempts found.'; return; }
+  if (!confirm('Delete ' + plan.attempts.toLocaleString() + ' logged attempt' + (plan.attempts === 1 ? '' : 's') + ' across '
+    + plan.entries.toLocaleString() + ' entr' + (plan.entries === 1 ? 'y' : 'ies') + ' — E(' + plan.from + ') to E(' + plan.to + '), '
+    + (method === 'all' ? 'every method' : method + ' only') + '?\n\nThey are removed here and, at the next push, from GitHub. This cannot be undone.')) return;
+  const from = plan.from, to = plan.to;
   const ecmData = loadECM();
   let totalDeleted = 0;
+  // Recorded ONCE, after the loop. Per entry, each call re-read and re-wrote the whole
+  // growing list of deletions: over 12,000 entries that was gigabytes of churn, and
+  // a large delete crashed the tab part-way.
+  const gone = [];
   for (const [nStr, attempts] of Object.entries(ecmData)) {
     const n = parseInt(nStr);
     if (n < from || n > to) continue;
     const before = attempts.length;
-    recordDeletion({ runs: attempts.filter(a => method === 'all' || a.method === method).map(a => ecmRunId(nStr, a)) });
+    for (const a of attempts) if (method === 'all' || a.method === method) gone.push(ecmRunId(nStr, a));
     ecmData[nStr] = method === 'all' ? [] : attempts.filter(a => a.method !== method);
     totalDeleted += before - ecmData[nStr].length;
     if (ecmData[nStr].length === 0) delete ecmData[nStr];
@@ -13787,6 +13962,7 @@ function executeBulkDelete() {
     document.getElementById('bulkDelPreview').textContent = 'Nothing deleted — no matching attempts found.';
     return;
   }
+  recordDeletion({ runs: gone });
   saveECM(ecmData);
   // Logged runs are not a status (the ECM LOGGED filter and count read the runs), so
   // nothing to re-sync — only an 'attempted' left from older code is undone.
@@ -13874,6 +14050,7 @@ function updateBulkPreview() {
 }
 
 function applyBulkECM() {
+  showAllEntriesFor('the bulk log');       // the range typed in ITS boxes decides
   const targets = getBulkTargets();
   const method  = document.getElementById('bulk_method')?.value || 'ECM';
   const isECM   = method === 'ECM';
@@ -13888,12 +14065,19 @@ function applyBulkECM() {
   if (!b1) { alert('B1 is required.'); return; }
   if (isECM && (!b2 || !curves)) { alert('B2 and Curves are required for ECM.'); return; }
   if (!targets.length) { alert('No entries match the filter.'); return; }
+  // The same checks as logging one run (manualRunPlan): "abc" as a bound was stored
+  // on every entry in the range.
+  const probe = manualRunPlan([], { method, b1, b2, curves });
+  if (probe.error) { alert(probe.error); return; }
+  if (targets.length > 1 && !confirm('Log ' + method + ' at B1=' + b1 + (isECM ? ', ' + curves + ' curves' : '') + ' for '
+    + targets.length.toLocaleString() + ' entries — E(' + targets[0].n + ') to E(' + targets[targets.length - 1].n + ')?\n\n'
+    + 'Where that B1 is already logged, the larger curve count is kept.')) return;
 
   const attempt = {
     method,
     b1:     isECM ? b1 : isPM1 ? b1 : '',
     b2:     isECM ? b2 : isPM1 ? b2 : '',
-    curves: isECM ? curves : isPM1 ? curves : '',
+    curves: isECM ? curves : '',       // P±1 is one pass: a count above 1 is read back as ECM
     poly:   isECM ? poly : '',
     tool,
     note,
@@ -13962,6 +14146,42 @@ function toggleECMFields(n) {
   pm1Fields.forEach(el => el.style.display = (method === 'P-1' || method === 'P+1') ? '' : 'none');
 }
 
+// PURE: what logging `attempt` by hand does to an entry's runs: { list } to save, with
+// { ask } a question to confirm first, or { error } why it cannot be logged.
+//
+// The bounds must be numbers — "abc" was stored, and every probability worked out
+// from that run became NaN. And a run is identified by its method and B1 everywhere
+// else, so a second ECM run at a B1 already logged was a duplicate row that the next
+// sync collapsed to the LARGER of the two counts: logging 100 more curves beside 500
+// showed 600 until the next pull, then 500 — the 100 gone without a word. They are
+// added to the existing run instead, after asking.
+function manualRunPlan(existing, attempt) {
+  const isECM = attempt.method === 'ECM';
+  const b1 = parseB1(attempt.b1), b2 = attempt.b2 ? parseB1(attempt.b2) : 0;
+  if (!(b1 > 0) || !isFinite(b1)) return { error: 'B1 "' + attempt.b1 + '" is not a number — write it like 11000, 1e6 or 3M.' };
+  if (attempt.b2 && (!(b2 > 0) || !isFinite(b2))) return { error: 'B2 "' + attempt.b2 + '" is not a number — write it like 1e9, or leave it empty.' };
+  if (b2 && b2 < b1) return { error: 'B2 (' + attempt.b2 + ') is smaller than B1 (' + attempt.b1 + ').' };
+  const a = Object.assign({}, attempt);
+  if (isECM) {
+    const c = Number(attempt.curves);
+    if (!Number.isInteger(c) || c < 1) return { error: 'Curves must be a whole number, 1 or more.' };
+    a.curves = String(c);
+  } else a.curves = '';       // P±1 is one pass; a count above 1 would be read back as ECM
+  const list = (existing || []).map(x => Object.assign({}, x));
+  const hit = list.find(x => x.method === a.method && parseB1(x.b1) === b1);
+  if (!hit) return { list: normalizeEcmAttempts([...list, a]) };
+  if (!isECM) return { error: a.method + ' at B1=' + hit.b1 + ' is already logged for this entry — the same pass again finds nothing new.'
+    + (b2 && b2 > (hit.b2 ? parseB1(hit.b2) : 0) ? ' To record a larger B2, delete that run and log it again.' : '') };
+  const had = parseInt(hit.curves) || 0, total = had + parseInt(a.curves);
+  hit.curves = String(total);
+  if (a.b2 && !hit.b2) hit.b2 = a.b2;
+  hit.lastRun = a.date;
+  if (a.note) hit.note = hit.note ? hit.note + '; ' + a.note : a.note;
+  return { list: normalizeEcmAttempts(list), added: true,
+    ask: 'ECM at B1=' + hit.b1 + ' is already logged with ' + had.toLocaleString() + ' curve' + (had === 1 ? '' : 's') + '.\n\n'
+       + 'OK      — these ' + Number(a.curves).toLocaleString() + ' are MORE curves: the run becomes ' + total.toLocaleString() + '\n'
+       + 'Cancel  — log nothing' };
+}
 function addECMAttempt(n) {
   const get = id => document.getElementById(id)?.value?.trim() || '';
   const method = get(`ecm_method_${n}`) || 'ECM';
@@ -13987,8 +14207,10 @@ function addECMAttempt(n) {
 
   const ecmData = loadECM();
   const key = String(n);
-  if (!ecmData[key]) ecmData[key] = [];
-  ecmData[key].push(attempt);
+  const plan = manualRunPlan(ecmData[key] || [], attempt);
+  if (plan.error) { alert(plan.error); return; }
+  if (plan.ask && !confirm(plan.ask)) return;
+  ecmData[key] = plan.list;
   saveECM(ecmData);
 
   let logMsg = `E(${n}) ${method} logged`;
@@ -14147,7 +14369,13 @@ function resetEntry(n) {
 // 120 digits keeps a single test near 9ms while still covering essentially every
 // factor ECM produces; anything larger is simply not primality-checked.
 const PRIMALITY_SCAN_MAX_DIGITS = 120;
-const INTEGRITY_BUDGET_MS = 15000;   // hard ceiling; report partial rather than hang
+// A safety ceiling, not a working limit. It was 15 s — and on 17,500 entries the scan
+// needs about a minute, almost all of it on the LARGEST numbers, which come last: the
+// top third (5,500 entries, every one above ~40,000 digits) was never examined, and
+// the report said "No inconsistencies found" about the two thirds it had reached. The
+// scan now runs to the end, showing how far it is; ⊘ Cancel stops it, and a stopped
+// scan says so, with how much it covered.
+const INTEGRITY_BUDGET_MS = 15 * 60000;
 // The REMAINDER test (val / product, for an entry whose factors fall short) gets a
 // far higher ceiling than individual factors, because it runs at most ONCE per
 // failing entry rather than once per factor — and it is the test that decides
@@ -14305,7 +14533,7 @@ async function runDataIntegrityCheck(onProgress) {
     wrongExponent:  [],  // recorded as p^k but p^k does not divide E(n)
     missingPrime:   [],  // fully factored, but the final prime cofactor was never recorded
   };
-  let checked = 0, skippedPrimality = 0, timedOut = false;
+  let checked = 0, skippedPrimality = 0, timedOut = false, reached = 0, lastYield = Date.now();
   let remainderMsSpent = 0, remainderUnverified = 0, acknowledged = 0;
   // Through isVerifiedComplete, as the fixer: the raw map ignores a retraction, so
   // an acknowledgement cleared here but still held by a peer hid the entry from the
@@ -14344,11 +14572,15 @@ async function runDataIntegrityCheck(onProgress) {
   }
 
   for (let i = 0; i < allEntries.length; i++) {
-    if (i % CHUNK === 0) {
-      if (Date.now() > deadline) { timedOut = true; break; }
+    // By the clock, not every 200 entries: 200 of the largest take most of a second,
+    // and the page — and the Cancel button — froze for that long between updates.
+    if (i % CHUNK === 0 || Date.now() - lastYield >= 100) {
+      if (Date.now() > deadline || (typeof cancelRequested !== 'undefined' && cancelRequested)) { timedOut = true; break; }
       if (onProgress) onProgress(i, allEntries.length);
       await new Promise(r => setTimeout(r, 0));   // let the UI breathe
+      lastYield = Date.now();
     }
+    reached = i + 1;
     const e = allEntries[i];
     if (!e || !e.val) continue;
 
@@ -14498,7 +14730,7 @@ async function runDataIntegrityCheck(onProgress) {
       }
     }
   }
-  return { issues, checked, skippedPrimality, timedOut, remainderUnverified, acknowledged };
+  return { issues, checked, skippedPrimality, timedOut, remainderUnverified, acknowledged, reached, total: allEntries.length };
 }
 
 // Apply the repairs that can be made with certainty from local data alone.
@@ -14788,7 +15020,16 @@ async function _fixIntegrityIssues(scan) {
   // state BEFORE the repair, so running the fixer twice produced different results
   // (found by fuzzing: the fix was not idempotent). Deriving the status from the
   // arithmetic at the end makes it a function of the data rather than of history.
+  // One conversion of every E(n): about a minute on 17,500 entries, and it used to
+  // run without a pause — the page frozen on "Fixing…" throughout.
+  let lastBreath = Date.now(), seen = 0;
   for (const e of allEntries) {
+    seen++;
+    if (Date.now() - lastBreath >= 150) {
+      try { setStatus('Fixing… checking every status against its factors: ' + seen.toLocaleString() + '/' + allEntries.length.toLocaleString(), ''); } catch (err) { logSwallowed('fixIntegrity/status', err); }
+      await new Promise(r => setTimeout(r, 0));
+      lastBreath = Date.now();
+    }
     if (!e || !e.val || !Array.isArray(e.factors)) continue;
     if (e.val === '1') continue;                      // units: nothing to prove
     if (!e.factors.length) continue;                  // handled by the empty-full pass
@@ -14824,12 +15065,19 @@ async function _fixIntegrityIssues(scan) {
 }
 
 async function runIntegrityFix() {
+  showAllEntriesFor('the data fix');
   let scan;
   setStatus('Re-scanning before fixing…', '');
   // The report loaded the values; a minute after it was shown they are trimmed, and
   // a re-scan without them found nothing — "Nothing to fix" with the issues listed.
-  try { if (valuesMissing(null)) await needValues(null, 'the fix'); scan = await runDataIntegrityCheck(); }
+  try {
+    if (valuesMissing(null)) await needValues(null, 'the fix');
+    cancelRequested = false;
+    scan = await runDataIntegrityCheck((i, total) => setStatus('Re-scanning before fixing… ' + i.toLocaleString() + '/' + total.toLocaleString(), ''));
+  }
   catch(err) { setStatus('', ''); alert('Could not re-scan: ' + err.message); return; }
+  // Fixing from a scan that did not finish would repair part of the data and report it as all.
+  if (scan.timedOut) { setStatus('', ''); alert('The re-scan did not finish, so nothing was changed. Run ⚕ Check data again.'); return; }
 
   const counts = scan.issues;
   const autoFixable = counts.notDividing.length + counts.wholeValue.length
@@ -15041,6 +15289,7 @@ function importSieveResults() {
     let data;
     try { data = JSON.parse(list[0].text); } catch (e) { alert('Not a sieve results file (it is not JSON).'); return; }
     const named = Object.keys((data && data.entries) || {}).map(Number).filter(n => n >= 0);
+    showAllEntriesFor('the sieve results');
     if (valuesMissing(named)) await needValues(named, 'the sieve results');
     const plan = sieveResultsPlan(data, (n) => entryByN(n), loadSieveDepth() || {});
     if (plan.error) { alert(plan.error); return; }
@@ -15083,6 +15332,7 @@ function sieveTopUpPlan(ns, depth, bound) {
 }
 async function showSievePrompt() {
   if (polling) { alert('A sieve is already running — wait for it to finish, or press ⊘ Cancel to stop it.'); return; }
+  showAllEntriesFor('the sieve');          // it asks for its own range
   const ns = allEntries.map(e => e.n).filter(n => Number.isFinite(n));
   const loDef = ns.length ? Math.min(...ns) : 0, hiDef = ns.length ? Math.max(...ns) : 0;
 
@@ -15330,6 +15580,7 @@ async function applySieveFindings(...args) { return holdingValues(_applySieveFin
 async function _applySieveFindings() {
   const findings = _pendingSieve;
   if (!findings || !findings.length) return;
+  showAllEntriesFor('recording the sieve findings');
   const ns = [...new Set(findings.map(f => f.n))];
   if (valuesMissing(ns)) await needValues(ns, 'recording the sieve findings');
   let applied = 0, rejected = 0;
@@ -15469,13 +15720,34 @@ function computeCostToFinish(entry, digits, attempts) {
 // Holds the values while it runs (see holdingValues).
 async function showDataIntegrityReport(...args) { return holdingValues(_showDataIntegrityReport, args); }
 async function _showDataIntegrityReport() {
+  showAllEntriesFor('Check data');         // "every entry against itself"
   if (valuesMissing(null)) await needValues(null, 'Check data');
   let res;
   setStatus('Scanning data integrity…', '');
-  try { res = await runDataIntegrityCheck((i, total) => setStatus('Scanning data integrity… ' + i + '/' + total, '')); }
+  // ⊘ Cancel stops it, as it stops the sieve; a second tool must not start meanwhile.
+  if (polling) { alert('A sieve or a check is already running — wait for it to finish, or press ⊘ Cancel to stop it.'); return; }
+  polling = true; cancelRequested = false;
+  const cancelBtn = document.getElementById('cancelBtn');
+  if (cancelBtn) { cancelBtn.style.display = 'flex'; cancelBtn.disabled = false; }
+  const t0 = Date.now();
+  try {
+    res = await runDataIntegrityCheck((i, total) => {
+      const el = Date.now() - t0;
+      // Later entries are larger and slower: the time left is a floor, so only "about".
+      setStatus('Scanning data integrity… ' + i.toLocaleString() + '/' + total.toLocaleString()
+        + (el > 5000 && i > 0 ? ' — about ' + Math.max(1, Math.round((el / i) * (total - i) * 1.6 / 1000)) + ' s left' : ''), '');
+    });
+  }
   catch(err) { setStatus('', ''); alert('Integrity scan failed: ' + err.message); return; }
+  finally { polling = false; cancelRequested = false; if (cancelBtn) cancelBtn.style.display = 'none'; }
   setStatus('', '');
   const { issues, checked, skippedPrimality, timedOut, remainderUnverified, acknowledged } = res;
+  // Said first and in both outcomes: a report on part of the data must not read as one on all of it.
+  const partialNote = timedOut
+    ? `<div class="modal-section" style="color:var(--yellow);border:1px solid var(--yellow);padding:8px 10px">
+         <strong>Partial result.</strong> The scan was stopped after ${(res.reached || 0).toLocaleString()} of ${(res.total || 0).toLocaleString()} entries
+         — the ${((res.total || 0) - (res.reached || 0)).toLocaleString()} largest were not examined. Run ⚕ Check data again and let it finish.
+       </div>` : '';
 
   const groups = [
     ['notDividing',     'Factor does not divide E(n)',        'The stored value is not a factor at all — corrupt data.'],
@@ -15501,7 +15773,6 @@ async function _showDataIntegrityReport() {
          It needs no network, so it can be run any time.
          ${remainderUnverified ? '<br><br>' + remainderUnverified + ' entr(y/ies) have a missing remainder too large to verify here, so they are listed as unresolved rather than recovered. Re-checking them on FactorDB will supply the missing factor directly.' : ''}
         ${skippedPrimality ? '<br><br>' + skippedPrimality + ' factor(s) were larger than ' + PRIMALITY_SCAN_MAX_DIGITS + ' digits and were not primality-checked — that test gets expensive quickly, so those are reported here rather than silently assumed prime.' : ''}
-         ${timedOut ? '<br><br><span style="color:var(--yellow)">The scan hit its time budget and stopped early, so this is a partial result.</span>' : ''}
        </div>`
     : `<div class="modal-section">
         <div class="modal-section-label">${total} issue(s) across ${checked.toLocaleString()} entries</div>
@@ -15543,7 +15814,7 @@ async function _showDataIntegrityReport() {
        </div>`;
 
   document.getElementById('modalTitle').textContent = 'Data integrity';
-  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalBody').innerHTML = partialNote + body;
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
@@ -15799,8 +16070,25 @@ function showYieldReport() {
   document.getElementById('modalBackdrop').classList.add('open');
 }
 
-function closeModal() { document.getElementById('modalBackdrop').classList.remove('open'); }
+function closeModal() { _modalWanted = null; document.getElementById('modalBackdrop').classList.remove('open'); }
 
+// The lines the download lacked: what is left to factor, when FactorDB was asked,
+// and the runs logged — everything else in the window was already there.
+function entryDownloadExtras(n, e) {
+  const out = [];
+  try {
+    if (e.status !== 'full') { const dg = getCofactorDigits(e); if (dg) out.push('Remaining cofactor: ' + dg + ' digits'); }
+    const asked = getFdbCheckInfo(e);
+    if (asked && asked.timestamp) out.push('FactorDB: ' + fdbStatusLabel(asked.status) + ', asked ' + new Date(asked.timestamp).toISOString().slice(0, 10));
+    const runs = loadECM()[String(n)] || [];
+    if (runs.length) {
+      out.push('', 'Factoring attempts:');
+      for (const a of runs) out.push('  ' + a.method + '  B1=' + (a.b1 || '?') + (a.b2 ? '  B2=' + a.b2 : '')
+        + (a.method === 'ECM' ? '  curves=' + (a.curves || '?') : '') + ((a.lastRun || a.date) ? '  ' + (a.lastRun || a.date) : ''));
+    }
+  } catch (err) { logSwallowed('download/extras', err); }
+  return out;
+}
 function downloadEntry(n, loaded) {
   if (!loaded && valuesMissing([n])) { needValues([n]).then(() => downloadEntry(n, true)); return; }
   const e = entryByN(n);
@@ -15815,6 +16103,7 @@ function downloadEntry(n, loaded) {
     e.val ? `|E(${n})| = ${e.val}` : `|E(${n})| = (large, not stored)`, '',
     `Known Factors: ${e.factors&&e.factors.length ? [...e.factors].sort((a,b)=>{try{const av=parseFactorExpr(a).value,bv=parseFactorExpr(b).value;return av<bv?-1:av>bv?1:0;}catch{return String(a).length-String(b).length;}}).join(' * ') : 'none'}`,
     e.cofactor ? `Cofactor: ${e.cofactor}` : '',
+    ...entryDownloadExtras(n, e),
     fdbEntry, e.note ? `Note: ${e.note}` : '', '',
     `Generated by Euler Factorization Database`,
   ].filter(l => l !== undefined);
