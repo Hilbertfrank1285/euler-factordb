@@ -590,6 +590,10 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
   <span><strong>A newer version of this app has been deployed.</strong> Reload this page — until you do,
   this tab will not push. Nothing is lost: your changes stay in this browser and go up after the reload.</span>
 </div>
+<div class="visitor-banner" id="otherTabBanner" role="alert" style="display:none">
+  <span><strong>This page is open in another tab, and the data was changed there.</strong> Reload this tab — until you do,
+  what you change here is not saved and this tab will not push. Nothing saved is lost: it is all in the other tab's copy.</span>
+</div>
 <div class="visitor-banner" id="visitorBanner" role="note">
   <span>You're viewing <strong id="visitorOwner">hilbertfrank1285</strong>'s data. Anything you change here
   stays in this browser — the data on GitHub is not affected.</span>
@@ -1488,6 +1492,10 @@ let _appDBPromise = null;
 // unknown, so a save would overwrite real data with whatever the session rebuilt —
 // an empty ECM store, say. kvSet refuses them (see there).
 const _kvUnread = new Set();
+// Several tabs, one store — see "One store, several tabs" below.
+const KV_REV_KEY = 'eulerFDB_kvRev';
+let _kvRevSeen = {};                 // key -> the revision this tab read or wrote
+const _kvBehind = new Set();         // keys another tab has written since
 let _kvFlushFailures = 0;           // consecutive IDB write failures, for the retry and the warning
 
 function openAppDB() {
@@ -1499,10 +1507,54 @@ function openAppDB() {
       const db = req.result;
       if (!db.objectStoreNames.contains(APPDB_STORE)) db.createObjectStore(APPDB_STORE);
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // A connection can die under the page — the browser closes it under storage
+      // pressure, or when site data is cleared. It was cached for the whole session,
+      // so every later write failed against the dead handle and was retried against
+      // the same one, for ever. Forget it: the next write opens a new one.
+      const forget = () => { if (_appDBPromise === mine) _appDBPromise = null; };
+      db.onclose = forget;
+      db.onversionchange = () => { try { db.close(); } catch (e) { logSwallowed('openAppDB/close', e); } forget(); };
+      resolve(db);
+    };
     req.onerror   = () => { logSwallowed('openAppDB', req.error); resolve(null); };
   });
+  const mine = _appDBPromise;
   return _appDBPromise;
+}
+
+// ── One store, several tabs ──────────────────────────────────────────────────
+// Each tab holds the stores in memory and writes them back WHOLE. Two tabs open —
+// one left from yesterday, one opened after an upload — and the older one's next
+// save wrote its copy of the run log over everything the newer one had imported.
+// Nothing noticed: last writer won.
+//
+// Every write now stamps its key with a revision, in localStorage where all tabs see
+// it. A tab that finds a stamp it did not write knows its copy of that key is behind:
+// it does not write it, says so, and waits for a reload. Keys it is not behind on
+// are saved as usual.
+function readKvRevs() {
+  try { const o = JSON.parse(localStorage.getItem(KV_REV_KEY) || '{}'); return (o && typeof o === 'object') ? o : {}; }
+  catch (e) { return {}; }
+}
+// PURE: the keys whose stored revision is not the one this tab last saw.
+function kvKeysBehind(seen, now, keys) {
+  return (keys || []).filter(k => ((now || {})[k] || '') !== ((seen || {})[k] || ''));
+}
+function noteKeysBehind(keys) {
+  if (!keys.length) return;
+  for (const k of keys) _kvBehind.add(k);
+  logSwallowed('kv/behind', new Error('changed in another tab: ' + keys.join(', ')));
+  const el = (typeof document !== 'undefined') && document.getElementById('otherTabBanner');
+  if (el) el.style.display = 'flex';
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  // Told at once, not only when this tab next tries to save.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== KV_REV_KEY || !_kvReady) return;
+    noteKeysBehind(kvKeysBehind(_kvRevSeen, readKvRevs(), Array.from(IDB_KEYS)));
+  });
 }
 
 // Synchronous read from the mirror. Falls back to localStorage when the mirror
@@ -1538,6 +1590,11 @@ function kvSet(key, val) {
     logSwallowed('kvSet/unread:' + key, new Error('refused: value not read at startup'));
     return false;
   }
+  // Behind another tab on this key: this tab's copy must not replace the newer one.
+  if (_kvBehind.has(key)) return false;
+  // Exactly what is held already: nothing to write. (Startup re-saves the changelog,
+  // a pull re-records what GitHub holds — megabytes to IndexedDB for no change.)
+  if (_kvReady && _kv[key] === val) return true;
   _kv[key] = val;
   _kvDirty.add(key);
   scheduleKvFlush();
@@ -1569,8 +1626,21 @@ function scheduleKvRetry() {
 // retried — either way the localStorage copy, if any, must be kept.
 async function flushKv() {
   if (!_kvDirty.size) return true;
-  const keys = Array.from(_kvDirty);
+  let keys = Array.from(_kvDirty);
   _kvDirty.clear();
+  // Written by another tab since this one read it? Then not by this one — see above.
+  const revs = readKvRevs();
+  const behind = kvKeysBehind(_kvRevSeen, revs, keys);
+  if (behind.length) { noteKeysBehind(behind); keys = keys.filter(k => !behind.includes(k)); if (!keys.length) return false; }
+  // Stamped BEFORE the write, so another tab learns of it as early as possible.
+  const stamp = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  try {
+    for (const k of keys) revs[k] = stamp;
+    localStorage.setItem(KV_REV_KEY, JSON.stringify(revs));
+    // Only once the stamp is really there: with localStorage full it is not, and a
+    // stamp remembered but not stored would read as another tab's on the next save.
+    for (const k of keys) _kvRevSeen[k] = stamp;
+  } catch (e) { logSwallowed('flushKv/rev', e); }
   const db = await openAppDB();
   if (!db) {
     // No IDB available at all — fall back to localStorage so data still persists
@@ -1582,7 +1652,12 @@ async function flushKv() {
     return false;
   }
   return new Promise((resolve) => {
-    const failed = (err) => { logSwallowed('flushKv/tx', err); keys.forEach(k => _kvDirty.add(k)); _kvFlushFailures++; scheduleKvRetry(); resolve(false); };
+    const failed = (err) => {
+      logSwallowed('flushKv/tx', err); keys.forEach(k => _kvDirty.add(k)); _kvFlushFailures++;
+      // The handle itself may be the problem (closed under the page): the retry opens afresh.
+      if (_kvFlushFailures >= 2) _appDBPromise = null;
+      scheduleKvRetry(); resolve(false);
+    };
     try {
       const tx = db.transaction(APPDB_STORE, 'readwrite');
       const store = tx.objectStore(APPDB_STORE);
@@ -1604,6 +1679,9 @@ async function flushKvNow() {
 // Hydrate the mirror, migrating anything still in localStorage on first run.
 // Must be awaited during init BEFORE anything reads these keys.
 async function initAppStore() {
+  // Read BEFORE the values: a write landing in between then shows as "behind" (a
+  // reload at worst), never as up to date.
+  _kvRevSeen = readKvRevs();
   const db = await openAppDB();
   if (db) {
     await new Promise((resolve) => {
@@ -2747,11 +2825,39 @@ let _countdownTick = null;
 // Declared here, with the rest of the push state, because the tooltip reads it: a
 // `let` read before its declaration has run throws, and it used to sit 2,000 lines on.
 let _pushInFlight = false;
+// What is pending is also kept across a reload — see loadPending.
+const PENDING_KEY = 'eulerFDB_pending_v1';
+let _pendingLive = false;            // startup's own bookkeeping must not rewrite it
 // 20 s after the last change. It was 45 s when every push sent 12 MB; a push is now one
 // small commit, so a shorter wait gets changes to GitHub — and to your other machines —
 // sooner. Each new change still restarts the wait, so a long import is still one push.
 const AUTO_PUSH_DELAY_MS = 20000;
 
+// What was waiting to go to GitHub when the page was last closed or reloaded. The
+// flag lived only in memory: reload with changes pending — and "a newer version is
+// deployed, reload this tab" asks for exactly that — and the page came back saying
+// "Everything is on GitHub" while the changes sat here, unsent until something else
+// happened to change. Kept in localStorage; startup marks them pending again.
+function loadPending() {
+  try { const a = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); return Array.isArray(a) ? a.filter(x => typeof x === 'string') : null; }
+  catch (e) { return null; }
+}
+function persistPending() {
+  if (!_pendingLive) return;
+  try {
+    if (_dirty) localStorage.setItem(PENDING_KEY, JSON.stringify([..._dirtyWhat]));
+    else localStorage.removeItem(PENDING_KEY);
+  } catch (e) { logSwallowed('pending/save', e); }
+}
+// End of startup: from here the flag is kept, and whatever was pending before is again.
+function restorePending() {
+  const was = loadPending();
+  _pendingLive = true;
+  if (was && !isVisitor()) {
+    for (const w of (was.length ? was : ['local changes'])) markDirty(w);
+    addLog('Changes from before the reload were not on GitHub yet — they are pending again', '');
+  } else persistPending();
+}
 function markDirty(what) {
   _dirtyGen++;
   _dirty = true;
@@ -2789,6 +2895,7 @@ function pushButtonTitle(now = Date.now()) {
   return 'Not on GitHub yet: ' + what + ' · ' + when;
 }
 function updateDirtyIndicator() {
+  persistPending();
   if (typeof document === 'undefined') return;
   const el = document.getElementById('dirtyDot');
   if (el) el.style.display = (_dirty && !isVisitor()) ? 'inline-block' : 'none';
@@ -2810,22 +2917,53 @@ function ensureCountdownTick() {
 function autoPushEnabled() {
   return localStorage.getItem('eulerFDB_autoPush') !== 'off';
 }
-function scheduleAutoPush() {
+// PURE: how long to wait before retrying a push that failed `failures` times in a
+// row: 1, 2, 4, 8 minutes, then every 15.
+function pushRetryDelay(failures) {
+  return Math.min(15 * 60000, 60000 * Math.pow(2, Math.max(0, failures - 1)));
+}
+let _pushFailures = 0;               // consecutive failed pushes
+function scheduleAutoPush(delayMs) {
   if (!autoPushEnabled()) return;
   if (_autoPushTimer) clearTimeout(_autoPushTimer);
-  _autoPushAt = Date.now() + AUTO_PUSH_DELAY_MS;
+  const wait = delayMs > 0 ? delayMs : AUTO_PUSH_DELAY_MS;
+  _autoPushAt = Date.now() + wait;
   ensureCountdownTick();
   _autoPushTimer = setTimeout(() => {
     _autoPushTimer = null;
     _autoPushAt = 0;
     if (!_dirty) { updateDirtyIndicator(); return; }
     const s = loadGHSettings();
-    if (s && s.token && navigator.onLine && !polling) {
+    if (s && s.token) {
+      // Not now is not never. Offline, the push used to be dropped and nothing sent
+      // it when the connection came back; during a sieve, likewise when it finished.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) { updateDirtyIndicator(); return; }   // the 'online' event takes it up
+      if (polling) { scheduleAutoPush(); return; }
       addLog('Auto-pushing unsaved changes…', '');
       githubPush();
     }
     updateDirtyIndicator();
-  }, AUTO_PUSH_DELAY_MS);
+  }, wait);
+}
+// A push failed: try again by itself, later each time. It used to stay failed — the
+// red notice up, the changes here — until something else was changed.
+function schedulePushRetry() {
+  _pushFailures++;
+  if (!_dirty || !autoPushEnabled() || _tokenRejected) return;
+  const wait = pushRetryDelay(_pushFailures);
+  addLog('The push will be tried again in ' + Math.round(wait / 60000) + ' min', '');
+  scheduleAutoPush(wait);
+}
+// The browser may delete this site's stored data when the disk runs low, unless the
+// site asked to keep it. Asked once per visit, for the owner only; a refusal changes
+// nothing.
+function requestPersistentStorage() {
+  try {
+    if (isVisitor() || typeof navigator === 'undefined' || !navigator.storage || !navigator.storage.persist) return;
+    navigator.storage.persisted().then(already => already || navigator.storage.persist())
+      .then(ok => { if (ok === false) logSwallowed('storage/persist', new Error('not granted')); })
+      .catch(e => logSwallowed('storage/persist', e));
+  } catch (e) { logSwallowed('storage/persist', e); }
 }
 // Warn before leaving the page with unpushed changes.
 window.addEventListener('beforeunload', (e) => {
@@ -5800,6 +5938,11 @@ async function pushGuard() {
     return { ok: false };
   }
   if (!_loadedPageTag) _loadedPageTag = nowTag;   // not known at load: the first one seen will do
+  if (_kvBehind.size) {
+    const why = 'Push stopped: the data was changed in another tab of this page — reload this tab. Nothing was sent.';
+    setGHStatus(why, 'err'); addLog(why, 'warn');
+    return { ok: false };
+  }
   ensureSyncBase();
   const b = _syncBase || {};
   // Has GitHub changed since this browser last synced? In the chunked layout: any file
@@ -5814,17 +5957,17 @@ async function pushGuard() {
     const [mainSha, ecmSha] = await Promise.all([ghShaAt(ghApiBase()), ghShaAt(ghEcmApiBase())]);
     unseen = !_syncBase || !('mainSha' in b) || !('ecmSha' in b) || mainSha !== b.mainSha || ecmSha !== b.ecmSha;
   }
-  const stop = (why) => { setGHStatus(why, 'err'); addLog(why, 'warn'); return { ok: false }; };
+  const stop = (why, retry) => { setGHStatus(why, 'err'); addLog(why, 'warn'); return { ok: false, retry: !!retry }; };
   if (unseen) {
     addLog('GitHub has changes this browser has not seen — merging them in before pushing', '');
     setGHStatus('GitHub changed since this browser last synced — merging first…', 'busy');
-    if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s latest version to merge, so nothing was sent');
+    if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s latest version to merge, so nothing was sent', true);
   }
   const L = await pushLossesNow();
   if (L.runs.length || L.factors.length) {
     if (!confirm(lossMessage(L))) return stop('Push cancelled — it would have removed data from GitHub that was not deleted here');
     setGHStatus('Restoring from GitHub before pushing…', 'busy');
-    if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s version to restore from, so nothing was sent');
+    if (!await pullBothFromGitHub()) return stop('Push stopped: could not fetch GitHub\'s version to restore from, so nothing was sent', true);
     // Check again. The restore used to be trusted, and once could not undo the loss —
     // pushing straight after it would have erased exactly what it was meant to keep.
     const L2 = await pushLossesNow();
@@ -6029,6 +6172,8 @@ window.addEventListener('offline', () => {
 window.addEventListener('online', () => {
   const b = document.getElementById('offlineBanner');
   if (b) b.style.display = 'none';
+  // Whatever could not go while offline goes now (a few seconds on, for the network to settle).
+  if (_dirty && !isVisitor() && !_pushInFlight) scheduleAutoPush(5000);
 });
 if (!navigator.onLine) {
   window.addEventListener('DOMContentLoaded', () => {
@@ -6040,10 +6185,12 @@ let _ecmPushTimer   = null;
 function scheduleECMPush() {
   // Debounce: push 8 seconds after last ECM change (avoids pushing on every keystroke)
   if (_ecmPushTimer) clearTimeout(_ecmPushTimer);
+  // The "automatic push off" switch covers this one too — it used to push regardless.
+  if (!autoPushEnabled()) return;
   _ecmPushTimer = setTimeout(() => {
     _ecmPushTimer = null;
     const s = loadGHSettings();
-    if (s.token && s.user && s.repo) {
+    if (s.token && navigator.onLine !== false) {
       addLog('Auto-pushing after ECM log change…', '');
       githubPush();
     }
@@ -6087,7 +6234,7 @@ async function githubPush() {
     // the content is identical across retries; only the SHA changes.
     const tPush = Date.now();                                      // the whole push, guard included
     const guard = await pushGuard();
-    if (!guard.ok) return;
+    if (!guard.ok) { if (guard.retry) schedulePushRetry(); return; }
 
     // Upload only the files whose content differs from GitHub's — computed, not guessed:
     // each file's git blob ID against GitHub's. A conflict means a file changed on
@@ -6121,6 +6268,7 @@ async function githubPush() {
       addLog('GitHub changed during the push — merging it in and retrying', 'warn');
       if (!await pullBothFromGitHub()) throw new Error('GitHub changed during the push, and its new version could not be fetched to merge — nothing was sent');
     }
+    _pushFailures = 0;
     // GitHub now holds exactly the copy this push built: every differing file was sent.
     setSyncBase({ files: lastShas, ecm: ecmSent, factors: factorsFromPayload(payload) });
     clearDeletedHere(delSent);
@@ -6142,6 +6290,7 @@ async function githubPush() {
     addLog(`GitHub push error: ${e.message}`, 'err');
     const warnEl = document.getElementById('ghPushWarning');
     if (warnEl) warnEl.style.display = 'flex';
+    schedulePushRetry();
   } finally {
     _pushInFlight = false;
     updateDirtyIndicator();
@@ -8412,6 +8561,10 @@ function mergeContributionLists(local, remote) {
     if (!r || !r.id) continue;
     const had = out.get(r.id);
     if (!had || String(r.decided || '') > String(had.decided || '')) out.set(r.id, r);
+    // The same decision on both sides: "replied on the issue" is added later without
+    // changing it, and whichever side came first used to win — a machine that had not
+    // replied pushed the record back without it.
+    else if (String(r.decided || '') === String(had.decided || '') && r.replied && !had.replied) out.set(r.id, Object.assign({}, had, { replied: r.replied }));
   }
   return Array.from(out.values()).sort((a, b) => String(a.decided || '').localeCompare(String(b.decided || '')));
 }
@@ -8428,6 +8581,12 @@ function mergeContributions(remote) {
   }
 }
 
+// PURE: a submission's id — a fingerprint of who sent what, when.
+function submissionId(name, created, files) {
+  const all = name + '|' + created + '|' + (files || []).map(f => f.name + '\n' + f.text).join('\n');
+  return 'S' + _hashStr(all) + _hashStr(all + '#');
+}
+const SUBMISSION_MAX_FILES = 500;
 // PURE: the submission file — the contributor's logs, name and note, as one JSON.
 function buildSubmission(files, by, note, created) {
   const name = String((by && by.name) || '').trim(), text = String(note || '').trim();
@@ -8435,8 +8594,7 @@ function buildSubmission(files, by, note, created) {
   if (!text) throw new Error('Please write a note to the owner: what you ran, and on what.');
   const fl = (files || []).map(f => ({ name: String(f.name || 'log.txt'), text: String(f.text || '') })).filter(f => f.text);
   if (!fl.length) throw new Error('No result files to send.');
-  const all = name + '|' + created + '|' + fl.map(f => f.name + '\n' + f.text).join('\n');
-  return { kind: SUBMISSION_KIND, v: 1, id: 'S' + _hashStr(all) + _hashStr(all + '#'), created,
+  return { kind: SUBMISSION_KIND, v: 1, id: submissionId(name, created, fl), created,
     by: { name: name.slice(0, 80), contact: String((by && by.contact) || '').trim().slice(0, 120) },
     note: text.slice(0, 4000), files: fl };
 }
@@ -8446,9 +8604,20 @@ function readSubmission(raw) {
   try { o = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return { error: 'Not a submission file (it is not JSON).' }; }
   if (!o || o.kind !== SUBMISSION_KIND) return { error: 'Not an ECM submission file.' };
   if (o.v !== 1) return { error: 'Made by a newer version of the website (format ' + o.v + ') — reload the page and try again.' };
-  if (!o.id || !o.by || !String(o.by.name || '').trim() || !Array.isArray(o.files) || !o.files.length
+  if (!o.id || !o.by || typeof o.by !== 'object' || typeof o.by.name !== 'string' || !o.by.name.trim() || !Array.isArray(o.files) || !o.files.length
       || !o.files.every(f => f && typeof f.text === 'string')) return { error: 'The submission file is incomplete.' };
-  return { sub: o };
+  if (o.files.length > SUBMISSION_MAX_FILES) return { error: 'The submission holds ' + o.files.length + ' files — more than ' + SUBMISSION_MAX_FILES + '. Ask the sender to split it.' };
+  // The file comes from a stranger, and need not have been made by this page. Only
+  // what the review uses is kept, as text, cut to the lengths the form allows — and
+  // the id is worked out HERE from the contents, never read from the file: it goes
+  // into the ledger, onto GitHub and into buttons, and a forged one could claim to be
+  // a submission already decided, or carry markup.
+  const str = (v, max) => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '').slice(0, max);   // an object here could throw on conversion
+  const files = o.files.map(f => ({ name: str(f.name || 'log.txt', 200), text: f.text })).filter(f => f.text);
+  if (!files.length) return { error: 'The submission file is incomplete.' };
+  const name = str(o.by.name, 80).trim(), created = str(o.created, 40);
+  return { sub: { kind: SUBMISSION_KIND, v: 1, id: submissionId(name, created, files), created,
+                  by: { name, contact: str(o.by.contact, 120).trim() }, note: str(o.note, 4000), files } };
 }
 function submissionFileName(sub) {
   const who = String(sub.by.name).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'contributor';
@@ -8483,11 +8652,43 @@ function cofactorBig(n, vBig) {
 // holding the whole unfactored cofactor — a run on anything else searched nothing
 // useful. The comment line names an E(n) too, but it is the sender's: only a hint of
 // where to look first.
+// PURE-ish: the entries a run's input number could belong to, from the index alone —
+// no value needed. The number must BE E(n) or be E(n) with known factors divided out,
+// so it has at most E(n)'s digits and at least the cofactor's: E(n)'s less its known
+// factors'. A handful of entries, not all 17,500.
+function ownerCandidates(numDigits) {
+  const out = [];
+  for (const e of allEntries || []) {
+    const d = entryDigits(e);
+    if (!d || numDigits > d) continue;
+    let known = 0;
+    for (const f of e.factors || []) { const [b, k] = String(f).split('^'); known += b.length * (parseInt(k) || 1); }
+    if (numDigits >= d - known - 1) out.push(e.n);
+  }
+  return out;
+}
+// The entries whose values a submission's review reads: for each run, the E(n) its
+// comment names and the ones its number could belong to. Reviewing used to load EVERY
+// value first — 1.1 GB, for a visitor sending three logs.
+function submissionNeeds(sub) {
+  const ns = new Set();
+  for (const file of (sub && sub.files) || []) {
+    for (const blk of parseEcmLogBlocks(file.text).blocks) {
+      if (blk.commentN != null) ns.add(Number(blk.commentN));
+      if (blk.numberIsClean) for (const n of ownerCandidates(String(blk.number).length)) ns.add(n);
+    }
+  }
+  return Array.from(ns);
+}
+async function loadForReview(sub, label) {
+  const ns = submissionNeeds(sub);
+  if (valuesMissing(ns)) await needValues(ns, label);
+}
 function submissionOwner(blk, cache) {
   if (!blk.numberIsClean) return { n: null, ok: false, why: 'the input number is not readable' };
   const num = blk.number;
   if (cache.has(num)) return cache.get(num);
-  let res = { n: null, ok: false, why: 'it divides no E(n) here' };
+  let res = { n: null, ok: false, why: 'it is no E(n) here, nor one with its known factors divided out' };
   let bBig = null; try { bBig = BigInt(num); } catch (e) { bBig = null; }
   const tryN = (n) => {
     const v = eulerValues[n];
@@ -8500,7 +8701,10 @@ function submissionOwner(blk, cache) {
     return true;
   };
   if (bBig != null && bBig > 1n && !(blk.commentN != null && tryN(blk.commentN))) {
-    for (const k of Object.keys(eulerValues)) if (tryN(parseInt(k))) break;
+    // Only where it can fit. Every E(n) used to be tried — each one a 60,000-digit
+    // conversion — so a single number that matched nothing froze the page for a
+    // minute, and a file of such numbers for as long as its sender liked.
+    for (const n of ownerCandidates(num.length)) if (tryN(n)) break;
   }
   cache.set(num, res);
   return res;
@@ -8620,7 +8824,12 @@ async function acceptSubmission(...args) { return holdingValues(_acceptSubmissio
 async function _acceptSubmission(sub, review, ns, factorsOnly, issue) {
   const pick = new Set((ns || []).map(Number)), okKeys = new Map();
   let ms = 0;
-  for (const ent of review.entries) if (pick.has(ent.n)) for (const r of ent.runs) if (r.check === 'ok') { okKeys.set(r.key, ent.n); ms += r.ms; }
+  // CPU time counts for the NEW curves only: the same logs sent again add no curves,
+  // and used to be credited their whole time a second time.
+  for (const ent of review.entries) if (pick.has(ent.n)) for (const r of ent.runs) if (r.check === 'ok') {
+    okKeys.set(r.key, ent.n);
+    ms += r.curves > 0 ? r.ms * Math.min(1, (r.fresh || 0) / r.curves) : 0;
+  }
   const snap = () => {
     const ecm = loadECM(), runs = {}, facs = {};
     for (const n of pick) {
@@ -8651,7 +8860,7 @@ async function _acceptSubmission(sub, review, ns, factorsOnly, issue) {
   const everything = review.entries.filter(x => x.verdict !== 'bad').every(x => pick.has(x.n));
   const at = new Date().toISOString();
   const rec = { id: sub.id, by: sub.by, note: sub.note, created: sub.created, decided: at, accepted: at,
-    decision: everything && !factorsOnly ? 'accepted' : 'partial', added, cpuMs: factorsOnly ? 0 : ms,
+    decision: everything && !factorsOnly ? 'accepted' : 'partial', added, cpuMs: factorsOnly ? 0 : Math.round(ms),
     files: (sub.files || []).map(f => f.name) };
   const link = cleanIssueUrl(issue); if (link) rec.issue = link;
   saveContributions([...loadContributions().filter(r => r.id !== sub.id), rec]);
@@ -8724,8 +8933,9 @@ function reviewHtml(review, forOwner, decided) {
 let _contribDraft = null;
 function contributeResults() {
   pickFiles('.txt,.log,text/plain', true, async (list) => {
-    if (valuesMissing(null)) await needValues(null, 'your results');
-    _contribDraft = { files: list, review: reviewSubmission({ id: 'draft', by: { name: '' }, note: '', files: list }) };
+    const draft = { id: 'draft', by: { name: '' }, note: '', files: list };
+    await loadForReview(draft, 'your results');
+    _contribDraft = { files: list, review: reviewSubmission(draft) };
     showDialogHtml('Contribute ECM results', reviewHtml(_contribDraft.review, false, false)
       + '<p class="sub-dim">This is what the owner will see. ✗ and ⚠ are worth fixing before you send — the owner decides what to accept.</p>'
       + '<div class="contrib-form">'
@@ -8760,7 +8970,7 @@ function openSubmissions() {
        : (r.decision === 'withdrawn' ? '↩ was ' + (r.was === 'partial' ? 'partly accepted' : 'accepted') : r.decision === 'partial' ? '◐ partly accepted' : '✓ accepted') + ' — ' + ((r.added && r.added.runs) || []).reduce((t, x) => t + x.curves, 0).toLocaleString()
          + ' curves, ' + ((r.added && r.added.factors) || []).length + ' factors')
     + (r.issue ? ' · <a href="' + escHtml(r.issue) + '" target="_blank" rel="noopener">issue</a>' : '')
-    + ((r.decision === 'accepted' || r.decision === 'partial') ? ' · <button class="poll-btn" onclick="withdrawFromList(\'' + escHtml(r.id) + '\')">Withdraw</button>' : '')
+    + ((r.decision === 'accepted' || r.decision === 'partial') ? ' · <button class="poll-btn" data-id="' + escHtml(r.id) + '" onclick="withdrawFromList(this.dataset.id)">Withdraw</button>' : '')
     + (r.decision === 'withdrawn' ? ' · withdrawn ' + escHtml(String(r.decided).slice(0, 10)) : '') + '</li>';
   const tot = contributorTotals(loadContributions());
   showDialogHtml('Submissions', '<p>Results other people send you arrive as GitHub issues on ' + escHtml(submissionRepo())
@@ -8778,7 +8988,7 @@ function pickSubmissionFile() {
   pickFiles('.json,application/json', false, async (list) => {
     const got = readSubmission(list[0].text);
     if (got.error) { alert(got.error); return; }
-    if (valuesMissing(null)) await needValues(null, 'the review');
+    await loadForReview(got.sub, 'the review');
     _reviewing = { sub: got.sub, review: reviewSubmission(got.sub), issue: _pendingIssue };
     _pendingIssue = null;
     renderSubmissionReview();
@@ -8791,7 +9001,7 @@ function renderSubmissionReview(outcome) {
     + ' · sent ' + escHtml(String(sub.created || '').slice(0, 10)) + '</div><div class="sub-note">' + escHtml(sub.note) + '</div></div>';
   if (outcome) h += '<div class="sub-next">' + outcome + '</div>';
   else if (decided) h += '<div class="sub-next">Already decided on ' + escHtml(String(decided.decided).slice(0, 10)) + ': '
-    + (decided.decision === 'rejected' ? 'rejected' : decided.decision === 'partial' ? 'partly accepted' : 'accepted') + '.</div>';
+    + (decided.decision === 'rejected' ? 'rejected' : decided.decision === 'withdrawn' ? 'accepted, then withdrawn' : decided.decision === 'partial' ? 'partly accepted' : 'accepted') + '.</div>';
   const known = _reviewing.issue && _reviewing.issue.url;
   h += reviewHtml(review, true, !!decided || !!outcome);
   if (!decided && !outcome) {
@@ -8948,7 +9158,10 @@ function issueError(status) {
        : status === 401 ? 'GitHub refused (401): your token is missing or has expired' : 'GitHub answered ' + status;
 }
 async function listSubmissionIssues() {
-  const r = await fetchWithTimeout('https://api.github.com/repos/' + submissionRepo() + '/issues?state=open&per_page=100', 15000, { headers: ghHeaders() });
+  const url = 'https://api.github.com/repos/' + submissionRepo() + '/issues?state=open&per_page=100';
+  let r = await fetchWithTimeout(url, 15000, { headers: ghHeaders() });
+  // Listing is public. A token GitHub rejects must not hide the submissions (replying still needs a good one).
+  if (r.status === 401) { noteTokenRejected(); r = await fetchWithTimeout(url, 15000, { headers: { 'Accept': 'application/vnd.github+json' } }); }
   if (!r.ok) throw new Error(issueError(r.status));
   return submissionIssuesFrom(await r.json());
 }
@@ -8984,8 +9197,8 @@ async function checkIssues() {
     const d = led.find(r => r.issue === i.url);
     return '<li><a href="' + escHtml(i.url) + '" target="_blank" rel="noopener">#' + i.number + '</a> ' + escHtml(i.title) + ' · @' + escHtml(i.user)
       + ' · ' + escHtml(i.created.slice(0, 10)) + ' · '
-      + (d ? 'decided (' + escHtml(d.decision) + '), not yet replied — <button class="poll-btn" onclick="reopenDecided(\'' + escHtml(d.id) + '\')">Reply</button>'
-         : i.files.length ? '<button class="poll-btn" onclick="reviewIssue(' + i.number + ')">Review</button>' : '<span class="sub-warn-t">no submission file attached</span>') + '</li>';
+      + (d ? 'decided (' + escHtml(d.decision) + '), not yet replied — <button class="poll-btn" data-id="' + escHtml(d.id) + '" onclick="reopenDecided(this.dataset.id)">Reply</button>'
+         : i.files.length ? '<button class="poll-btn" onclick="reviewIssue(' + Number(i.number) + ')">Review</button>' : '<span class="sub-warn-t">no submission file attached</span>') + '</li>';
   }).join('') + '</ul>';
 }
 async function reviewIssue(number) {
@@ -8996,7 +9209,7 @@ async function reviewIssue(number) {
   if (text != null) {
     const got = readSubmission(text);
     if (got.error) { alert(got.error); return; }
-    if (valuesMissing(null)) await needValues(null, 'the review');
+    await loadForReview(got.sub, 'the review');
     _reviewing = { sub: got.sub, review: reviewSubmission(got.sub), issue: { number, url: it.url } };
     renderSubmissionReview();
     return;
@@ -16562,7 +16775,9 @@ setTimeout(async () => {
   try { saveChangelog(loadChangelog()); } catch(e) { console.warn('changelog re-save failed:', e.message); }
   // Loading/replaying data during init is not an unsaved user change — start clean.
   markClean();
+  restorePending();                                    // changed before a reload, not yet pushed
   if (hasDeletionsPending()) markDirty('deletions');   // deleted before a reload, not yet pushed
+  requestPersistentStorage();
   scheduleYieldCalibWarm.enabled = true;
   scheduleYieldCalibWarm(500);   // build the yield calibration now, while you look at the grid
 }, 0);
