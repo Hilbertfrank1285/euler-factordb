@@ -5815,8 +5815,16 @@ function pushLosses(base, localEcm, localFactors, del, values, ctx) {
     const have = (localFactors && localFactors[n]) || [];
     let prod = 1n;
     for (const f of have) { const F = factorBigOf(f); if (F) prod *= F; }   // not a number — contributes nothing
-    let V = null;
-    if (values && values[n]) { try { V = BigInt(values[n]); } catch (e) { V = null; } }
+    // E(n) as a number — made only for an entry that shows a missing factor. Turning a
+    // 40,000-digit value into a number takes milliseconds, and this ran for EVERY entry
+    // whose value was in memory: right after an ECM export (which loads thousands of
+    // them) the first auto-push froze the page for 38 s. A push that loses nothing
+    // now converts none.
+    let V = null, vTried = false;
+    const valueOf = () => {
+      if (!vTried) { vTried = true; if (values && values[n]) { try { V = BigInt(values[n]); } catch (e) { V = null; } } }
+      return V;
+    };
     for (const f of fs) {
       if (have.includes(f)) continue;
       // E(n) itself was never a factor (FactorDB's C answer listed it as one, and the
@@ -5826,7 +5834,7 @@ function pushLosses(base, localEcm, localFactors, del, values, ctx) {
       if (ctx.isSelf && ctx.isSelf(Number(n), String(f).split('^')[0])) continue;
       const F = factorBigOf(f);
       if (F && F > 1n && prod % F === 0n) continue;               // still implied by what is here
-      if (F && V) {
+      if (F && valueOf()) {
         if (V % F !== 0n) continue;                                // not a factor at all: a correction
         if (F === V) continue;
         if (ctx.composite && ctx.composite(Number(n)) && F * prod === V) continue;   // the unfactored rest
@@ -8031,7 +8039,11 @@ async function exportNextRuns() {
     for (let c = 0; c < cores; c++) coreOwner.push({ machine: mi + 1, localCore: c + 1 });
   });
 
-  const filesToDownload = []; // {name, text}
+  // {name, text} — a numbers file's text is a FUNCTION, called when its turn to download
+  // comes: those files are the numbers themselves (696 MB for 10,000 runs), and written
+  // out all at once they sat in memory next to the 1.1 GB of values they were made from.
+  const filesToDownload = [];
+  const numbersText = (runs) => () => runs.map(r => r.val).join(EOL) + EOL;
   const multi = totalCores > 1 || coresPerMachine.length > 1;
 
   if (!multi) {
@@ -8042,7 +8054,7 @@ async function exportNextRuns() {
     coreRuns[0].forEach((r, i) => lines.push(...runLinesFor(r, (i+1)+'/'+coreRuns[0].length, coreRuns[0].length, importFile, numbersFile, i)));
     // Numbers file uses the platform's own line ending — a CRLF numbers file read
     // by `sed` on Linux yields a trailing \r that becomes part of the number.
-    filesToDownload.push({ name: numbersFile, text: coreRuns[0].map(r => r.val).join(EOL) + EOL });
+    filesToDownload.push({ name: numbersFile, text: numbersText(coreRuns[0]) });
     filesToDownload.push({
       name: 'ecm_runs' + ext,
       text: isSh ? singleShText(lines, importFile, coreRuns[0])
@@ -8149,7 +8161,7 @@ async function exportNextRuns() {
           w.push('echo Core ' + lc + ' done (~' + fmtCpuTime(coreSec) + '). Import ' + importFile + ' into the app.');
           w.push('pause'); // keeps the window open; pointless (and blocking) for a detached Linux run
         }
-        filesToDownload.push({ name: numbersFile, text: myRuns.map(r => r.val).join(EOL) + EOL });
+        filesToDownload.push({ name: numbersFile, text: numbersText(myRuns) });
         filesToDownload.push({ name: 'ecm_worker_m' + machine + '_c' + lc + ext, text: w.join(EOL) + EOL });
       });
     });
@@ -8336,7 +8348,14 @@ async function exportNextRuns() {
 
   // Download every generated file, staggered — browsers block/drop downloads fired
   // in the same tick.
-  filesToDownload.forEach((f, i) => setTimeout(() => downloadText(f.name, f.text), i * 350));
+  filesToDownload.forEach((f, i) => setTimeout(() => {
+    try { downloadText(f.name, typeof f.text === 'function' ? f.text() : f.text); }
+    catch (e) { logSwallowed('export/download', e); setStatus('Could not write ' + f.name + ': ' + (e && e.message || e), 'err'); }
+  }, i * 350));
+  // The values were loaded to write these files, and each run carries its own number
+  // from here on — so they go once the last file has been handed over, not a minute
+  // later (a tool still using them keeps them: trimValues waits for it).
+  setTimeout(trimValues, filesToDownload.length * 350 + 250);
 
   // Your export is queued, so contributors' exports plan around it until its results
   // are imported; a contributor's export says what it planned around.
