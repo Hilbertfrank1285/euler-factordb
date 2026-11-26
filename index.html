@@ -914,6 +914,54 @@ body.values-loading [data-needs-values] { opacity: .45; cursor: progress; }
 // DATA
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Long decimals into big numbers, at the same speed in every browser ────────
+// Firefox turns a decimal string into a BigInt in time that grows with the SQUARE of
+// its length: 1.2 s for ONE 106,000-digit E(n), where Chrome takes 9 ms. Everything
+// that reads a value as a number paid that — recording eight found factors froze an
+// ECM import for 16 s, Check data would have taken hours.
+// Here the string is cut into short pieces and joined pairwise by multiplication,
+// which both engines do far faster: 34 ms in Firefox for the same number (35× less),
+// and a little under Chrome's own time. The result is the same number, bit for bit.
+const _NativeBigInt = globalThis.BigInt;
+const _bigPow10 = [];                              // _bigPow10[j] = 10^(128·2^j)
+function bigFromDecimal(s) {
+  const N = _NativeBigInt, LEAF = 128, len = s.length;
+  if (len <= LEAF * 2) return N(s);
+  let parts = [];                                  // most significant first
+  const head = len % LEAF || LEAF;
+  parts.push(N(s.slice(0, head)));
+  for (let i = head; i < len; i += LEAF) parts.push(N(s.slice(i, i + LEAF)));
+  for (let j = 0; parts.length > 1; j++) {
+    if (!_bigPow10[j]) _bigPow10[j] = j ? _bigPow10[j - 1] * _bigPow10[j - 1] : 10n ** N(LEAF);
+    const p = _bigPow10[j], next = [];
+    let i = parts.length % 2;                      // an odd one out is the most significant: it waits a round
+    if (i) next.push(parts[0]);
+    for (; i < parts.length; i += 2) next.push(parts[i] * p + parts[i + 1]);
+    parts = next;
+  }
+  return parts[0];
+}
+// Every BigInt(…) below goes through this: a long string of digits takes the fast way,
+// anything else (a number, a short string, a sign, hex, something invalid) is the
+// browser's own BigInt, with its own errors. Declared first, so nothing can miss it.
+const BigInt = (() => {
+  const N = _NativeBigInt;
+  const f = function BigInt(x) { return (typeof x === 'string' && x.length > 1000 && /^\d+$/.test(x)) ? bigFromDecimal(x) : N(x); };
+  f.prototype = N.prototype; f.asIntN = N.asIntN; f.asUintN = N.asUintN;
+  return f;
+})();
+// How many decimal digits a big number has, without writing it out: Firefox takes
+// 225 ms to write a 106,000-digit number, and Check data asked once per entry.
+function bigDigits(x) {
+  if (x < 0n) x = -x;
+  const hex = x.toString(16);
+  if (hex.length <= 13) return x.toString().length;
+  const lg = Math.log10(parseInt(hex.slice(0, 13), 16)) + (hex.length - 13) * Math.log10(16);
+  const frac = lg - Math.floor(lg);
+  if (frac < 1e-9 || frac > 1 - 1e-9) return x.toString().length;   // too near a power of ten to call
+  return Math.floor(lg) + 1;
+}
+
 const eulerValues = {}; // populated by fetchEulerValues() on load
 
 function eulerSign(n) { return (n % 4 === 2) ? -1 : 1; }
@@ -1299,16 +1347,87 @@ async function _runSmallPrimeSieve(onlyUnsearched, onProgress, nFrom, nTo, statu
 // Brent's rho split a real one — 28 digits, two primes of 14 and 15 digits found by
 // the same curve — in 1.5-4.8 s; the old 800 ms never could, and the factor was lost.
 const COMPOSITE_SPLIT_MS = 8000;
+// Rho gets this long on a piece; what it has not split by then goes to the curves.
+const RHO_FIRST_MS = 250;
 
-function factorizeSmall(n, budgetMs = 800) {
+// ── A small ECM, for the composites rho cannot reach ─────────────────────────
+// Rho needs about √p steps: 75 million for the 16-digit prime in
+// 37925724912414713538496401783683 (found whole by one P-1 run on E(23858)) — 50 s
+// here, so the 8 s allowed ended with the composite kept unsplit, after freezing the
+// page for all 8. Curves find the same prime in about half a second, and a 20-digit
+// one in a few seconds.
+const _ecmPrimes = { upTo: 0, list: [] };
+function ecmPrimesUpTo(B) {
+  if (_ecmPrimes.upTo >= B) return _ecmPrimes.list;
+  const sieve = new Uint8Array(B + 1), list = [];
+  for (let i = 2; i <= B; i++) { if (sieve[i]) continue; list.push(i); for (let j = i * i; j <= B; j += i) sieve[j] = 1; }
+  _ecmPrimes.upTo = B; _ecmPrimes.list = list;
+  return list;
+}
+// PURE: one curve on n (odd, composite) — a proper factor of n, or null. Montgomery
+// form with Suyama's parametrisation; stage 1 to B1, then every k·D ± j up to B2.
+function ecmCurve(n, B1, B2, sigma) {
+  const mod = (x) => { x %= n; return x < 0n ? x + n : x; };
+  const gcd = (a, b) => { if (a < 0n) a = -a; while (b) { [a, b] = [b, a % b]; } return a; };
+  const proper = (g) => (g > 1n && g < n) ? g : null;
+  const inverse = (a) => {                       // a⁻¹ mod n — or the factor of n that prevents one
+    let r0 = n, r1 = mod(a), t0 = 0n, t1 = 1n;
+    while (r1) { const q = r0 / r1; [r0, r1] = [r1, r0 - q * r1]; [t0, t1] = [t1, t0 - q * t1]; }
+    return r0 === 1n ? { inv: mod(t0) } : { factor: proper(r0) };
+  };
+  const u = mod(sigma * sigma - 5n), v = mod(4n * sigma);
+  const den = inverse(16n * u * u * u * v);
+  if (!den.inv) return den.factor || null;
+  const a24 = mod((v - u) ** 3n * (3n * u + v) % n * den.inv);          // (A + 2) / 4
+  const dbl = (p) => { const a = (p[0] + p[1]) ** 2n % n, b = (p[0] - p[1]) ** 2n % n, c = a - b; return [a * b % n, c * (b + a24 * c % n) % n]; };
+  const add = (p, q, d) => { const s = (p[0] - p[1]) * (q[0] + q[1]) % n, t = (p[0] + p[1]) * (q[0] - q[1]) % n; return [d[1] * ((s + t) ** 2n % n) % n, d[0] * ((s - t) ** 2n % n) % n]; };
+  const mul = (p, k) => {                        // k·p by the Montgomery ladder, k ≥ 1
+    if (k === 1) return p;
+    let r0 = p, r1 = dbl(p);
+    const bits = k.toString(2);
+    for (let i = 1; i < bits.length; i++) {
+      if (bits[i] === '1') { r0 = add(r0, r1, p); r1 = dbl(r1); } else { r1 = add(r0, r1, p); r0 = dbl(r0); }
+    }
+    return r0;
+  };
+  let Q = [u * u * u % n, v * v * v % n];
+  for (const p of ecmPrimesUpTo(B1)) { let pe = p; while (pe * p <= B1) pe *= p; Q = mul(Q, pe); }
+  let g = gcd(Q[1], n);
+  if (g !== 1n) return proper(g);
+  // Stage 2: (k·D ± j)·Q is the point at infinity exactly when x(k·D·Q) = x(j·Q).
+  const D = 210, half = D / 2, baby = [];
+  let s0 = Q, s1 = dbl(Q); baby[1] = s0; baby[2] = s1;
+  for (let j = 3; j <= half; j++) { const s2 = add(s1, Q, s0); baby[j] = s2; s0 = s1; s1 = s2; }
+  const js = []; for (let j = 1; j <= half; j += 2) if (j % 3 && j % 5 && j % 7) js.push(baby[j]);
+  const T = mul(Q, D);
+  let k = Math.max(1, Math.floor(B1 / D)), t0 = k > 1 ? mul(T, k - 1) : null, t1 = mul(T, k), acc = 1n, since = 0;
+  if (k === 1) { t0 = t1; t1 = dbl(T); k = 2; }  // start at 2·D, so that the point before it exists
+  for (; k * D <= B2 + D; k++) {
+    for (const b of js) acc = acc * (t1[0] * b[1] - b[0] * t1[1]) % n;
+    if (++since >= 64) { since = 0; g = gcd(acc, n); if (g !== 1n) return proper(g); }
+    const t2 = add(t1, T, t0); t0 = t1; t1 = t2;
+  }
+  return proper(gcd(acc, n));
+}
+// The bounds for a piece's i-th curve: small first (a 15-digit prime falls to these),
+// then larger, as GMP-ECM's own table steps up.
+function ecmSplitBounds(i) { return i < 40 ? [2000, 200000] : i < 160 ? [11000, 1100000] : [50000, 5000000]; }
+
+// The work of splitting n, a slice at a time: step() does one slice (a rho attempt of
+// at most RHO_FIRST_MS, or one curve) and says whether there is more; result is then
+// the sorted primes, or null when the time ran out. factorizeSmall runs it straight
+// through; factorizeSmallAsync lets the page breathe between slices.
+function splitJob(n, budgetMs) {
   const out = [];
-  if (n < 2n) return out;
+  let result, done = false;
+  const finish = (r) => { result = r; done = true; return false; };
+  if (n < 2n) return { step: () => false, get result() { return out; } };
   // small trial division
   for (const p of [2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n,41n,43n,47n]) {
     while (n % p === 0n) { out.push(p); n /= p; }
   }
-  if (n === 1n) return out;
-  if (isProbablePrime(n)) { out.push(n); return out; }
+  if (n === 1n) return { step: () => false, get result() { return out; } };
+  if (isProbablePrime(n)) { out.push(n); return { step: () => false, get result() { return out; } }; }
 
   const absBig = (x) => (x < 0n ? -x : x);
   const gcd = (a, b) => { while (b) { [a, b] = [b, a % b]; } return a; };
@@ -1356,18 +1475,41 @@ function factorizeSmall(n, budgetMs = 800) {
   // any single composite (however many pieces it splits into) stays bounded.
   const deadline = Date.now() + budgetMs;
   const stack = [n];
-  let steps = 0;
-  while (stack.length) {
-    if (++steps > 500 || Date.now() >= deadline) return null; // effort/time budget exceeded → give up
+  let steps = 0, piece = null, curves = 0;        // piece: the composite the curves are working on
+  const step = () => {
+    if (done) return false;
+    if (piece !== null) {
+      if (Date.now() >= deadline) return finish(null);   // could not split it within the time allowed
+      const [B1, B2] = ecmSplitBounds(curves++);
+      const d = ecmCurve(piece, B1, B2, 6n + BigInt(Math.floor(Math.random() * 1e12)));
+      if (d) { stack.push(d, piece / d); piece = null; }
+      return true;
+    }
+    if (!stack.length) { out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); return finish(out); }
+    if (++steps > 500 || Date.now() >= deadline) return finish(null); // effort/time budget exceeded → give up
     const m = stack.pop();
-    if (m === 1n) continue;
-    if (isProbablePrime(m)) { out.push(m); continue; }
-    const d = rho(m, deadline);
-    if (!d) return null; // couldn't split a composite piece within the time budget
-    stack.push(d, m / d);
+    if (m === 1n) return true;
+    if (isProbablePrime(m)) { out.push(m); return true; }
+    const d = rho(m, Math.min(deadline, Date.now() + RHO_FIRST_MS));
+    if (d) stack.push(d, m / d);
+    else { piece = m; curves = 0; }               // beyond rho: the curves take it from here
+    return true;
+  };
+  return { step, get result() { return result; } };
+}
+function factorizeSmall(n, budgetMs = 800) {
+  const job = splitJob(n, budgetMs);
+  while (job.step()) { /* straight through */ }
+  return job.result;
+}
+// The same split, with the page left free to draw and answer between slices.
+async function factorizeSmallAsync(n, budgetMs = 800) {
+  const job = splitJob(n, budgetMs);
+  let last = Date.now();
+  while (job.step()) {
+    if (Date.now() - last >= 30) { await new Promise(r => setTimeout(r, 0)); last = Date.now(); }
   }
-  out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return out;
+  return job.result;
 }
 
 // Your base factorization data
@@ -9800,7 +9942,9 @@ async function _processEcmLogText(text, sourceLabel, opts) {
           existing.curves = String(Math.max(seen.size, parseInt(existing.curves) || 0, before));
         } else {
           // No sigmas in this log: fall back to max of run-counts (can't safely sum).
-          existing.curves = String(Math.max(curvesBefore, blk.curves));
+          // A P±1 run has no count ('' when it is first recorded): reading its file again
+          // wrote "1" there — a change with no work behind it, pushed to GitHub as one.
+          if (blk.method === 'ECM' || curvesBefore > 0) existing.curves = String(Math.max(curvesBefore, blk.curves));
         }
         // Did this block actually add anything? With sigmas that is the set growing;
         // without them, the only evidence available is the curve count rising.
@@ -9889,9 +10033,12 @@ async function _processEcmLogText(text, sourceLabel, opts) {
     for (const f of blk.factors.values()) {
       if (f.composite) {
         let primes = null;
+        // Its primes are all here already (a results file is read again each time it
+        // has grown, and this composite is in it every time): nothing to split.
+        if (compositeAlreadyKnown(owner.factors, f.value)) { factorsDup++; continue; }
         setStatus('Splitting a composite factor of E(' + owner.n + ') (' + f.value.length + 'd)…');
         await new Promise(r => setTimeout(r, 0));   // let the status show before the work starts
-        try { primes = factorizeSmall(BigInt(f.value), COMPOSITE_SPLIT_MS); } catch(_) { primes = null; }
+        try { primes = await factorizeSmallAsync(BigInt(f.value), COMPOSITE_SPLIT_MS); } catch(_) { primes = null; }
         let viaFdb = false;
         if ((!primes || !primes.length) && !fdbBreakerOpen()) {
           // Skip entirely once the breaker is open. The breaker already prevents the
@@ -10036,6 +10183,24 @@ function factorDividesValue(valStr, factorStr) {
     if (b <= 1n) return false;
     return v % b === 0n;
   } catch(e) { logSwallowed('factorDividesValue', e); return null; }
+}
+
+// PURE: whether every prime of this composite is already among the entry's factors —
+// that is, the composite divides the product of the OTHER factors listed. The composite
+// itself, kept unsplit, does not count: that one still wants splitting.
+function compositeAlreadyKnown(factors, compositeStr) {
+  try {
+    const c = BigInt(compositeStr);
+    if (c <= 1n) return false;
+    let prod = 1n;
+    for (const f of (factors || [])) {
+      const m = /^(\d+)(?:\^(\d+))?$/.exec(String(f));
+      if (!m || m[1] === String(compositeStr)) continue;
+      if (m[1].length > 200) continue;             // a huge cofactor is no part of a small composite
+      prod *= BigInt(m[1]) ** BigInt(m[2] || 1);
+    }
+    return prod % c === 0n;
+  } catch (e) { return false; }
 }
 
 function recordEcmFactor(entry, factorStr, method, opts) {
@@ -11396,7 +11561,7 @@ function dedupeCompositeFactors(list) {
     // and cannot remove a genuine prime — a prime has no decomposition into other
     // listed factors unless one of them equals it, which is the duplicate case and
     // is correct to collapse.
-    if (v.toString().length <= 19) {
+    if (v < 10000000000000000000n) {             // at most 19 digits — asked without writing v out
       let definitelyPrime = false;
       try { definitelyPrime = isProbablePrime(v); } catch { definitelyPrime = false; }
       if (definitelyPrime) continue;
@@ -11509,7 +11674,7 @@ async function manualFactorPlan(factorStr, factorBig, remaining, say) {
   if (isProbablePrime(baseBig)) return { pieces: [factorStr] };
   await say('It is composite — splitting it into primes…');
   let parts = null;
-  try { parts = factorizeSmall(baseBig, COMPOSITE_SPLIT_MS); } catch (e) { parts = null; }
+  try { parts = await factorizeSmallAsync(baseBig, COMPOSITE_SPLIT_MS); } catch (e) { parts = null; }
   if (parts && parts.length >= 2 && parts.every(q => isProbablePrime(q))) {
     const count = new Map();
     for (const q of parts) count.set(q, (count.get(q) || 0) + exp);
@@ -14709,7 +14874,7 @@ async function runDataIntegrityCheck(onProgress) {
       catch(err) { logSwallowed('integrity/remainder', err); }
       let remIsPrime = false, tested = false;
       if (rem && rem > 1n) {
-        const rd = rem.toString().length;
+        const rd = bigDigits(rem);
         if (rd <= REMAINDER_PRIMALITY_MAX_DIGITS && remainderMsSpent < REMAINDER_PRIMALITY_BUDGET_MS) {
           const t0 = Date.now();
           try { remIsPrime = isProbablePrime(rem); tested = true; }
@@ -14717,7 +14882,7 @@ async function runDataIntegrityCheck(onProgress) {
           remainderMsSpent += Date.now() - t0;
         }
       }
-      if (remIsPrime) issues.missingPrime.push({ n: e.n, digits: rem.toString().length });
+      if (remIsPrime) issues.missingPrime.push({ n: e.n, digits: bigDigits(rem) });
       else if (verified[e.n]) {
         // Confirmed complete externally. Counted, not reported — and note this only
         // reaches here for the shortfall check; every other finding still applies.
@@ -14725,7 +14890,7 @@ async function runDataIntegrityCheck(onProgress) {
       } else {
         if (rem && rem > 1n && !tested) remainderUnverified++;
         issues.fullMismatch.push({ n: e.n, factors: e.factors.length,
-                                   remDigits: rem ? rem.toString().length : null, tested });
+                                   remDigits: rem ? bigDigits(rem) : null, tested });
       }
     }
     if (e.status !== 'full' && product === val) issues.unmarkedFull.push({ n: e.n, factors: e.factors.length });
@@ -14951,7 +15116,7 @@ async function _fixIntegrityIssues(scan) {
     let isP = false;
     // Same ceiling the scan used — a lower one here would make the fixer refuse to
     // record exactly the remainders the scan just identified as recoverable.
-    try { isP = rem.toString().length <= REMAINDER_PRIMALITY_MAX_DIGITS && isProbablePrime(rem); }
+    try { isP = bigDigits(rem) <= REMAINDER_PRIMALITY_MAX_DIGITS && isProbablePrime(rem); }
     catch(err) { logSwallowed('fixIntegrity/missingPrimeVerify', err); }
     if (!isP) continue;
     e.factors  = sortFactorsAsc([...(e.factors || []), rem.toString()]);
@@ -14980,11 +15145,12 @@ async function _fixIntegrityIssues(scan) {
     if (Date.now() > deadline) break;
     const e = entryByN(it.n); if (!e) continue;
     let parts = null;
-    try { parts = factorizeSmall(BigInt(it.factor)); }
+    // The same time the import allows: at the 800 ms this used to get, a composite the
+    // import had to keep unsplit could never be split here either.
+    try { parts = await factorizeSmallAsync(BigInt(it.factor), COMPOSITE_SPLIT_MS); }
     catch(err) { logSwallowed('fixIntegrity/split', err); }
-    // factorizeSmall works to a short deadline and returns null on anything hard —
-    // a balanced ~36-digit semiprime is exactly the case it cannot crack locally.
-    // FactorDB almost certainly knows the answer, so ask rather than give up.
+    // The split works to a deadline and returns null on anything too hard — a balanced
+    // 50-digit semiprime, say. FactorDB may know the answer, so ask rather than give up.
     if (!parts || parts.length < 2) {
       try {
         const viaFdb = await tryResolveCompositeViaFDB(it.factor);
